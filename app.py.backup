@@ -1,0 +1,2983 @@
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from sqlalchemy.orm import Session
+from typing import List
+from functools import wraps
+from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity, verify_jwt_in_request
+from datetime import timedelta
+import secrets
+
+from database.db_connector import DBConnector, init_db, db_session
+from auth.models.models import User
+from auth.models.schemas import (
+    UserCreate, UserUpdate, UserResponse,
+    UserRoleCreate, UserRoleResponse,
+    RoleInDB, RoleCreate
+)
+from auth.controllers.users_controller import UsersController
+from auth.controllers.user_roles_controller import UserRolesController
+from auth.controllers.roles_controller import RolesController
+from security.jwt_handler import JWTHandler
+from public.controllers.self_registration_controller import public
+from auth.controllers.auth_controller import auth
+from database.db_connector import db_session
+from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant, ApplicationStatus, Course
+from subjects.models.schemas import (
+    SeasonCreate, SeasonUpdate, SeasonInDB,
+    SubjectCreate, SubjectUpdate, SubjectInDB,
+    TopicCreate, TopicUpdate, TopicInDB,
+    SubTopicCreate, SubTopicUpdate, SubTopicInDB,
+    SeasonSubjectCreate, SeasonSubjectUpdate, SeasonSubjectInDB,
+    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB,
+    CourseCreate, CourseUpdate, CourseInDB
+)
+from studies.models.models import StudyMaterialCategory, SubtopicMaterial
+from studies.models.schemas import (
+    StudyMaterialCategoryCreate, StudyMaterialCategoryUpdate, StudyMaterialCategoryInDB,
+    SubtopicMaterialCreate, SubtopicMaterialUpdate, SubtopicMaterialInDB
+)
+from studies.controllers.material_categories_controller import material_categories_bp
+from studies.controllers.subtopic_materials_controller import subtopic_materials_bp
+from subjects.controllers.courses_controller import courses_bp
+from applications.models.models import Application, PaymentStatus as ApplicationPaymentStatus
+from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB
+from applications.controllers.applications_controller import applications_bp
+from applications.controllers.payments_controller import payments_bp
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timedelta
+from config import UPLOAD_FOLDER, allowed_file
+import os
+import uuid
+import re
+import hashlib
+import hmac
+from courses_routes import courses_routes
+
+app = Flask(__name__)
+
+# Generate a secure secret key if not provided in environment
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', secrets.token_hex(32))
+
+# Configure JWT
+app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=30)
+app.config['JWT_TOKEN_LOCATION'] = ['headers']
+app.config['JWT_HEADER_NAME'] = 'Authorization'
+app.config['JWT_HEADER_TYPE'] = 'Bearer'
+app.config['JWT_JSON_KEY'] = 'access_token'  # Add this line
+app.config['JWT_IDENTITY_CLAIM'] = 'sub'  # Add this line
+
+jwt = JWTManager(app)
+
+# JWT callback to handle identity
+@jwt.user_identity_loader
+def user_identity_lookup(identity):
+    return str(identity)
+
+@jwt.user_lookup_loader
+def user_lookup_callback(_jwt_header, jwt_data):
+    identity = jwt_data["sub"]
+    return db_session.query(User).filter(User.id == int(identity)).first()
+
+# Configure CORS with specific settings
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",  # Allow all origins for development
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
+
+# Initialize database
+init_db()
+
+# Run database seeders
+try:
+    from database.seeder import run_seeders
+    run_seeders(db_session())
+except Exception as e:
+    print(f"Error running seeders: {str(e)}")
+finally:
+    db_session.remove()
+
+# Register blueprints
+app.register_blueprint(public)
+app.register_blueprint(auth)
+app.register_blueprint(applications_bp)
+app.register_blueprint(payments_bp)
+app.register_blueprint(courses_bp)
+app.register_blueprint(courses_routes)
+app.register_blueprint(material_categories_bp)
+app.register_blueprint(subtopic_materials_bp)
+
+# Database session management
+def get_db():
+    db_connector = DBConnector()
+    return db_connector.get_session()
+
+# User routes
+@app.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    db = get_db()
+    try:
+        user_data = UserCreate(**data)
+        users_controller = UsersController(db)
+        user = users_controller.create_user(user_data)
+        return jsonify(user.dict()), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        db.close()
+
+@app.route('/api/users', methods=['GET'])
+@jwt_required()
+def get_users():
+    skip = request.args.get('skip', 0, type=int)
+    limit = request.args.get('limit', 100, type=int)
+    current_user = get_jwt_identity()
+    db = get_db()
+    try:
+        users_controller = UsersController(db)
+        users = users_controller.get_users(skip, limit)
+        return jsonify({
+            "status": "success",
+            "message": "Users retrieved successfully",
+            "data": {
+                "users": [user.dict() for user in users]
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+@jwt_required()
+def get_user(user_id):
+    current_user = get_jwt_identity()
+    db = get_db()
+    try:
+        users_controller = UsersController(db)
+        user = users_controller.get_user(user_id)
+        return jsonify(user.dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
+    finally:
+        db.close()
+
+@app.route('/users/<int:user_id>', methods=['PUT'])
+@jwt_required()
+def update_user(user_id):
+    current_user = get_jwt_identity()
+    data = request.get_json()
+    db = get_db()
+    try:
+        user_data = UserUpdate(**data)
+        users_controller = UsersController(db)
+        user = users_controller.update_user(user_id, user_data)
+        return jsonify(user.dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        db.close()
+
+# User Role routes
+@app.route('/api/user-roles', methods=['POST'])
+@jwt_required()
+def create_user_role():
+    print("Received request to create user role")  # Debug log
+    data = request.get_json()
+    print(f"Request data: {data}")  # Debug log
+    
+    # Get the current user's ID from the JWT token
+    current_user_id = get_jwt_identity()
+    
+    # Check if user is trying to assign a role to themselves
+    if int(data.get('user_id')) == int(current_user_id):
+        return jsonify({
+            "status": "error",
+            "message": "Users cannot assign roles to themselves for security reasons"
+        }), 403
+    
+    db = get_db()
+    try:
+        user_role_data = UserRoleCreate(**data)
+        controller = UserRolesController(db)
+        user_role = controller.create_user_role(user_role_data)
+        print(f"Successfully created user role: {user_role.dict()}")  # Debug log
+        return jsonify(user_role.dict()), 201
+    except Exception as e:
+        print(f"Error creating user role: {str(e)}")  # Debug log
+        return jsonify({"error": str(e)}), 400
+    finally:
+        db.close()
+
+@app.route('/user-roles', methods=['GET'])
+@jwt_required()
+def get_user_roles():
+    skip = request.args.get('skip', 0, type=int)
+    limit = request.args.get('limit', 100, type=int)
+    db = get_db()
+    try:
+        controller = UserRolesController(db)
+        user_roles = controller.get_user_roles(skip, limit)
+        return jsonify([ur.dict() for ur in user_roles])
+    finally:
+        db.close()
+
+@app.route('/user-roles/<int:user_role_id>', methods=['GET'])
+@jwt_required()
+def get_user_role(user_role_id):
+    db = get_db()
+    try:
+        controller = UserRolesController(db)
+        user_role = controller.get_user_role(user_role_id)
+        return jsonify(user_role.dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
+    finally:
+        db.close()
+
+@app.route('/users/<int:user_id>/roles', methods=['GET'])
+@jwt_required()
+def get_user_roles_by_user(user_id):
+    db = get_db()
+    try:
+        controller = UserRolesController(db)
+        user_roles = controller.get_roles_by_user(user_id)
+        return jsonify([ur.dict() for ur in user_roles])
+    finally:
+        db.close()
+
+@app.route('/user-roles/<int:user_role_id>', methods=['PUT'])
+@jwt_required()
+def update_user_role(user_role_id):
+    data = request.get_json()
+    db = get_db()
+    try:
+        user_role_data = UserRoleCreate(**data)
+        controller = UserRolesController(db)
+        user_role = controller.update_user_role(user_role_id, user_role_data)
+        return jsonify(user_role.dict())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    finally:
+        db.close()
+
+@app.route('/api/user-roles/<int:user_role_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user_role(user_role_id):
+    print(f"Received request to delete user role with ID: {user_role_id}")  # Debug log
+    db = get_db()
+    try:
+        controller = UserRolesController(db)
+        controller.delete_user_role(user_role_id)
+        print(f"Successfully deleted user role with ID: {user_role_id}")  # Debug log
+        return jsonify({"message": "User role deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error deleting user role: {str(e)}")  # Debug log
+        return jsonify({"error": str(e)}), 400
+    finally:
+        db.close()
+
+@app.route('/api/roles', methods=['GET'])
+@jwt_required()
+def get_roles():
+    """Get all roles"""
+    db = get_db()
+    try:
+        roles_controller = RolesController()
+        roles = roles_controller.get_roles(db)
+        return jsonify({
+            "status": "success",
+            "message": "Roles retrieved successfully",
+            "data": {
+                "roles": [role.dict() for role in roles]
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/roles/<int:role_id>', methods=['GET'])
+@jwt_required()
+def get_role(role_id):
+    """Get a specific role by ID"""
+    try:
+        db = get_db()
+        roles_controller = RolesController()
+        role = roles_controller.get_role(db, role_id)
+        if role is None:
+            return jsonify({"message": "Role not found"}), 404
+        return jsonify(role.dict()), 200
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+    finally:
+        db.close()
+
+@app.route('/api/roles', methods=['POST'])
+@jwt_required()
+def create_role():
+    """Create a new role"""
+    try:
+        data = request.get_json()
+        db = get_db()
+        roles_controller = RolesController()
+        role = roles_controller.create_role(db, RoleCreate(**data))
+        return jsonify({
+            "status": "success",
+            "message": "Role created successfully",
+            "data": role.dict()
+        }), 201
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    finally:
+        db.close()
+
+# Season endpoints
+@app.route('/api/seasons', methods=['POST'])
+@jwt_required()
+def create_season():
+    """Create a new season"""
+    try:
+        data = request.get_json()
+        season_data = SeasonCreate(**data)
+        
+        db_season = Season(
+            name=season_data.name,
+            code=season_data.code,
+            start_date=season_data.start_date,
+            end_date=season_data.end_date,
+            description=season_data.description,
+            is_active=season_data.is_active,
+            created_by=season_data.created_by,
+            updated_by=season_data.updated_by
+        )
+        
+        db_session.add(db_season)
+        db_session.commit()
+        db_session.refresh(db_season)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season created successfully",
+            "data": SeasonInDB.from_orm(db_season).dict()
+        }), 201
+    except IntegrityError:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": "Season code already exists"
+        }), 400
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/seasons', methods=['GET'])
+@jwt_required()
+def get_seasons():
+    """Get all seasons with optional pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Get total count
+        total_count = db_session.query(Season).filter(Season.is_active == True).count()
+        
+        # Get seasons with pagination
+        seasons = db_session.query(Season)\
+            .filter(Season.is_active == True)\
+            .order_by(Season.created_at.desc())\
+            .offset(offset)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Seasons retrieved successfully",
+            "data": {
+                "seasons": [SeasonInDB.from_orm(season).dict() for season in seasons],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/seasons/<int:season_id>', methods=['GET'])
+@jwt_required()
+def get_season(season_id):
+    """Get a specific season by ID"""
+    try:
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season retrieved successfully",
+            "data": SeasonInDB.from_orm(season).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/seasons/<int:season_id>', methods=['PUT'])
+@jwt_required()
+def update_season(season_id):
+    """Update a specific season"""
+    try:
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+        
+        data = request.get_json()
+        season_data = SeasonUpdate(**data)
+        
+        # Update only provided fields
+        update_data = season_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(season, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(season)
+            return jsonify({
+                "status": "success",
+                "message": "Season updated successfully",
+                "data": SeasonInDB.from_orm(season).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Season code already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/seasons/<int:season_id>', methods=['DELETE'])
+@jwt_required()
+def delete_season(season_id):
+    """Soft delete a season"""
+    try:
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+        
+        # Soft delete by setting is_active to False
+        season.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# Subject endpoints
+@app.route('/api/subjects', methods=['POST'])
+@jwt_required()
+def create_subject():
+    """Create a new subject with associated topic and subtopic"""
+    try:
+        data = request.get_json()
+        
+        # Validate subject data
+        subject_data = SubjectCreate(**data['subject'])
+        
+        # Start transaction
+        try:
+            # Check if course exists
+            course = db_session.query(Course).filter(
+                Course.id == subject_data.course_id,
+                Course.deleted_at.is_(None)
+            ).first()
+            
+            if not course:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Course with ID {subject_data.course_id} not found"
+                }), 404
+                
+            # Create subject
+            db_subject = Subject(
+                name=subject_data.name,
+                code=subject_data.code,
+                description=subject_data.description,
+                current_price=subject_data.current_price,
+                course_id=subject_data.course_id,  # Add the course_id field
+                is_active=subject_data.is_active,
+                created_by=subject_data.created_by,
+                updated_by=subject_data.updated_by
+            )
+            db_session.add(db_subject)
+            db_session.flush()  # Flush to get subject ID
+            
+            # Create topic with subject_id
+            topic_data = TopicCreate(**{
+                **data['topic'],
+                'subject_id': db_subject.id,  # Set the subject_id after subject creation
+                'created_by': subject_data.created_by,
+                'updated_by': subject_data.updated_by
+            })
+            db_topic = Topic(
+                subject_id=topic_data.subject_id,
+                name=topic_data.name,
+                code=topic_data.code,
+                description=topic_data.description,
+                is_active=topic_data.is_active,
+                created_by=topic_data.created_by,
+                updated_by=topic_data.updated_by
+            )
+            db_session.add(db_topic)
+            db_session.flush()  # Flush to get topic ID
+            
+            # Create subtopic with topic_id
+            subtopic_data = SubTopicCreate(**{
+                **data['subtopic'],
+                'topic_id': db_topic.id,  # Set the topic_id after topic creation
+                'created_by': subject_data.created_by,
+                'updated_by': subject_data.updated_by
+            })
+            db_subtopic = SubTopic(
+                topic_id=subtopic_data.topic_id,
+                name=subtopic_data.name,
+                code=subtopic_data.code,
+                description=subtopic_data.description,
+                is_active=subtopic_data.is_active,
+                created_by=subtopic_data.created_by,
+                updated_by=subtopic_data.updated_by
+            )
+            db_session.add(db_subtopic)
+            
+            # Commit the transaction
+            db_session.commit()
+            
+            # Refresh all objects to get their complete data
+            db_session.refresh(db_subject)
+            db_session.refresh(db_topic)
+            db_session.refresh(db_subtopic)
+            
+            return jsonify({
+                "status": "success",
+                "message": "Subject with topic and subtopic created successfully",
+                "data": {
+                    "subject": SubjectInDB.from_orm(db_subject).dict(),
+                    "topic": TopicInDB.from_orm(db_topic).dict(),
+                    "subtopic": SubTopicInDB.from_orm(db_subtopic).dict()
+                }
+            }), 201
+            
+        except IntegrityError as e:
+            db_session.rollback()
+            error_message = str(e)
+            if "subjects.code" in error_message:
+                return jsonify({
+                    "status": "error",
+                    "message": "A subject with this code already exists"
+                }), 400
+            elif "topics.code" in error_message:
+                return jsonify({
+                    "status": "error",
+                    "message": "A topic with this code already exists"
+                }), 400
+            elif "sub_topics.code" in error_message:
+                return jsonify({
+                    "status": "error",
+                    "message": "A subtopic with this code already exists"
+                }), 400
+            else:
+                return jsonify({
+                    "status": "error",
+                    "message": "One of the codes (subject, topic, or subtopic) already exists"
+                }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/subjects', methods=['GET'])
+@jwt_required()
+def get_subjects():
+    """Get all subjects with optional pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        offset = (page - 1) * per_page
+        total_count = db_session.query(Subject).filter(Subject.is_active == True).count()
+        
+        subjects = db_session.query(Subject)\
+            .filter(Subject.is_active == True)\
+            .order_by(Subject.created_at.desc())\
+            .offset(offset)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subjects retrieved successfully",
+            "data": {
+                "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subjects/<int:subject_id>', methods=['GET'])
+@jwt_required()
+def get_subject(subject_id):
+    """Get a specific subject by ID"""
+    try:
+        subject = db_session.query(Subject)\
+            .filter(Subject.id == subject_id, Subject.is_active == True)\
+            .first()
+        
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subject retrieved successfully",
+            "data": SubjectInDB.from_orm(subject).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subjects/<int:subject_id>', methods=['PUT'])
+@jwt_required()
+def update_subject(subject_id):
+    """Update a specific subject"""
+    try:
+        subject = db_session.query(Subject)\
+            .filter(Subject.id == subject_id, Subject.is_active == True)\
+            .first()
+        
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+        
+        data = request.get_json()
+        subject_data = SubjectUpdate(**data)
+        
+        update_data = subject_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(subject, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(subject)
+            return jsonify({
+                "status": "success",
+                "message": "Subject updated successfully",
+                "data": SubjectInDB.from_orm(subject).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Subject code already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/subjects/<int:subject_id>', methods=['DELETE'])
+@jwt_required()
+def delete_subject(subject_id):
+    """Soft delete a subject"""
+    try:
+        subject = db_session.query(Subject)\
+            .filter(Subject.id == subject_id, Subject.is_active == True)\
+            .first()
+        
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+        
+        subject.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subject deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# Topic endpoints
+@app.route('/api/topics', methods=['POST'])
+@jwt_required()
+def create_topic():
+    """Create a new topic with associated subtopic"""
+    try:
+        data = request.get_json()
+        
+        # Validate topic data
+        topic_data = TopicCreate(**data['topic'])
+        
+        # Start transaction
+        try:
+            # Verify that the subject exists
+            subject = db_session.query(Subject)\
+                .filter(Subject.id == topic_data.subject_id, Subject.is_active == True)\
+                .first()
+            if not subject:
+                return jsonify({
+                    "status": "error",
+                    "message": "Subject not found"
+                }), 404
+            
+            # Create topic
+            db_topic = Topic(
+                subject_id=topic_data.subject_id,
+                name=topic_data.name,
+                code=topic_data.code,
+                description=topic_data.description,
+                is_active=topic_data.is_active,
+                created_by=topic_data.created_by,
+                updated_by=topic_data.updated_by
+            )
+            db_session.add(db_topic)
+            db_session.flush()  # Flush to get topic ID
+            
+            # Create subtopic with topic_id
+            subtopic_data = SubTopicCreate(**{
+                **data['subtopic'],
+                'topic_id': db_topic.id,  # Set the topic_id after topic creation
+                'created_by': topic_data.created_by,
+                'updated_by': topic_data.updated_by
+            })
+            db_subtopic = SubTopic(
+                topic_id=subtopic_data.topic_id,
+                name=subtopic_data.name,
+                code=subtopic_data.code,
+                description=subtopic_data.description,
+                is_active=subtopic_data.is_active,
+                created_by=subtopic_data.created_by,
+                updated_by=subtopic_data.updated_by
+            )
+            db_session.add(db_subtopic)
+            
+            # Commit the transaction
+            db_session.commit()
+            
+            # Refresh all objects to get their complete data
+            db_session.refresh(db_topic)
+            db_session.refresh(db_subtopic)
+            
+            return jsonify({
+                "status": "success",
+                "message": "Topic with subtopic created successfully",
+                "data": {
+                    "topic": TopicInDB.from_orm(db_topic).dict(),
+                    "subtopic": SubTopicInDB.from_orm(db_subtopic).dict()
+                }
+            }), 201
+            
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "One of the codes (topic or subtopic) already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/topics', methods=['GET'])
+@jwt_required()
+def get_topics():
+    """Get all topics with optional pagination and subject filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        subject_id = request.args.get('subject_id', type=int)
+        
+        query = db_session.query(Topic).filter(Topic.is_active == True)
+        
+        if subject_id:
+            query = query.filter(Topic.subject_id == subject_id)
+        
+        total_count = query.count()
+        
+        topics = query.order_by(Topic.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Topics retrieved successfully",
+            "data": {
+                "topics": [TopicInDB.from_orm(topic).dict() for topic in topics],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/topics/<int:topic_id>', methods=['GET'])
+@jwt_required()
+def get_topic(topic_id):
+    """Get a specific topic by ID"""
+    try:
+        topic = db_session.query(Topic)\
+            .filter(Topic.id == topic_id, Topic.is_active == True)\
+            .first()
+        
+        if not topic:
+            return jsonify({
+                "status": "error",
+                "message": "Topic not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Topic retrieved successfully",
+            "data": TopicInDB.from_orm(topic).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/topics/<int:topic_id>', methods=['PUT'])
+@jwt_required()
+def update_topic(topic_id):
+    """Update a specific topic"""
+    try:
+        topic = db_session.query(Topic)\
+            .filter(Topic.id == topic_id, Topic.is_active == True)\
+            .first()
+        
+        if not topic:
+            return jsonify({
+                "status": "error",
+                "message": "Topic not found"
+            }), 404
+        
+        data = request.get_json()
+        topic_data = TopicUpdate(**data)
+        
+        update_data = topic_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(topic, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(topic)
+            return jsonify({
+                "status": "success",
+                "message": "Topic updated successfully",
+                "data": TopicInDB.from_orm(topic).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Topic code already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/topics/<int:topic_id>', methods=['DELETE'])
+@jwt_required()
+def delete_topic(topic_id):
+    """Soft delete a topic"""
+    try:
+        topic = db_session.query(Topic)\
+            .filter(Topic.id == topic_id, Topic.is_active == True)\
+            .first()
+        
+        if not topic:
+            return jsonify({
+                "status": "error",
+                "message": "Topic not found"
+            }), 404
+        
+        topic.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Topic deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# SubTopic endpoints
+@app.route('/api/subtopics', methods=['POST'])
+@jwt_required()
+def create_subtopic():
+    """Create a new subtopic"""
+    try:
+        data = request.get_json()
+        subtopic_data = SubTopicCreate(**data)
+        
+        # Verify that the topic exists
+        topic = db_session.query(Topic)\
+            .filter(Topic.id == subtopic_data.topic_id, Topic.is_active == True)\
+            .first()
+        if not topic:
+            return jsonify({
+                "status": "error",
+                "message": "Topic not found"
+            }), 404
+        
+        db_subtopic = SubTopic(
+            topic_id=subtopic_data.topic_id,
+            name=subtopic_data.name,
+            code=subtopic_data.code,
+            description=subtopic_data.description,
+            is_active=subtopic_data.is_active,
+            created_by=subtopic_data.created_by,
+            updated_by=subtopic_data.updated_by
+        )
+        
+        db_session.add(db_subtopic)
+        db_session.commit()
+        db_session.refresh(db_subtopic)
+        
+        return jsonify({
+            "status": "success",
+            "message": "SubTopic created successfully",
+            "data": SubTopicInDB.from_orm(db_subtopic).dict()
+        }), 201
+    except IntegrityError:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": "SubTopic code already exists"
+        }), 400
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/subtopics', methods=['GET'])
+@jwt_required()
+def get_subtopics():
+    """Get all subtopics with optional pagination and topic filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        topic_id = request.args.get('topic_id', type=int)
+        
+        query = db_session.query(SubTopic).filter(SubTopic.is_active == True)
+        
+        if topic_id:
+            query = query.filter(SubTopic.topic_id == topic_id)
+        
+        total_count = query.count()
+        
+        subtopics = query.order_by(SubTopic.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "SubTopics retrieved successfully",
+            "data": {
+                "subtopics": [SubTopicInDB.from_orm(subtopic).dict() for subtopic in subtopics],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subtopics/<int:subtopic_id>', methods=['GET'])
+@jwt_required()
+def get_subtopic(subtopic_id):
+    """Get a specific subtopic by ID"""
+    try:
+        subtopic = db_session.query(SubTopic)\
+            .filter(SubTopic.id == subtopic_id, SubTopic.is_active == True)\
+            .first()
+        
+        if not subtopic:
+            return jsonify({
+                "status": "error",
+                "message": "SubTopic not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "SubTopic retrieved successfully",
+            "data": SubTopicInDB.from_orm(subtopic).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subtopics/<int:subtopic_id>', methods=['PUT'])
+@jwt_required()
+def update_subtopic(subtopic_id):
+    """Update a specific subtopic"""
+    try:
+        subtopic = db_session.query(SubTopic)\
+            .filter(SubTopic.id == subtopic_id, SubTopic.is_active == True)\
+            .first()
+        
+        if not subtopic:
+            return jsonify({
+                "status": "error",
+                "message": "SubTopic not found"
+            }), 404
+        
+        data = request.get_json()
+        subtopic_data = SubTopicUpdate(**data)
+        
+        update_data = subtopic_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(subtopic, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(subtopic)
+            return jsonify({
+                "status": "success",
+                "message": "SubTopic updated successfully",
+                "data": SubTopicInDB.from_orm(subtopic).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "SubTopic code already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/subtopics/<int:subtopic_id>', methods=['DELETE'])
+@jwt_required()
+def delete_subtopic(subtopic_id):
+    """Soft delete a subtopic"""
+    try:
+        subtopic = db_session.query(SubTopic)\
+            .filter(SubTopic.id == subtopic_id, SubTopic.is_active == True)\
+            .first()
+        
+        if not subtopic:
+            return jsonify({
+                "status": "error",
+                "message": "SubTopic not found"
+            }), 404
+        
+        subtopic.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "SubTopic deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# SeasonSubject endpoints
+@app.route('/api/season-subjects', methods=['POST'])
+@jwt_required()
+def create_season_subject():
+    """Create a new season subject"""
+    try:
+        data = request.get_json()
+        season_subject_data = SeasonSubjectCreate(**data)
+        
+        # Verify that the season exists
+        season = db_session.query(Season)\
+            .filter(Season.id == season_subject_data.season_id, Season.is_active == True)\
+            .first()
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+            
+        # Verify that the subject exists
+        subject = db_session.query(Subject)\
+            .filter(Subject.id == season_subject_data.subject_id, Subject.is_active == True)\
+            .first()
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+        
+        db_season_subject = SeasonSubject(
+            season_id=season_subject_data.season_id,
+            subject_id=season_subject_data.subject_id,
+            is_active=season_subject_data.is_active,
+            created_by=season_subject_data.created_by,
+            updated_by=season_subject_data.updated_by
+        )
+        
+        db_session.add(db_season_subject)
+        db_session.commit()
+        db_session.refresh(db_season_subject)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season subject created successfully",
+            "data": SeasonSubjectInDB.from_orm(db_season_subject).dict()
+        }), 201
+    except IntegrityError:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": "Season subject combination already exists"
+        }), 400
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/season-subjects', methods=['GET'])
+@jwt_required()
+def get_season_subjects():
+    """Get all season subjects with optional pagination and filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        season_id = request.args.get('season_id', type=int)
+        subject_id = request.args.get('subject_id', type=int)
+        
+        query = db_session.query(SeasonSubject).filter(SeasonSubject.is_active == True)
+        
+        if season_id:
+            query = query.filter(SeasonSubject.season_id == season_id)
+        if subject_id:
+            query = query.filter(SeasonSubject.subject_id == subject_id)
+        
+        total_count = query.count()
+        
+        season_subjects = query.order_by(SeasonSubject.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season subjects retrieved successfully",
+            "data": {
+                "season_subjects": [SeasonSubjectInDB.from_orm(ss).dict() for ss in season_subjects],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-subjects/<int:season_subject_id>', methods=['GET'])
+@jwt_required()
+def get_season_subject(season_subject_id):
+    """Get a specific season subject by ID"""
+    try:
+        season_subject = db_session.query(SeasonSubject)\
+            .filter(SeasonSubject.id == season_subject_id, SeasonSubject.is_active == True)\
+            .first()
+        
+        if not season_subject:
+            return jsonify({
+                "status": "error",
+                "message": "Season subject not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season subject retrieved successfully",
+            "data": SeasonSubjectInDB.from_orm(season_subject).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-subjects/<int:season_subject_id>', methods=['PUT'])
+@jwt_required()
+def update_season_subject(season_subject_id):
+    """Update a specific season subject"""
+    try:
+        season_subject = db_session.query(SeasonSubject)\
+            .filter(SeasonSubject.id == season_subject_id, SeasonSubject.is_active == True)\
+            .first()
+        
+        if not season_subject:
+            return jsonify({
+                "status": "error",
+                "message": "Season subject not found"
+            }), 404
+        
+        data = request.get_json()
+        season_subject_data = SeasonSubjectUpdate(**data)
+        
+        update_data = season_subject_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(season_subject, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(season_subject)
+            return jsonify({
+                "status": "success",
+                "message": "Season subject updated successfully",
+                "data": SeasonSubjectInDB.from_orm(season_subject).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Season subject combination already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/season-subjects/<int:season_subject_id>', methods=['DELETE'])
+@jwt_required()
+def delete_season_subject(season_subject_id):
+    """Soft delete a season subject"""
+    try:
+        season_subject = db_session.query(SeasonSubject)\
+            .filter(SeasonSubject.id == season_subject_id, SeasonSubject.is_active == True)\
+            .first()
+        
+        if not season_subject:
+            return jsonify({
+                "status": "error",
+                "message": "Season subject not found"
+            }), 404
+        
+        season_subject.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season subject deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# SeasonApplicant endpoints
+@app.route('/api/season-applicants', methods=['POST'])
+@jwt_required()
+def create_season_applicant():
+    """Create a new season applicant"""
+    try:
+        data = request.get_json()
+        
+        # First verify that the season exists
+        season = db_session.query(Season)\
+            .filter(Season.id == data['season_id'], Season.is_active == True)\
+            .first()
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+            
+        # Create the season applicant
+        season_applicant_data = SeasonApplicantCreate(
+            season_id=data['season_id'],
+            user_id=data['user_id'],
+            status=data.get('status', ApplicationStatus.INITIATED.value),
+            is_active=data.get('is_active', True),
+            created_by=data['created_by'],
+            updated_by=data['updated_by']
+        )
+        
+        db_season_applicant = SeasonApplicant(
+            season_id=season_applicant_data.season_id,
+            user_id=season_applicant_data.user_id,
+            status=season_applicant_data.status,
+            is_active=season_applicant_data.is_active,
+            created_by=season_applicant_data.created_by,
+            updated_by=season_applicant_data.updated_by
+        )
+        
+        db_session.add(db_season_applicant)
+        db_session.commit()
+        db_session.refresh(db_season_applicant)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season applicant created successfully",
+            "data": SeasonApplicantInDB.from_orm(db_season_applicant).dict()
+        }), 201
+    except IntegrityError as e:
+        db_session.rollback()
+        if "season_applicants_pk" in str(e):
+            return jsonify({
+                "status": "error",
+                "message": "User has already applied for this season"
+            }), 400
+        return jsonify({
+            "status": "error",
+            "message": "Database integrity error"
+        }), 400
+    except ValueError as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/season-applicants', methods=['GET'])
+@jwt_required()
+def get_season_applicants():
+    """Get all season applicants with optional pagination and filtering"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        season_id = request.args.get('season_id', type=int)
+        user_id = request.args.get('user_id', type=int)
+        status = request.args.get('status', type=str)
+        
+        query = db_session.query(SeasonApplicant).filter(SeasonApplicant.is_active == True)
+        
+        if season_id:
+            query = query.filter(SeasonApplicant.season_id == season_id)
+        if user_id:
+            query = query.filter(SeasonApplicant.user_id == user_id)
+        if status:
+            query = query.filter(SeasonApplicant.status == status)
+        
+        total_count = query.count()
+        
+        season_applicants = query.order_by(SeasonApplicant.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season applicants retrieved successfully",
+            "data": {
+                "season_applicants": [SeasonApplicantInDB.from_orm(sa).dict() for sa in season_applicants],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-applicants/<int:season_applicant_id>', methods=['GET'])
+@jwt_required()
+def get_season_applicant(season_applicant_id):
+    """Get a specific season applicant by ID"""
+    try:
+        season_applicant = db_session.query(SeasonApplicant)\
+            .filter(SeasonApplicant.id == season_applicant_id, SeasonApplicant.is_active == True)\
+            .first()
+        
+        if not season_applicant:
+            return jsonify({
+                "status": "error",
+                "message": "Season applicant not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season applicant retrieved successfully",
+            "data": SeasonApplicantInDB.from_orm(season_applicant).dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-applicants/<int:season_applicant_id>', methods=['PUT'])
+@jwt_required()
+def update_season_applicant(season_applicant_id):
+    """Update a specific season applicant"""
+    try:
+        season_applicant = db_session.query(SeasonApplicant)\
+            .filter(SeasonApplicant.id == season_applicant_id, SeasonApplicant.is_active == True)\
+            .first()
+        
+        if not season_applicant:
+            return jsonify({
+                "status": "error",
+                "message": "Season applicant not found"
+            }), 404
+        
+        data = request.get_json()
+        season_applicant_data = SeasonApplicantUpdate(**data)
+        
+        update_data = season_applicant_data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(season_applicant, field, value)
+        
+        try:
+            db_session.commit()
+            db_session.refresh(season_applicant)
+            return jsonify({
+                "status": "success",
+                "message": "Season applicant updated successfully",
+                "data": SeasonApplicantInDB.from_orm(season_applicant).dict()
+            })
+        except IntegrityError:
+            db_session.rollback()
+            return jsonify({
+                "status": "error",
+                "message": "Season applicant combination already exists"
+            }), 400
+            
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+
+@app.route('/api/season-applicants/<int:season_applicant_id>', methods=['DELETE'])
+@jwt_required()
+def delete_season_applicant(season_applicant_id):
+    """Soft delete a season applicant"""
+    try:
+        season_applicant = db_session.query(SeasonApplicant)\
+            .filter(SeasonApplicant.id == season_applicant_id, SeasonApplicant.is_active == True)\
+            .first()
+        
+        if not season_applicant:
+            return jsonify({
+                "status": "error",
+                "message": "Season applicant not found"
+            }), 404
+        
+        season_applicant.is_active = False
+        db_session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season applicant deleted successfully"
+        })
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-pending-subjects/<int:season_id>', methods=['GET'])
+@jwt_required()
+def get_season_pending_subjects(season_id):
+    """Get all active subjects that are not added to the specified season"""
+    try:
+        # First verify that the season exists
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        # Subquery to get all subject IDs that are already in season_subjects
+        existing_subject_ids = db_session.query(SeasonSubject.subject_id)\
+            .filter(
+                SeasonSubject.season_id == season_id,
+                SeasonSubject.is_active == True
+            )
+        
+        # Main query to get subjects that are not in the subquery
+        query = db_session.query(Subject)\
+            .filter(
+                Subject.is_active == True,
+                ~Subject.id.in_(existing_subject_ids)
+            )
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        # Apply pagination
+        subjects = query.order_by(Subject.name)\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Pending subjects retrieved successfully",
+            "data": {
+                "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-applicants/season/<int:season_id>', methods=['GET'])
+@jwt_required()
+def get_season_applicants_by_season(season_id):
+    """Get all applicants for a specific season with pagination"""
+    try:
+        # First verify that the season exists
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        status = request.args.get('status', type=str)
+        
+        # Build query with join to get applicants through season_subjects
+        query = db_session.query(SeasonApplicant)\
+            .join(SeasonSubject, SeasonApplicant.season_subject_id == SeasonSubject.id)\
+            .filter(
+                SeasonSubject.season_id == season_id,
+                SeasonApplicant.is_active == True,
+                SeasonSubject.is_active == True
+            )
+        
+        # Add status filter if provided
+        if status:
+            query = query.filter(SeasonApplicant.status == status)
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        # Get applicants with pagination
+        applicants = query.order_by(SeasonApplicant.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season applicants retrieved successfully",
+            "data": {
+                "season_applicants": [SeasonApplicantInDB.from_orm(sa).dict() for sa in applicants],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/season-subjects/season/<int:season_id>', methods=['GET'])
+@jwt_required()
+def get_season_subjects_by_season(season_id):
+    """Get all subjects for a specific season with pagination"""
+    try:
+        # First verify that the season exists
+        season = db_session.query(Season)\
+            .filter(Season.id == season_id, Season.is_active == True)\
+            .first()
+        
+        if not season:
+            return jsonify({
+                "status": "error",
+                "message": "Season not found"
+            }), 404
+
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        # Build query to get season subjects with subject information
+        query = db_session.query(SeasonSubject)\
+            .join(Subject, SeasonSubject.subject_id == Subject.id)\
+            .filter(
+                SeasonSubject.season_id == season_id,
+                SeasonSubject.is_active == True,
+                Subject.is_active == True
+            )
+        
+        # Get total count for pagination
+        total_count = query.count()
+        
+        # Get season subjects with pagination
+        season_subjects = query.order_by(SeasonSubject.created_at.desc())\
+            .offset((page - 1) * per_page)\
+            .limit(per_page)\
+            .all()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Season subjects retrieved successfully",
+            "data": {
+                "season_subjects": [SeasonSubjectInDB.from_orm(ss).dict() for ss in season_subjects],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# Study Material Category endpoints
+@app.route('/api/study-material-categories', methods=['POST'])
+@jwt_required()
+def create_material_category():
+    """Create a new study material category"""
+    try:
+        data = request.get_json()
+        category_data = StudyMaterialCategoryCreate(**data)
+        
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        category = controller.create_category(category_data)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material category created successfully",
+            "data": category.dict()
+        }), 201
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/study-material-categories', methods=['GET'])
+@jwt_required()
+def get_material_categories():
+    """Get all study material categories with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        categories = controller.get_categories(skip=offset, limit=per_page)
+        
+        # Get total count for pagination
+        total_count = db.query(StudyMaterialCategory).count()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material categories retrieved successfully",
+            "data": {
+                "categories": [category.dict() for category in categories],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/study-material-categories/<int:category_id>', methods=['GET'])
+@jwt_required()
+def get_material_category(category_id):
+    """Get a specific study material category by ID"""
+    try:
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        category = controller.get_category(category_id)
+        
+        if not category:
+            return jsonify({
+                "status": "error",
+                "message": "Study material category not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material category retrieved successfully",
+            "data": category.dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/study-material-categories/<int:category_id>', methods=['PUT'])
+@jwt_required()
+def update_material_category(category_id):
+    """Update a specific study material category"""
+    try:
+        data = request.get_json()
+        category_data = StudyMaterialCategoryUpdate(**data)
+        
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        category = controller.update_category(category_id, category_data)
+        
+        if not category:
+            return jsonify({
+                "status": "error",
+                "message": "Study material category not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material category updated successfully",
+            "data": category.dict()
+        })
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/study-material-categories/<int:category_id>', methods=['DELETE'])
+@jwt_required()
+def delete_material_category(category_id):
+    """Delete a study material category"""
+    try:
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        success = controller.delete_category(category_id)
+        
+        if not success:
+            return jsonify({
+                "status": "error",
+                "message": "Study material category not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material category deleted successfully"
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/study-material-categories/code/<string:code>', methods=['GET'])
+@jwt_required()
+def get_material_category_by_code(code):
+    """Get a specific study material category by code"""
+    try:
+        db = get_db()
+        controller = MaterialCategoriesController(db)
+        category = controller.get_category_by_code(code)
+        
+        if not category:
+            return jsonify({
+                "status": "error",
+                "message": "Study material category not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Study material category retrieved successfully",
+            "data": category.dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+# Subtopic Material endpoints
+@app.route('/api/subtopic-materials', methods=['POST'])
+@jwt_required()
+def create_subtopic_material():
+    """Create a new subtopic material with file upload"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({
+                "status": "error",
+                "message": "No file provided"
+            }), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                "status": "error",
+                "message": "No file selected"
+            }), 400
+            
+        if not allowed_file(file.filename):
+            return jsonify({
+                "status": "error",
+                "message": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+            }), 400
+            
+        # Get form data
+        subtopic_id = request.form.get('subtopic_id')
+        material_category_id = request.form.get('material_category_id')
+        name = request.form.get('name')
+        created_by = request.form.get('created_by')
+        updated_by = request.form.get('updated_by')
+        
+        if not all([subtopic_id, material_category_id, name, created_by, updated_by]):
+            return jsonify({
+                "status": "error",
+                "message": "Missing required fields"
+            }), 400
+            
+        # Get file extension
+        extension_type = file.filename.rsplit('.', 1)[1].lower()
+        
+        # Get category code
+        db = get_db()
+        try:
+            category = db.query(StudyMaterialCategory)\
+                .filter(StudyMaterialCategory.id == int(material_category_id))\
+                .first()
+                
+            if not category:
+                return jsonify({
+                    "status": "error",
+                    "message": "Material category not found"
+                }), 404
+                
+            # Create organized directory structure: materials/category_code/YYYY/MM/
+            current_date = datetime.now()
+            year_month_path = os.path.join('materials', category.code, str(current_date.year), str(current_date.month).zfill(2))
+            upload_path = os.path.join(UPLOAD_FOLDER, year_month_path)
+            os.makedirs(upload_path, exist_ok=True)
+            
+            # Create filename using material name
+            # Replace spaces and special characters with underscores
+            safe_name = re.sub(r'[^a-zA-Z0-9]', '_', name)
+            timestamp = current_date.strftime('%Y%m%d_%H%M%S')
+            unique_filename = f"{safe_name}_{timestamp}.{extension_type}"
+            
+            # Full path for file storage
+            file_path = os.path.join(upload_path, unique_filename)
+            
+            # Create relative path for database (this is what we'll store)
+            material_path = os.path.join(year_month_path, unique_filename)
+            
+            # Save file
+            file.save(file_path)
+            
+            # Set proper file permissions (readable by web server, not by others)
+            os.chmod(file_path, 0o644)
+            
+            # Determine if this is a video file
+            is_video = extension_type in ['mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv']
+            
+            # Create material record
+            material_data = SubtopicMaterialCreate(
+                subtopic_id=int(subtopic_id),
+                material_category_id=int(material_category_id),
+                name=name,
+                material_path=material_path.replace('\\', '/'),  # Ensure forward slashes for storage
+                extension_type=extension_type,
+                created_by=int(created_by),
+                updated_by=int(updated_by)
+            )
+            
+            controller = SubtopicMaterialsController(db)
+            material = controller.create_material(material_data)
+            
+            # Add file type information to the response
+            response_data = material.dict()
+            response_data['file_type'] = 'video' if is_video else 'document'
+            
+            return jsonify({
+                "status": "success",
+                "message": "Subtopic material created successfully",
+                "data": response_data
+            }), 201
+        except ValueError as e:
+            # If database operation fails, delete the uploaded file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return jsonify({
+                "status": "error",
+                "message": str(e)
+            }), 400
+        except Exception as e:
+            # If database operation fails, delete the uploaded file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return jsonify({
+                "status": "error",
+                "message": "An error occurred while creating the material"
+            }), 500
+        finally:
+            db.close()
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subtopic-materials', methods=['GET'])
+@jwt_required()
+def get_subtopic_materials():
+    """Get all subtopic materials with optional filtering and pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        subtopic_id = request.args.get('subtopic_id', type=int)
+        material_category_id = request.args.get('material_category_id', type=int)
+        
+        skip = (page - 1) * per_page
+        
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        
+        # Get materials with filters
+        materials = controller.get_materials(
+            skip=skip,
+            limit=per_page,
+            subtopic_id=subtopic_id,
+            material_category_id=material_category_id
+        )
+        
+        # Get total count for pagination
+        query = db.query(SubtopicMaterial)
+        if subtopic_id:
+            query = query.filter(SubtopicMaterial.subtopic_id == subtopic_id)
+        if material_category_id:
+            query = query.filter(SubtopicMaterial.material_category_id == material_category_id)
+        total_count = query.count()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subtopic materials retrieved successfully",
+            "data": {
+                "materials": [material.dict() for material in materials],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/<int:material_id>', methods=['GET'])
+@jwt_required()
+def get_subtopic_material(material_id):
+    """Get a specific subtopic material by ID"""
+    try:
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        material = controller.get_material(material_id)
+        
+        if not material:
+            return jsonify({
+                "status": "error",
+                "message": "Subtopic material not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subtopic material retrieved successfully",
+            "data": material.dict()
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/<int:material_id>', methods=['PUT'])
+@jwt_required()
+def update_subtopic_material(material_id):
+    """Update a specific subtopic material"""
+    try:
+        data = request.get_json()
+        material_data = SubtopicMaterialUpdate(**data)
+        
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        material = controller.update_material(material_id, material_data)
+        
+        if not material:
+            return jsonify({
+                "status": "error",
+                "message": "Subtopic material not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subtopic material updated successfully",
+            "data": material.dict()
+        })
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/<int:material_id>', methods=['DELETE'])
+@jwt_required()
+def delete_subtopic_material(material_id):
+    """Delete a subtopic material"""
+    try:
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        success = controller.delete_material(material_id)
+        
+        if not success:
+            return jsonify({
+                "status": "error",
+                "message": "Subtopic material not found"
+            }), 404
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subtopic material deleted successfully"
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/subtopic/<int:subtopic_id>', methods=['GET'])
+@jwt_required()
+def get_materials_by_subtopic(subtopic_id):
+    """Get all materials for a specific subtopic"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        skip = (page - 1) * per_page
+        
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        materials = controller.get_materials_by_subtopic(
+            subtopic_id=subtopic_id,
+            skip=skip,
+            limit=per_page
+        )
+        
+        # Get total count for pagination
+        total_count = db.query(SubtopicMaterial)\
+            .filter(SubtopicMaterial.subtopic_id == subtopic_id)\
+            .count()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Subtopic materials retrieved successfully",
+            "data": {
+                "materials": [material.dict() for material in materials],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/category/<int:category_id>', methods=['GET'])
+@jwt_required()
+def get_materials_by_category(category_id):
+    """Get all materials for a specific category"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        skip = (page - 1) * per_page
+        
+        db = get_db()
+        controller = SubtopicMaterialsController(db)
+        materials = controller.get_materials_by_category(
+            material_category_id=category_id,
+            skip=skip,
+            limit=per_page
+        )
+        
+        # Get total count for pagination
+        total_count = db.query(SubtopicMaterial)\
+            .filter(SubtopicMaterial.material_category_id == category_id)\
+            .count()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Category materials retrieved successfully",
+            "data": {
+                "materials": [material.dict() for material in materials],
+                "pagination": {
+                    "total": total_count,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total_count + per_page - 1) // per_page
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@app.route('/api/subtopic-materials/<int:material_id>/<string:action>', methods=['GET'])
+@jwt_required()
+def access_material(material_id, action):
+    """Access (view/download) a material by its ID"""
+    try:
+        current_user = get_jwt_identity()
+        if action not in ['view', 'download']:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid action. Use 'view' or 'download'"
+            }), 400
+
+        db = get_db()
+        try:
+            # Get the material and its category
+            material = db.query(SubtopicMaterial)\
+                .join(StudyMaterialCategory, SubtopicMaterial.material_category_id == StudyMaterialCategory.id)\
+                .filter(SubtopicMaterial.id == material_id)\
+                .add_columns(StudyMaterialCategory.is_protected)\
+                .first()
+
+            if not material:
+                return jsonify({
+                    "status": "error",
+                    "message": "Material not found"
+                }), 404
+
+            # Check if protected and trying to download
+            is_protected = request.args.get('protected', 'false').lower() == 'true' or material[1]  # material[1] is is_protected
+            if is_protected and action == 'download':
+                return jsonify({
+                    "status": "error",
+                    "message": "Download not allowed for protected materials"
+                }), 403
+
+            # Get the file path from the material record
+            file_path = material[0].material_path  # material[0] is the SubtopicMaterial instance
+            extension_type = material[0].extension_type.lower()
+            
+            if not os.path.exists(os.path.join(UPLOAD_FOLDER, file_path)):
+                return jsonify({
+                    "status": "error",
+                    "message": "File not found on server"
+                }), 404
+
+            # Determine if this is a video file
+            is_video = extension_type in ['mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv']
+            
+            # Get the response from send_from_directory
+            response = send_from_directory(UPLOAD_FOLDER, file_path)
+            
+            # Set appropriate content type for videos
+            if is_video:
+                # Map common video extensions to MIME types
+                video_mime_types = {
+                    'mp4': 'video/mp4',
+                    'webm': 'video/webm',
+                    'avi': 'video/x-msvideo',
+                    'mov': 'video/quicktime',
+                    'wmv': 'video/x-ms-wmv',
+                    'mkv': 'video/x-matroska'
+                }
+                
+                # Set the content type if we have a mapping
+                if extension_type in video_mime_types:
+                    response.headers['Content-Type'] = video_mime_types[extension_type]
+                
+                # For streaming video, add these headers
+                if action == 'view':
+                    response.headers['Accept-Ranges'] = 'bytes'
+                    
+                    # Handle range requests for video streaming
+                    range_header = request.headers.get('Range', None)
+                    if range_header:
+                        file_size = os.path.getsize(os.path.join(UPLOAD_FOLDER, file_path))
+                        # Parse the range header
+                        byte1, byte2 = 0, None
+                        match = re.search(r'(\d+)-(\d*)', range_header)
+                        if match:
+                            groups = match.groups()
+                            if groups[0]: byte1 = int(groups[0])
+                            if groups[1]: byte2 = int(groups[1])
+                        
+                        if byte2 is None:
+                            byte2 = file_size - 1
+                        
+                        length = byte2 - byte1 + 1
+                        
+                        response.headers['Content-Range'] = f'bytes {byte1}-{byte2}/{file_size}'
+                        response.headers['Content-Length'] = str(length)
+                        response.status_code = 206  # Partial Content
+            
+            # Set response headers based on access type
+            if action == 'view' or is_protected:
+                if not is_video:  # For non-video files
+                    response.headers['Content-Disposition'] = 'inline'
+                response.headers['Content-Security-Policy'] = "default-src 'self'"
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+                if not is_video:  # Don't set cache headers for videos to allow better streaming
+                    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+                    response.headers['Pragma'] = 'no-cache'
+            else:
+                # For download, use the original material name with extension
+                filename = f"{material[0].name}.{material[0].extension_type}"
+                response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# File serving endpoint
+@app.route('/api/materials/<path:filename>')
+@jwt_required()
+def serve_material_with_token(filename):
+    """Serve uploaded material files securely with access controls and token verification"""
+    try:
+        current_user = get_jwt_identity()
+        # Verify token parameters
+        token = request.args.get('token')
+        expires = request.args.get('expires')
+        access_type = request.args.get('access', 'view')
+        
+        if not all([token, expires]):
+            return jsonify({
+                "status": "error",
+                "message": "Missing access token parameters"
+            }), 401
+        
+        # Verify token
+        if not verify_file_access_token(filename, access_type, token, expires):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid or expired access token"
+            }), 401
+        
+        # Extract material category from the path
+        path_parts = filename.split('/')
+        if len(path_parts) < 2:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid file path"
+            }), 400
+            
+        category_code = path_parts[1]
+        
+        # Get database session
+        db = get_db()
+        try:
+            # Get category to check if it's protected
+            category = db.query(StudyMaterialCategory)\
+                .filter(StudyMaterialCategory.code == category_code)\
+                .first()
+                
+            if not category:
+                return jsonify({
+                    "status": "error",
+                    "message": "Material category not found"
+                }), 404
+            
+            response = send_from_directory(UPLOAD_FOLDER, filename)
+            
+            # Set response headers based on access type
+            if access_type == 'view' or category.is_protected:
+                response.headers['Content-Disposition'] = 'inline'
+                response.headers['Content-Security-Policy'] = "default-src 'self'"
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+                response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+                response.headers['Pragma'] = 'no-cache'
+            else:
+                response.headers['Content-Disposition'] = f'attachment; filename="{os.path.basename(filename)}"'
+            
+            return response
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": "File not found"
+        }), 404
+
+# Error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({
+        "status": "error",
+        "message": "Resource not found"
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    db_session.rollback()
+    return jsonify({
+        "status": "error",
+        "message": "Internal server error"
+    }), 500
+
+# Cleanup database session
+@app.teardown_appcontext
+def cleanup(resp):
+    db_session.remove()
+
+# Add these constants after the app initialization
+FILE_ACCESS_SECRET = os.environ.get('FILE_ACCESS_SECRET', 'your-secret-key-here')  # Should be set in environment
+FILE_TOKEN_EXPIRY = int(os.environ.get('FILE_TOKEN_EXPIRY', 3600))  # Default 1 hour in seconds
+
+def generate_file_access_token(filename, access_type):
+    """Generate a secure, time-limited token for file access"""
+    timestamp = int(datetime.utcnow().timestamp())
+    expiry = timestamp + FILE_TOKEN_EXPIRY
+    
+    # Create the message to sign
+    message = f"{filename}:{access_type}:{expiry}"
+    
+    # Create HMAC signature
+    signature = hmac.new(
+        FILE_ACCESS_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return {
+        "token": signature,
+        "expires": expiry,
+        "filename": filename,
+        "access_type": access_type
+    }
+
+def verify_file_access_token(filename, access_type, token, expires):
+    """Verify the file access token"""
+    if int(datetime.utcnow().timestamp()) > int(expires):
+        return False
+    
+    # Recreate the message
+    message = f"{filename}:{access_type}:{expires}"
+    
+    # Verify HMAC signature
+    expected_signature = hmac.new(
+        FILE_ACCESS_SECRET.encode(),
+        message.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(token, expected_signature)
+
+@app.route('/api/materials/access-token/<path:filename>', methods=['POST'])
+@jwt_required()
+def get_material_access_token(filename):
+    """Generate a secure, time-limited token for accessing a specific file"""
+    try:
+        current_user = get_jwt_identity()
+        access_type = request.args.get('access', 'view')  # 'view' or 'download'
+        
+        # Extract material category from the path
+        path_parts = filename.split('/')
+        if len(path_parts) < 2:
+            return jsonify({
+                "status": "error",
+                "message": "Invalid file path"
+            }), 400
+            
+        category_code = path_parts[1]
+        
+        # Get database session
+        db = get_db()
+        try:
+            # Verify the file exists
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            if not os.path.exists(file_path):
+                return jsonify({
+                    "status": "error",
+                    "message": "File not found"
+                }), 404
+            
+            # Get category to check if it's protected
+            category = db.query(StudyMaterialCategory)\
+                .filter(StudyMaterialCategory.code == category_code)\
+                .first()
+                
+            if not category:
+                return jsonify({
+                    "status": "error",
+                    "message": "Material category not found"
+                }), 404
+            
+            # If category is protected and trying to download, deny access
+            if category.is_protected and access_type == 'download':
+                return jsonify({
+                    "status": "error",
+                    "message": "Download not allowed for protected materials"
+                }), 403
+            
+            # Generate access token
+            token_data = generate_file_access_token(filename, access_type)
+            
+            return jsonify({
+                "status": "success",
+                "message": "Access token generated successfully",
+                "data": token_data
+            })
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/subtopic-materials/<int:material_id>/metadata', methods=['GET'])
+@jwt_required()
+def get_material_metadata(material_id):
+    """Get material metadata including protection status"""
+    try:
+        db = get_db()
+        try:
+            # Get the material and its category information
+            material = db.query(SubtopicMaterial)\
+                .join(StudyMaterialCategory, SubtopicMaterial.material_category_id == StudyMaterialCategory.id)\
+                .filter(SubtopicMaterial.id == material_id)\
+                .add_columns(
+                    StudyMaterialCategory.is_protected,
+                    StudyMaterialCategory.name.label('category_name')
+                )\
+                .first()
+
+            if not material:
+                return jsonify({
+                    "status": "error",
+                    "message": "Material not found"
+                }), 404
+
+            # Check if file exists
+            file_exists = os.path.exists(os.path.join(UPLOAD_FOLDER, material[0].material_path))
+            
+            # Determine file type
+            extension_type = material[0].extension_type.lower()
+            is_video = extension_type in ['mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv']
+            is_pdf = extension_type == 'pdf'
+            is_image = extension_type in ['png', 'jpg', 'jpeg', 'gif']
+            
+            # Get file size if it exists
+            file_size = None
+            if file_exists:
+                file_size = os.path.getsize(os.path.join(UPLOAD_FOLDER, material[0].material_path))
+                # Convert to MB for readability
+                file_size_mb = round(file_size / (1024 * 1024), 2)
+
+            return jsonify({
+                "status": "success",
+                "message": "Material metadata retrieved successfully",
+                "data": {
+                    "id": material[0].id,
+                    "name": material[0].name,
+                    "extension_type": material[0].extension_type,
+                    "category_name": material.category_name,
+                    "is_protected": material.is_protected,
+                    "file_exists": file_exists,
+                    "file_type": "video" if is_video else "pdf" if is_pdf else "image" if is_image else "document",
+                    "file_size": file_size,
+                    "file_size_mb": file_size_mb if file_exists else None,
+                    "actions_allowed": {
+                        "view": True,  # View is always allowed if file exists
+                        "download": not material.is_protected,  # Download only if not protected
+                        "stream": is_video  # Streaming is available for video files
+                    },
+                    "viewer_type": "video" if is_video else "pdf" if is_pdf else "image" if is_image else "default"
+                }
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+# Course endpoints
+@app.route('/api/courses', methods=['POST'])
+@jwt_required()
+def create_course():
+    try:
+        # Get the current user ID from the JWT token
+        current_user_id = get_jwt_identity()
+        
+        # Get the request data
+        data = request.get_json()
+        
+        # Add created_by and updated_by if not provided by frontend
+        if 'created_by' not in data:
+            data['created_by'] = int(current_user_id)
+        if 'updated_by' not in data:
+            data['updated_by'] = int(current_user_id)
+        
+        # Create the course
+        course_data = CourseCreate(**data)
+        return CoursesController.create_course(course_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route('/api/courses', methods=['GET'])
+@jwt_required()
+def get_courses():
+    return CoursesController.get_courses()
+
+@app.route('/api/courses/<int:course_id>', methods=['GET'])
+@jwt_required()
+def get_course(course_id):
+    return CoursesController.get_course(course_id)
+
+@app.route('/api/courses/<int:course_id>', methods=['PUT'])
+@jwt_required()
+def update_course(course_id):
+    try:
+        # Get the current user ID from the JWT token
+        current_user_id = get_jwt_identity()
+        
+        # Get the request data
+        data = request.get_json()
+        
+        # Add the updated_by field if not provided by frontend
+        if 'updated_by' not in data:
+            data['updated_by'] = int(current_user_id)
+        
+        # Update the course
+        course_data = CourseUpdate(**data)
+        return CoursesController.update_course(course_id, course_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route('/api/courses/<int:course_id>', methods=['DELETE'])
+@jwt_required()
+def delete_course(course_id):
+    current_user_id = get_jwt_identity()
+    return CoursesController.delete_course(course_id, current_user_id)
+
+# Course structure endpoint
+@app.route('/api/course-structure', methods=['GET'])
+@jwt_required()
+def get_course_structure():
+    """Get complete course structure including courses, subjects, topics, and subtopics"""
+    try:
+        # Get optional filter parameters
+        course_id = request.args.get('course_id', type=int)
+        subject_id = request.args.get('subject_id', type=int)
+        topic_id = request.args.get('topic_id', type=int)
+        nested = request.args.get('nested', 'false').lower() == 'true'
+        
+        # Base queries
+        courses_query = db_session.query(Course).filter(Course.deleted_at.is_(None))
+        subjects_query = db_session.query(Subject).filter(Subject.is_active == True)
+        topics_query = db_session.query(Topic).filter(Topic.is_active == True)
+        subtopics_query = db_session.query(SubTopic).filter(SubTopic.is_active == True)
+        
+        # Apply filters if provided
+        if course_id:
+            courses_query = courses_query.filter(Course.id == course_id)
+            subjects_query = subjects_query.filter(Subject.course_id == course_id)
+            # For topics and subtopics, we need to join with subjects to filter by course_id
+            topics_query = topics_query.join(Subject, Topic.subject_id == Subject.id).filter(Subject.course_id == course_id)
+            subtopics_query = subtopics_query.join(Topic, SubTopic.topic_id == Topic.id).join(Subject, Topic.subject_id == Subject.id).filter(Subject.course_id == course_id)
+        
+        if subject_id:
+            subjects_query = subjects_query.filter(Subject.id == subject_id)
+            topics_query = topics_query.filter(Topic.subject_id == subject_id)
+            subtopics_query = subtopics_query.join(Topic, SubTopic.topic_id == Topic.id).filter(Topic.subject_id == subject_id)
+        
+        if topic_id:
+            topics_query = topics_query.filter(Topic.id == topic_id)
+            subtopics_query = subtopics_query.filter(SubTopic.topic_id == topic_id)
+        
+        # Execute queries
+        courses = courses_query.all()
+        subjects = subjects_query.all()
+        topics = topics_query.all()
+        subtopics = subtopics_query.all()
+        
+        if nested:
+            # Create dictionaries for easy lookup
+            subjects_dict = {subject.id: [] for subject in subjects}
+            topics_dict = {topic.id: [] for topic in topics}
+            
+            # Organize subtopics by topic_id
+            for subtopic in subtopics:
+                if subtopic.topic_id in topics_dict:
+                    topics_dict[subtopic.topic_id].append({
+                        "id": str(subtopic.id),
+                        "topic_id": str(subtopic.topic_id),
+                        "name": subtopic.name,
+                        "description": subtopic.description,
+                        "order": None,  # Not present in current model
+                        "duration": None,  # Not present in current model
+                        "created_at": subtopic.created_at.isoformat() if subtopic.created_at else None,
+                        "updated_at": subtopic.updated_at.isoformat() if subtopic.updated_at else None
+                    })
+            
+            # Organize topics by subject_id, including subtopics
+            for topic in topics:
+                if topic.subject_id in subjects_dict:
+                    subjects_dict[topic.subject_id].append({
+                        "id": str(topic.id),
+                        "subject_id": str(topic.subject_id),
+                        "name": topic.name,
+                        "description": topic.description,
+                        "order": None,  # Not present in current model
+                        "duration": None,  # Not present in current model
+                        "created_at": topic.created_at.isoformat() if topic.created_at else None,
+                        "updated_at": topic.updated_at.isoformat() if topic.updated_at else None,
+                        "subtopics": topics_dict.get(topic.id, [])
+                    })
+            
+            # Create nested response
+            nested_courses = []
+            for course in courses:
+                course_subjects = []
+                for subject in subjects:
+                    if subject.course_id == course.id:
+                        subject_data = {
+                            "id": str(subject.id),
+                            "course_id": str(subject.course_id),
+                            "name": subject.name,
+                            "code": subject.code,
+                            "description": subject.description,
+                            "price": subject.current_price,
+                            "credits": None,  # Not present in current model
+                            "status": "active" if subject.is_active else "inactive",
+                            "created_at": subject.created_at.isoformat() if subject.created_at else None,
+                            "updated_at": subject.updated_at.isoformat() if subject.updated_at else None,
+                            "topics": subjects_dict.get(subject.id, [])
+                        }
+                        course_subjects.append(subject_data)
+                
+                nested_courses.append({
+                    "id": str(course.id),
+                    "name": course.name,
+                    "code": course.code,
+                    "description": course.description,
+                    "duration": None,  # Not present in current model
+                    "banner_image": None,  # Not present in current model
+                    "status": "active" if course.deleted_at is None else "inactive",
+                    "certification": None,  # Not present in current model
+                    "created_at": course.created_at.isoformat() if course.created_at else None,
+                    "updated_at": course.updated_at.isoformat() if course.updated_at else None,
+                    "subjects": course_subjects
+                })
+            
+            response = {
+                "courses": nested_courses
+            }
+        else:
+            # Format the flat response
+            response = {
+                "courses": [
+                    {
+                        "id": str(course.id),
+                        "name": course.name,
+                        "code": course.code,
+                        "description": course.description,
+                        "duration": None,  # Not present in current model
+                        "banner_image": None,  # Not present in current model
+                        "status": "active" if course.deleted_at is None else "inactive",
+                        "certification": None,  # Not present in current model
+                        "created_at": course.created_at.isoformat() if course.created_at else None,
+                        "updated_at": course.updated_at.isoformat() if course.updated_at else None
+                    }
+                    for course in courses
+                ],
+                "subjects": [
+                    {
+                        "id": str(subject.id),
+                        "course_id": str(subject.course_id),
+                        "name": subject.name,
+                        "code": subject.code,
+                        "description": subject.description,
+                        "price": subject.current_price,
+                        "credits": None,  # Not present in current model
+                        "status": "active" if subject.is_active else "inactive",
+                        "created_at": subject.created_at.isoformat() if subject.created_at else None,
+                        "updated_at": subject.updated_at.isoformat() if subject.updated_at else None
+                    }
+                    for subject in subjects
+                ],
+                "topics": [
+                    {
+                        "id": str(topic.id),
+                        "subject_id": str(topic.subject_id),
+                        "name": topic.name,
+                        "description": topic.description,
+                        "order": None,  # Not present in current model
+                        "duration": None,  # Not present in current model
+                        "created_at": topic.created_at.isoformat() if topic.created_at else None,
+                        "updated_at": topic.updated_at.isoformat() if topic.updated_at else None
+                    }
+                    for topic in topics
+                ],
+                "subtopics": [
+                    {
+                        "id": str(subtopic.id),
+                        "topic_id": str(subtopic.topic_id),
+                        "name": subtopic.name,
+                        "description": subtopic.description,
+                        "order": None,  # Not present in current model
+                        "duration": None,  # Not present in current model
+                        "created_at": subtopic.created_at.isoformat() if subtopic.created_at else None,
+                        "updated_at": subtopic.updated_at.isoformat() if subtopic.updated_at else None
+                    }
+                    for subtopic in subtopics
+                ]
+            }
+        
+        return jsonify({
+            "status": "success",
+            "message": "Course structure retrieved successfully",
+            "data": response
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+if __name__ == '__main__':
+    # app.run(debug=True, port=5001)
+    app.run(host='0.0.0.0', port=5001, debug=True)

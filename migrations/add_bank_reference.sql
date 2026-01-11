@@ -1,0 +1,1 @@
+ALTER TABLE payments ADD COLUMN bank_reference VARCHAR(50) NULL; 

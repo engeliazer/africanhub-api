@@ -1,0 +1,32 @@
+Note: Unnecessary use of -X or --request, GET is already inferred.
+* Host localhost:8000 was resolved.
+* IPv6: ::1
+* IPv4: 127.0.0.1
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0*   Trying [::1]:8000...
+* connect to ::1 port 8000 from ::1 port 49607 failed: Connection refused
+*   Trying 127.0.0.1:8000...
+* Connected to localhost (127.0.0.1) port 8000
+> GET /api/accounting/pending-payments HTTP/1.1
+> Host: localhost:8000
+> User-Agent: curl/8.7.1
+> Accept: */*
+> Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc0NDU1MDQxOCwianRpIjoiZmYwNjc2NTQtZWMxNC00MzY2LWJjYWItZjQwOGEwMmY0ZGQzIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjEiLCJuYmYiOjE3NDQ1NTA0MTgsImNzcmYiOiJiMTJmYzVjYy00MTEyLTQ1NTgtYTRlYi1mNDcxYmI3NGE2ZmQiLCJleHAiOjE3NDQ1NTIyMTh9.H-F8ag8anewRRJovKUiB66GaUIO8p7rY9tUE-Z---M4
+> 
+* Request completely sent off
+< HTTP/1.1 200 OK
+< Server: gunicorn
+< Date: Sun, 13 Apr 2025 13:36:41 GMT
+< Connection: close
+< Content-Type: application/json
+< Content-Length: 589
+< Access-Control-Allow-Origin: http://localhost:5173
+< Access-Control-Expose-Headers: New-Token
+< Access-Control-Allow-Credentials: true
+< Vary: Origin
+< 
+{ [589 bytes data]
+100   589  100   589    0     0  19526      0 --:--:-- --:--:-- --:--:-- 19633
+* Closing connection
+{"data":[{"amount":200000.0,"bank_reference":"OCPA-WBDRJSN4-20250404222213","description":"Payment for applications [26]","id":21,"mobile_number":"255755344162","payment_date":"2025-04-04T22:22:13","payment_details":[],"payment_method":"Bank","transaction_id":"OCPA-WBDRJSN4-20250404222213"},{"amount":240000.0,"bank_reference":"MX250404222246","description":"Payment for applications [27]","id":22,"mobile_number":"255757232622","payment_date":"2025-04-04T22:22:46","payment_details":[],"payment_method":"Mixx by Yas","transaction_id":"OCPA-NNWOQB9F-20250404222246"}],"status":"success"}
