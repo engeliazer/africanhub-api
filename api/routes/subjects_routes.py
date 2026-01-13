@@ -3,15 +3,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import get_db
 from auth.models.models import User
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
-from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant, Course
+from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant
 from subjects.models.schemas import (
     SeasonCreate, SeasonUpdate, SeasonInDB,
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
     SubTopicCreate, SubTopicUpdate, SubTopicInDB,
     SeasonSubjectCreate, SeasonSubjectUpdate, SeasonSubjectInDB,
-    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB,
-    CourseCreate, CourseUpdate, CourseInDB
+    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB
 )
 from studies.models.models import SubtopicMaterial
 from sqlalchemy import and_, func
@@ -32,7 +31,6 @@ topics_bp = Blueprint('topics', __name__)
 subtopics_bp = Blueprint('subtopics', __name__)
 season_subjects_bp = Blueprint('season_subjects', __name__)
 season_applicants_bp = Blueprint('season_applicants', __name__)
-courses_bp = Blueprint('courses', __name__)
 
 # Token refresh hooks removed; no backend-managed timeouts
 
@@ -222,10 +220,10 @@ def get_available_seasons():
     finally:
         db.close()
 
-@seasons_bp.route('/season-courses/<int:season_id>', methods=['GET'])
+@seasons_bp.route('/seasons/<int:season_id>/available-subjects', methods=['GET'])
 @jwt_required()
-def get_season_courses(season_id):
-    """Get all courses with subjects that haven't been added to the specified season"""
+def get_season_available_subjects(season_id):
+    """Get all subjects that haven't been added to the specified season"""
     try:
         db = get_db()
         
@@ -250,20 +248,18 @@ def get_season_courses(season_id):
                 SeasonSubject.is_active == True
             )
 
-        # Get all courses that have active subjects that are not in the season_subjects
-        courses = db.query(Course)\
-            .join(Subject, Course.id == Subject.course_id)\
+        # Get all active subjects that are not in the season_subjects
+        subjects = db.query(Subject)\
             .filter(
                 and_(
                     Subject.is_active == True,
-                    Course.is_active == True,
                     ~Subject.id.in_(existing_subject_ids)
                 )
-            ).distinct().all()
+            ).all()
 
         return jsonify({
             "status": "success",
-            "message": "Courses with pending subjects retrieved successfully",
+            "message": "Available subjects retrieved successfully",
             "data": {
                 "season": {
                     "id": season.id,
@@ -274,7 +270,7 @@ def get_season_courses(season_id):
                     "description": season.description,
                     "is_active": season.is_active
                 },
-                "courses": [CourseInDB.from_orm(course).dict() for course in courses]
+                "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects]
             }
         }), 200
     except Exception as e:
@@ -285,10 +281,10 @@ def get_season_courses(season_id):
     finally:
         db.close()
 
-@seasons_bp.route('/seasons/<int:season_id>/available-courses', methods=['GET'])
+@seasons_bp.route('/seasons/<int:season_id>/user-available-subjects', methods=['GET'])
 @jwt_required()
-def get_available_courses(season_id):
-    """Get all courses under a season that have subjects the user hasn't applied for"""
+def get_user_available_subjects(season_id):
+    """Get all subjects under a season that the user hasn't applied for"""
     try:
         # Get current user ID from JWT token
         current_user_id = get_jwt_identity()
@@ -308,16 +304,14 @@ def get_available_courses(season_id):
                 "message": "Season not found or inactive"
             }), 404
 
-        # Get all courses that have active subjects in this season
-        courses_with_subjects = db.query(Course)\
-            .join(Subject, Course.id == Subject.course_id)\
+        # Get all subjects that are active in this season
+        subjects_in_season = db.query(Subject)\
             .join(SeasonSubject, Subject.id == SeasonSubject.subject_id)\
             .filter(
                 and_(
                     SeasonSubject.season_id == season_id,
                     SeasonSubject.is_active == True,
-                    Subject.is_active == True,
-                    Course.is_active == True
+                    Subject.is_active == True
                 )
             ).distinct().all()
 
@@ -335,32 +329,16 @@ def get_available_courses(season_id):
             ).distinct().all()
         applied_subject_ids = [subject[0] for subject in applied_subjects]
 
-        # For each course, check if it has any available subjects
-        available_courses = []
-        for course in courses_with_subjects:
-            # Check if this course has any subjects that haven't been applied for
-            has_available_subjects = db.query(Subject)\
-                .join(SeasonSubject, Subject.id == SeasonSubject.subject_id)\
-                .filter(
-                    and_(
-                        Subject.course_id == course.id,
-                        SeasonSubject.season_id == season_id,
-                        SeasonSubject.is_active == True,
-                        Subject.is_active == True,
-                        Subject.id.notin_(applied_subject_ids)
-                    )
-                ).first() is not None
-
-            if has_available_subjects:
-                available_courses.append({
-                    "id": course.id,
-                    "name": course.name,
-                    "description": course.description
-                })
+        # Filter out subjects the user has already applied for
+        available_subjects = [
+            SubjectInDB.from_orm(subject).dict() 
+            for subject in subjects_in_season 
+            if subject.id not in applied_subject_ids
+        ]
 
         return jsonify({
             "status": "success",
-            "data": available_courses
+            "data": available_subjects
         }), 200
     except Exception as e:
         return jsonify({
@@ -370,10 +348,10 @@ def get_available_courses(season_id):
     finally:
         db.close()
 
-@seasons_bp.route('/seasons/<int:season_id>/courses/<int:course_id>/available-subjects', methods=['GET'])
+@seasons_bp.route('/seasons/<int:season_id>/available-subjects-list', methods=['GET'])
 @jwt_required()
-def get_available_subjects(season_id, course_id):
-    """Get all subjects under a season and course that the user hasn't applied for"""
+def get_available_subjects(season_id):
+    """Get all subjects under a season that the user hasn't applied for"""
     try:
         # Get current user ID from JWT token
         current_user_id = get_jwt_identity()
@@ -393,21 +371,7 @@ def get_available_subjects(season_id, course_id):
                 "message": "Season not found or inactive"
             }), 404
 
-        # Verify that the course exists and is active
-        course = db.query(Course).filter(
-            and_(
-                Course.id == course_id,
-                Course.is_active == True
-            )
-        ).first()
-        
-        if not course:
-            return jsonify({
-                "status": "error",
-                "message": "Course not found or inactive"
-            }), 404
-
-        # Get all subjects that are active in this season and course
+        # Get all subjects that are active in this season
         available_subjects = db.query(
             Subject.id,
             Subject.name,
@@ -424,7 +388,6 @@ def get_available_subjects(season_id, course_id):
             )
         ).filter(
             and_(
-                Subject.course_id == course_id,
                 SeasonSubject.season_id == season_id,
                 SeasonSubject.is_active == True,
                 Subject.is_active == True
@@ -449,6 +412,20 @@ def get_available_subjects(season_id, course_id):
             ).distinct().all()
         applied_subject_ids = [subject[0] for subject in applied_subjects]
 
+        # Get all subjects the user has already applied for in this season (excluding withdrawn applications)
+        applied_subjects = db.query(ApplicationDetail.subject_id)\
+            .join(Application, ApplicationDetail.application_id == Application.id)\
+            .filter(
+                and_(
+                    Application.user_id == current_user_id,
+                    ApplicationDetail.season_id == season_id,
+                    Application.is_active == True,
+                    ApplicationDetail.is_active == True,
+                    Application.status != ApplicationStatus.withdrawn.value
+                )
+            ).distinct().all()
+        applied_subject_ids = [subject[0] for subject in applied_subjects]
+
         # Format the response
         subjects_data = []
         for subject in available_subjects:
@@ -457,8 +434,6 @@ def get_available_subjects(season_id, course_id):
                     "id": subject.id,
                     "subject_id": subject.id,
                     "name": subject.name,
-                    "course_id": course_id,
-                    "course_name": course.name,
                     "price": subject.current_price,
                     "capacity": 0,  # Default to 0 since capacity is not tracked
                     "enrolled": subject.enrolled
@@ -486,7 +461,6 @@ def get_subjects():
         # Get pagination parameters
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', type=int)  # No default - return all if not specified
-        course_id = request.args.get('course_id', type=int)
         
         # If no per_page specified, return all subjects
         if per_page is None:
@@ -497,10 +471,6 @@ def get_subjects():
         
         # Build query excluding deleted records
         query = db.query(Subject).filter(Subject.deleted_at.is_(None))
-        
-        # Filter by course_id if provided
-        if course_id:
-            query = query.filter(Subject.course_id == course_id)
         
         # Get total count for pagination
         total_count = query.count()
@@ -600,25 +570,12 @@ def create_subject_with_topic_subtopic():
         
         # Start transaction
         try:
-            # Check if course exists
-            course = db.query(Course).filter(
-                Course.id == subject_data.course_id,
-                Course.deleted_at.is_(None)
-            ).first()
-            
-            if not course:
-                return jsonify({
-                    "status": "error",
-                    "message": f"Course with ID {subject_data.course_id} not found"
-                }), 404
-                
             # Create subject
             db_subject = Subject(
                 name=subject_data.name,
                 code=subject_data.code,
                 description=subject_data.description,
                 current_price=subject_data.current_price,
-                course_id=subject_data.course_id,
                 is_active=subject_data.is_active,
                 created_by=subject_data.created_by,
                 updated_by=subject_data.updated_by
@@ -1583,11 +1540,10 @@ def get_season_applicants(season_id):
         offset = (page - 1) * per_page
 
         # Get applications for the season with user details
-        query = db.query(Application, ApplicationDetail, User, Subject, Course)\
+        query = db.query(Application, ApplicationDetail, User, Subject)\
             .join(ApplicationDetail, Application.id == ApplicationDetail.application_id)\
             .join(User, Application.user_id == User.id)\
             .join(Subject, ApplicationDetail.subject_id == Subject.id)\
-            .join(Course, Subject.course_id == Course.id)\
             .filter(ApplicationDetail.season_id == season_id)\
             .filter(Application.is_active == True)\
             .filter(ApplicationDetail.is_active == True)
@@ -1602,9 +1558,8 @@ def get_season_applicants(season_id):
             .all()
 
         # Get all subjects for the season through season_subjects
-        season_subjects = db.query(SeasonSubject, Subject, Course)\
+        season_subjects = db.query(SeasonSubject, Subject)\
             .join(Subject, SeasonSubject.subject_id == Subject.id)\
-            .join(Course, Subject.course_id == Course.id)\
             .filter(SeasonSubject.season_id == season_id)\
             .filter(SeasonSubject.is_active == True)\
             .filter(Subject.is_active == True)\
@@ -1613,7 +1568,7 @@ def get_season_applicants(season_id):
 
         # Prepare response data
         applications_data = []
-        for app, detail, user, subject, course in results:
+        for app, detail, user, subject in results:
             applications_data.append({
                 "id": app.id,
                 "user": {
@@ -1628,12 +1583,7 @@ def get_season_applicants(season_id):
                     "subject": {
                         "id": subject.id,
                         "name": subject.name,
-                        "code": subject.code,
-                        "course": {
-                            "id": course.id,
-                            "name": course.name,
-                            "code": course.code
-                        }
+                        "code": subject.code
                     },
                     "fee": detail.fee,
                     "status": detail.status.value
@@ -1653,17 +1603,12 @@ def get_season_applicants(season_id):
                 "subject": {
                     "id": s.id,
                     "name": s.name,
-                    "code": s.code,
-                    "course": {
-                        "id": c.id,
-                        "name": c.name,
-                        "code": c.code
-                    }
+                    "code": s.code
                 },
                 "created_at": ss.created_at.strftime("%a, %d %b %Y %H:%M:%S GMT"),
                 "updated_at": ss.updated_at.strftime("%a, %d %b %Y %H:%M:%S GMT")
             }
-            for ss, s, c in season_subjects
+            for ss, s in season_subjects
         ]
 
         return jsonify({
@@ -1718,11 +1663,10 @@ def get_user_applications(user_id):
         offset = (page - 1) * per_page
 
         # Get applications for the user with all related details
-        query = db.query(Application, ApplicationDetail, Season, Subject, Course)\
+        query = db.query(Application, ApplicationDetail, Season, Subject)\
             .join(ApplicationDetail, Application.id == ApplicationDetail.application_id)\
             .join(Season, ApplicationDetail.season_id == Season.id)\
             .join(Subject, ApplicationDetail.subject_id == Subject.id)\
-            .join(Course, Subject.course_id == Course.id)\
             .filter(Application.user_id == user_id)\
             .filter(Application.is_active == True)\
             .filter(ApplicationDetail.is_active == True)
@@ -1738,7 +1682,7 @@ def get_user_applications(user_id):
 
         # Prepare response data
         applications_data = []
-        for app, detail, season, subject, course in results:
+        for app, detail, season, subject in results:
             applications_data.append({
                 "id": app.id,
                 "season": {
@@ -1755,12 +1699,7 @@ def get_user_applications(user_id):
                     "subject": {
                         "id": subject.id,
                         "name": subject.name,
-                        "code": subject.code,
-                        "course": {
-                            "id": course.id,
-                            "name": course.name,
-                            "code": course.code
-                        }
+                        "code": subject.code
                     },
                     "fee": detail.fee,
                     "status": detail.status.value
@@ -1802,43 +1741,6 @@ def get_user_applications(user_id):
     finally:
         db.close()
 
-# Course routes
-@courses_bp.route('/courses/public', methods=['GET'])
-def get_courses_public():
-    """Public endpoint - Get all active courses with their subjects (no authentication required)"""
-    try:
-        db = get_db()
-        courses = db.query(Course).filter(
-            Course.deleted_at.is_(None),
-            Course.is_active == True
-        ).all()
-        
-        # Build response with subjects for each course
-        courses_data = []
-        for course in courses:
-            # Get active subjects for this course
-            subjects = db.query(Subject).filter(
-                Subject.course_id == course.id,
-                Subject.deleted_at.is_(None),
-                Subject.is_active == True
-            ).all()
-            
-            course_dict = CourseInDB.from_orm(course).dict()
-            course_dict['subjects'] = [SubjectInDB.from_orm(subject).dict() for subject in subjects]
-            courses_data.append(course_dict)
-        
-        return jsonify({
-            "status": "success",
-            "data": courses_data
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close()
-
 @seasons_bp.route('/schedules/public', methods=['GET'])
 def get_schedules_public():
     """Public endpoint - Get all active seasons with their subjects (no authentication required)"""
@@ -1872,24 +1774,12 @@ def get_schedules_public():
                 ).first()
                 
                 if subject:
-                    # Get the course for this subject
-                    course = db.query(Course).filter(
-                        Course.id == subject.course_id,
-                        Course.deleted_at.is_(None),
-                        Course.is_active == True
-                    ).first()
-                    
                     subject_dict = {
                         "id": subject.id,
                         "name": subject.name,
                         "code": subject.code,
                         "description": subject.description,
-                        "current_price": subject.current_price,
-                        "course": {
-                            "id": course.id if course else None,
-                            "name": course.name if course else None,
-                            "code": course.code if course else None
-                        } if course else None
+                        "current_price": subject.current_price
                     }
                     subjects_data.append(subject_dict)
             
@@ -1916,151 +1806,3 @@ def get_schedules_public():
         }), 500
     finally:
         db.close()
-
-@courses_bp.route('/courses', methods=['GET'])
-@jwt_required()
-def get_courses():
-    try:
-        db = get_db()
-        courses = db.query(Course).filter(Course.deleted_at.is_(None)).all()
-        return jsonify({
-            "status": "success",
-            "data": [CourseInDB.from_orm(course).dict() for course in courses]
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close()
-
-@courses_bp.route('/courses/<int:course_id>', methods=['GET'])
-@jwt_required()
-def get_course(course_id):
-    try:
-        db = get_db()
-        course = db.query(Course).filter(
-            Course.id == course_id,
-            Course.deleted_at.is_(None)
-        ).first()
-        if not course:
-            return jsonify({
-                "status": "error",
-                "message": "Course not found"
-            }), 404
-        return jsonify({
-            "status": "success",
-            "data": CourseInDB.from_orm(course).dict()
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close()
-
-@courses_bp.route('/courses', methods=['POST'])
-@jwt_required()
-def create_course():
-    try:
-        db = get_db()
-        current_user_id = get_jwt_identity()
-        data = request.get_json()
-        
-        # Add created_by and updated_by fields
-        data['created_by'] = int(current_user_id)
-        data['updated_by'] = int(current_user_id)
-        
-        course_data = CourseCreate(**data)
-        course = Course(**course_data.dict())
-        db.add(course)
-        db.commit()
-        db.refresh(course)
-        return jsonify({
-            "status": "success",
-            "data": CourseInDB.from_orm(course).dict()
-        }), 201
-    except Exception as e:
-        db.rollback()
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close()
-
-@courses_bp.route('/courses/<int:course_id>', methods=['PUT'])
-@jwt_required()
-def update_course(course_id):
-    try:
-        db = get_db()
-        current_user_id = get_jwt_identity()
-        data = request.get_json()
-        
-        # Add updated_by field
-        data['updated_by'] = int(current_user_id)
-        
-        course = db.query(Course).filter(
-            Course.id == course_id,
-            Course.deleted_at.is_(None)
-        ).first()
-        if not course:
-            return jsonify({
-                "status": "error",
-                "message": "Course not found"
-            }), 404
-        
-        course_data = CourseUpdate(**data)
-        for field, value in course_data.dict(exclude_unset=True).items():
-            setattr(course, field, value)
-        
-        db.commit()
-        db.refresh(course)
-        return jsonify({
-            "status": "success",
-            "data": CourseInDB.from_orm(course).dict()
-        })
-    except Exception as e:
-        db.rollback()
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close()
-
-@courses_bp.route('/courses/<int:course_id>', methods=['DELETE'])
-@jwt_required()
-def delete_course(course_id):
-    try:
-        db = get_db()
-        current_user_id = get_jwt_identity()
-        
-        course = db.query(Course).filter(
-            Course.id == course_id,
-            Course.deleted_at.is_(None)
-        ).first()
-        if not course:
-            return jsonify({
-                "status": "error",
-                "message": "Course not found"
-            }), 404
-        
-        # Soft delete
-        course.deleted_at = datetime.utcnow()
-        course.updated_by = int(current_user_id)
-        db.commit()
-        return jsonify({
-            "status": "success",
-            "message": "Course deleted successfully"
-        })
-    except Exception as e:
-        db.rollback()
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    finally:
-        db.close() 

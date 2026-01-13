@@ -21,15 +21,14 @@ from security.jwt_handler import JWTHandler
 from public.controllers.self_registration_controller import public
 from auth.controllers.auth_controller import auth
 from database.db_connector import db_session
-from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant, ApplicationStatus, Course
+from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant, ApplicationStatus
 from subjects.models.schemas import (
     SeasonCreate, SeasonUpdate, SeasonInDB,
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
     SubTopicCreate, SubTopicUpdate, SubTopicInDB,
     SeasonSubjectCreate, SeasonSubjectUpdate, SeasonSubjectInDB,
-    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB,
-    CourseCreate, CourseUpdate, CourseInDB
+    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB
 )
 from studies.models.models import StudyMaterialCategory, SubtopicMaterial
 from studies.models.schemas import (
@@ -60,7 +59,7 @@ from api.routes.user_roles_routes import user_roles_bp
 from api.routes.roles_routes import roles_bp
 from api.routes.subjects_routes import (
     seasons_bp, subjects_bp, topics_bp, subtopics_bp,
-    season_subjects_bp, season_applicants_bp, courses_bp as api_courses_bp
+    season_subjects_bp, season_applicants_bp
 )
 from subjects.controllers.courses_controller import courses_bp as subjects_courses_bp
 from instructors.controllers.instructors_controller import instructors_bp
@@ -189,8 +188,7 @@ app.register_blueprint(topics_bp, url_prefix='/api', name='api_topics')
 app.register_blueprint(subtopics_bp, url_prefix='/api', name='api_subtopics')
 app.register_blueprint(season_subjects_bp, url_prefix='/api', name='api_season_subjects')
 app.register_blueprint(season_applicants_bp, url_prefix='/api', name='api_season_applicants')
-app.register_blueprint(api_courses_bp, url_prefix='/api', name='api_courses')
-app.register_blueprint(subjects_courses_bp, name='subjects_courses')  # Contains /api/courses/approved
+app.register_blueprint(subjects_courses_bp, name='subjects_courses')  # Contains /api/courses/approved (refactored to subjects)
 app.register_blueprint(material_categories_bp, url_prefix='/api', name='api_material_categories')
 app.register_blueprint(subtopic_materials_bp, url_prefix='/api', name='api_subtopic_materials')
 app.register_blueprint(applications_bp, url_prefix='/api', name='api_applications')

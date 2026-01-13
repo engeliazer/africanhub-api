@@ -14,23 +14,6 @@ class ApplicationStatus(str, enum.Enum):
     def __str__(self):
         return self.value
 
-class Course(Base):
-    __tablename__ = "courses"
-
-    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    code = Column(String(255), nullable=False, unique=True)
-    description = Column(Text, nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
-    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-    updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
-    deleted_at = Column(DateTime, nullable=True)
-
-    # Relationships
-    subjects = relationship("Subject", back_populates="course", cascade="all, delete-orphan")
-
 class Season(Base):
     __tablename__ = "seasons"
 
@@ -57,7 +40,6 @@ class Subject(Base):
     code = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     current_price = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
-    course_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
@@ -66,7 +48,6 @@ class Subject(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     # Relationships
-    course = relationship("Course", back_populates="subjects")
     topics = relationship("Topic", back_populates="subject", cascade="all, delete-orphan")
     season_subjects = relationship("SeasonSubject", back_populates="subject", cascade="all, delete-orphan")
 

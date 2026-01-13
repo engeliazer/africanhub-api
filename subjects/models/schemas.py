@@ -34,34 +34,6 @@ class SeasonInDB(SeasonBase):
     class Config:
         from_attributes = True
 
-# Course schemas
-class CourseBase(BaseModel):
-    name: str
-    code: str
-    description: Optional[str] = None
-    is_active: bool = True
-    created_by: int
-    updated_by: int
-
-class CourseCreate(CourseBase):
-    pass
-
-class CourseUpdate(BaseModel):
-    name: Optional[str] = None
-    code: Optional[str] = None
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-    updated_by: Optional[int] = None
-
-class CourseInDB(CourseBase):
-    id: int
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    deleted_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 # Subject schemas
 class SubjectBase(BaseModel):
     name: str
@@ -71,7 +43,6 @@ class SubjectBase(BaseModel):
     is_active: bool = True
     created_by: int
     updated_by: int
-    course_id: int
 
 class SubjectCreate(SubjectBase):
     pass
@@ -82,7 +53,6 @@ class SubjectUpdate(BaseModel):
     description: Optional[str] = None
     current_price: Optional[int] = None
     is_active: Optional[bool] = None
-    course_id: Optional[int] = None
     updated_by: int
 
 class SubjectInDB(SubjectBase):
@@ -91,7 +61,6 @@ class SubjectInDB(SubjectBase):
     updated_at: Optional[datetime] = None
     deleted_by: Optional[int] = None
     deleted_at: Optional[datetime] = None
-    course: Optional[CourseInDB] = None
 
     class Config:
         from_attributes = True

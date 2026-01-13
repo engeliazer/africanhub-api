@@ -13,7 +13,6 @@ from applications.models.models import (
     ApplicationDetail, Subject, BankDetails, BankTransaction, BankStatementBatch, BankReconciliation, PaymentApproval,
     ApplicationStatus, ReconciliationStatus, PaymentMethodModel
 )
-from subjects.models.models import Course
 from auth.models.models import User, UserRole, Role
 from database.db_connector import db_session, DBConnector
 from public.controllers.sms_controller import SMSService
@@ -269,19 +268,14 @@ class AccountingController:
                 ApplicationDetail.is_active == True
             ).all()
             
-            # Get subjects and courses information
+            # Get subjects information
             subjects = []
             for app_detail in application_details:
                 subject = app_detail.subject
-                course = subject.course
                 subjects.append({
                     'id': subject.id,
                     'name': subject.name,
-                    'course': {
-                        'id': course.id,
-                        'name': course.name,
-                        'code': course.code
-                    }
+                    'code': subject.code
                 })
             
             # Get student information
@@ -888,7 +882,7 @@ class AccountingController:
                     .outerjoin(User, Application.user_id == User.id)
                     .options(
                         joinedload(Application.user),
-                        joinedload(Application.details).joinedload(ApplicationDetail.subject).joinedload(Subject.course)
+                        joinedload(Application.details).joinedload(ApplicationDetail.subject)
                     )
                     .filter(
                         and_(
@@ -907,9 +901,8 @@ class AccountingController:
                     # Get the first application detail (assuming one application can have multiple subjects)
                     application_detail = application.details[0] if application.details else None
                     
-                    # Get course and subject information
+                    # Get subject information
                     subject = application_detail.subject if application_detail else None
-                    course = subject.course if subject else None
                     
                     formatted_result = {
                         "application": {
@@ -923,11 +916,6 @@ class AccountingController:
                                 "email": application.user.email if application.user else None,
                                 "phone": application.user.phone if application.user else None
                             } if application.user else None,
-                            "course": {
-                                "id": course.id if course else None,
-                                "name": course.name if course else None,
-                                "code": course.code if course else None
-                            } if course else None,
                             "subject": {
                                 "id": subject.id if subject else None,
                                 "name": subject.name if subject else None,
@@ -1021,7 +1009,7 @@ class AccountingController:
                     self.db.query(Payment)
                     .filter(Payment.id.in_(payment_ids))
                     .options(
-                        joinedload(Payment.payment_details).joinedload(PaymentDetail.application).joinedload(Application.details).joinedload(ApplicationDetail.subject).joinedload(Subject.course),
+                        joinedload(Payment.payment_details).joinedload(PaymentDetail.application).joinedload(Application.details).joinedload(ApplicationDetail.subject),
                         joinedload(Payment.payment_details).joinedload(PaymentDetail.application).joinedload(Application.user),
                         joinedload(Payment.reconciliations).joinedload(BankReconciliation.bank_transaction)
                     )
@@ -1052,9 +1040,8 @@ class AccountingController:
                     user = application.user if application else None
                     application_detail = application.details[0] if application and application.details else None
                     
-                    # Get course and subject information
+                    # Get subject information
                     subject = application_detail.subject if application_detail else None
-                    course = subject.course if subject else None
                     
                     formatted_records.append({
                         "id": record.id,
@@ -1073,11 +1060,6 @@ class AccountingController:
                                 "email": user.email if user else None,
                                 "phone": user.phone if user else None
                             } if user else None,
-                            "course": {
-                                "id": course.id if course else None,
-                                "name": course.name if course else None,
-                                "code": course.code if course else None
-                            } if course else None,
                             "subject": {
                                 "id": subject.id if subject else None,
                                 "name": subject.name if subject else None,
@@ -1174,13 +1156,13 @@ class AccountingController:
                 # Get the reconciliation status
                 status = reconciliation_status.get(payment.id, 'pending')
                 
-                # Get application details to find subjects and courses
+                # Get application details to find subjects
                 application_details = self.db.query(ApplicationDetail).filter(
                     ApplicationDetail.application_id == application.id,
                     ApplicationDetail.is_active == True
                 ).all()
                 
-                # Get subject and course information
+                # Get subject information
                 subjects = []
                 for app_detail in application_details:
                     subject = self.db.query(Subject).filter(
@@ -1189,20 +1171,10 @@ class AccountingController:
                     ).first()
                     
                     if subject:
-                        course = self.db.query(Course).filter(
-                            Course.id == subject.course_id,
-                            Course.is_active == True
-                        ).first()
-                        
                         subjects.append({
                             'id': subject.id,
                             'name': subject.name,
-                            'code': subject.code,
-                            'course': {
-                                'id': course.id,
-                                'name': course.name,
-                                'code': course.code
-                            } if course else None
+                            'code': subject.code
                         })
                 
                 # Format the payment data
@@ -1373,24 +1345,12 @@ class AccountingController:
                             ApplicationDetail.is_active == True
                         ).all()
                         
-                        # Get course and subject information
-                        course_info = None
+                        # Get subject information
                         subject_info = None
                         
                         for app_detail in app_details:
                             if app_detail.subject:
                                 subject = app_detail.subject
-                                course = self.db.query(Course).filter(
-                                    Course.id == subject.course_id,
-                                    Course.is_active == True
-                                ).first()
-                                
-                                if course:
-                                    course_info = {
-                                        'code': course.code,
-                                        'name': course.name
-                                    }
-                                
                                 subject_info = {
                                     'code': subject.code,
                                     'name': subject.name
@@ -1409,7 +1369,6 @@ class AccountingController:
                             'applicant': applicant_info,
                             'application': {
                                 'id': application.id,
-                                'course': course_info,
                                 'subject': subject_info,
                                 'total_fee': float(application.total_fee) if application.total_fee else 0.0
                             },
