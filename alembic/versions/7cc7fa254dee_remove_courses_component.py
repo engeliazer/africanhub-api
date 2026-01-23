@@ -19,8 +19,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Drop foreign key constraint from subjects.course_id
-    op.drop_constraint('subjects_ibfk_1', 'subjects', type_='foreignkey')
+    # Get the connection to inspect constraints
+    connection = op.get_bind()
+    
+    # Find the foreign key constraint name for subjects.course_id
+    # MySQL auto-generates constraint names, so we need to query for it
+    result = connection.execute(sa.text("""
+        SELECT CONSTRAINT_NAME 
+        FROM information_schema.KEY_COLUMN_USAGE 
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'subjects' 
+        AND COLUMN_NAME = 'course_id'
+        AND REFERENCED_TABLE_NAME IS NOT NULL
+    """))
+    
+    constraint_name = result.scalar()
+    
+    # Drop foreign key constraint from subjects.course_id if it exists
+    if constraint_name:
+        op.drop_constraint(constraint_name, 'subjects', type_='foreignkey')
     
     # Drop the course_id column from subjects table
     op.drop_column('subjects', 'course_id')
@@ -53,18 +70,18 @@ def downgrade() -> None:
     
     # Create a default course for existing subjects
     connection = op.get_bind()
-    connection.execute("""
+    connection.execute(sa.text("""
         INSERT INTO courses (name, code, description, is_active, created_by, updated_by)
-        VALUES ('Default Course', 'DEFAULT', 'Default course for migrated subjects', 1, 1, 1)
+        SELECT 'Default Course', 'DEFAULT', 'Default course for migrated subjects', 1, 1, 1
         WHERE NOT EXISTS (SELECT 1 FROM courses WHERE code = 'DEFAULT')
-    """)
+    """))
     
     # Update existing subjects to use the default course
-    connection.execute("""
+    connection.execute(sa.text("""
         UPDATE subjects
         SET course_id = (SELECT id FROM courses WHERE code = 'DEFAULT')
         WHERE course_id IS NULL
-    """)
+    """))
     
     # Make course_id non-nullable after updating existing records
     op.alter_column('subjects', 'course_id',

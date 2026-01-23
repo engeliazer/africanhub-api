@@ -8,7 +8,6 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from subjects.models.models import Subject
 from subjects.models.schemas import SubjectCreate, SubjectUpdate, SubjectInDB
-from courses.models.models import Course
 from database.db_connector import db_session
 
 subject_bp = Blueprint('subject', __name__)
@@ -20,19 +19,11 @@ class SubjectsController:
     def create_subject(self, subject: SubjectCreate) -> SubjectInDB:
         """Create a new subject"""
         try:
-            # Verify that the course exists
-            course = self.db.query(Course).filter(
-                Course.id == subject.course_id,
-                Course.deleted_at.is_(None)
-            ).first()
-            if not course:
-                raise BadRequest("Course not found")
-
             db_subject = Subject(
                 name=subject.name,
                 code=subject.code,
                 description=subject.description,
-                course_id=subject.course_id,
+                current_price=subject.current_price,
                 is_active=subject.is_active,
                 created_by=subject.created_by,
                 updated_by=subject.updated_by,
@@ -49,9 +40,7 @@ class SubjectsController:
 
     def get_subject(self, subject_id: int) -> Optional[SubjectInDB]:
         """Get a subject by ID"""
-        subject = self.db.query(Subject).options(
-            joinedload(Subject.course)
-        ).filter(
+        subject = self.db.query(Subject).filter(
             Subject.id == subject_id,
             Subject.deleted_at.is_(None)
         ).first()
@@ -61,9 +50,7 @@ class SubjectsController:
 
     def get_subjects(self, skip: int = 0, limit: int = 100) -> List[SubjectInDB]:
         """Get all subjects with pagination"""
-        subjects = self.db.query(Subject).options(
-            joinedload(Subject.course)
-        ).filter(
+        subjects = self.db.query(Subject).filter(
             Subject.deleted_at.is_(None)
         ).offset(skip).limit(limit).all()
         return [SubjectInDB.from_orm(subject) for subject in subjects]
@@ -78,15 +65,6 @@ class SubjectsController:
             raise NotFound("Subject not found")
 
         update_data = subject_update.dict(exclude_unset=True)
-        
-        # If course_id is being updated, verify the course exists
-        if 'course_id' in update_data:
-            course = self.db.query(Course).filter(
-                Course.id == update_data['course_id'],
-                Course.deleted_at.is_(None)
-            ).first()
-            if not course:
-                raise BadRequest("Course not found")
 
         for field, value in update_data.items():
             setattr(db_subject, field, value)

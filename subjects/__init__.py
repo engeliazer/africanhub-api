@@ -1,3 +1,2 @@
-from api.routes.subjects_routes import courses_bp
-
-__all__ = ['courses_bp'] 
+# courses_bp removed - courses component eliminated
+__all__ = [] 
