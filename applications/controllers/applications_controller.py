@@ -9,7 +9,7 @@ from sqlalchemy.sql import text
 
 from applications.models.models import Application, ApplicationDetail, PaymentStatus, ApplicationStatus
 from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB
-from subjects.models.models import Subject, Season
+from subjects.models.models import Subject
 from auth.models.models import User
 from database.db_connector import db_session
 
@@ -44,14 +44,6 @@ class ApplicationsController:
             # Process each detail
             total_fee = 0
             for detail in application.details:
-                # Verify season exists
-                season = self.db.query(Season).filter(
-                    Season.id == detail.season_id,
-                    Season.is_active == True
-                ).first()
-                if not season:
-                    raise BadRequest(f"Season with ID {detail.season_id} not found or not active")
-                
                 # Verify subject exists
                 subject = self.db.query(Subject).filter(
                     Subject.id == detail.subject_id,
@@ -63,13 +55,12 @@ class ApplicationsController:
                 # Check if application detail already exists
                 existing_detail = self.db.query(ApplicationDetail).join(Application).filter(
                     Application.user_id == application.user_id,
-                    ApplicationDetail.season_id == detail.season_id,
                     ApplicationDetail.subject_id == detail.subject_id,
                     ApplicationDetail.deleted_at.is_(None)
                 ).first()
                 
                 if existing_detail:
-                    raise BadRequest(f"Application already exists for user, season {detail.season_id}, and subject {detail.subject_id}")
+                    raise BadRequest(f"Application already exists for user and subject {detail.subject_id}")
                 
                 # Set fee from subject if not provided
                 fee = detail.fee if detail.fee is not None else subject.current_price or 0
@@ -78,7 +69,6 @@ class ApplicationsController:
                 # Create detail
                 db_detail = ApplicationDetail(
                     application_id=db_application.id,
-                    season_id=detail.season_id,
                     subject_id=detail.subject_id,
                     fee=fee,
                     status=detail.status,
@@ -98,7 +88,6 @@ class ApplicationsController:
             # Reload with details
             application_with_details = self.db.query(Application).options(
                 joinedload(Application.details).joinedload(ApplicationDetail.subject),
-                joinedload(Application.details).joinedload(ApplicationDetail.season),
                 joinedload(Application.user)
             ).filter(Application.id == db_application.id).first()
             
@@ -119,16 +108,6 @@ class ApplicationsController:
             for i, detail in enumerate(result['details']):
                 # Get the season and subject from the DB object
                 db_detail = application_with_details.details[i]
-                
-                # Add season details
-                if db_detail.season:
-                    detail['season_details'] = {
-                        'id': db_detail.season.id,
-                        'name': db_detail.season.name,
-                        'start_date': getattr(db_detail.season, 'start_date', None),
-                        'end_date': getattr(db_detail.season, 'end_date', None),
-                        'is_active': getattr(db_detail.season, 'is_active', True)
-                    }
                 
                 # Add subject details
                 if db_detail.subject:
@@ -175,20 +154,10 @@ class ApplicationsController:
                 'phone': application.user.phone
             }
         
-        # Add details for each subject/season
+        # Add details for each subject
         for i, detail in enumerate(result['details']):
-            # Get the season and subject from the DB object
+            # Get the subject from the DB object
             db_detail = application.details[i]
-            
-            # Add season details
-            if db_detail.season:
-                detail['season_details'] = {
-                    'id': db_detail.season.id,
-                    'name': db_detail.season.name,
-                    'start_date': getattr(db_detail.season, 'start_date', None),
-                    'end_date': getattr(db_detail.season, 'end_date', None),
-                    'is_active': getattr(db_detail.season, 'is_active', True)
-                }
             
             # Add subject details
             if db_detail.subject:
@@ -203,7 +172,6 @@ class ApplicationsController:
     
     def get_applications(self, skip: int = 0, limit: int = 100, 
                         user_id: Optional[int] = None,
-                        season_id: Optional[int] = None,
                         subject_id: Optional[int] = None,
                         status: Optional[str] = None,
                         payment_status: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -245,27 +213,18 @@ class ApplicationsController:
                 query = query.filter(Application.status == status)
         
         # Apply filters that need to join with ApplicationDetail
-        if season_id or subject_id:
+        if subject_id:
             # Start with all application IDs
             application_ids = set(row[0] for row in self.db.query(Application.id).filter(
                 Application.deleted_at.is_(None)
             ))
             
-            # If filtered by season, find matching applications
-            if season_id:
-                season_app_ids = set(row[0] for row in self.db.query(ApplicationDetail.application_id).filter(
-                    ApplicationDetail.season_id == season_id,
-                    ApplicationDetail.deleted_at.is_(None)
-                ))
-                application_ids &= season_app_ids
-            
             # If filtered by subject, find matching applications
-            if subject_id:
-                subject_app_ids = set(row[0] for row in self.db.query(ApplicationDetail.application_id).filter(
-                    ApplicationDetail.subject_id == subject_id,
-                    ApplicationDetail.deleted_at.is_(None)
-                ))
-                application_ids &= subject_app_ids
+            subject_app_ids = set(row[0] for row in self.db.query(ApplicationDetail.application_id).filter(
+                ApplicationDetail.subject_id == subject_id,
+                ApplicationDetail.deleted_at.is_(None)
+            ))
+            application_ids &= subject_app_ids
             
             # Add the ID filter to the main query
             if application_ids:
@@ -326,16 +285,7 @@ class ApplicationsController:
                     'updated_at': db_detail.updated_at
                 }
                 
-                # Add season details
-                if db_detail.season:
-                    detail['season_details'] = {
-                        'id': db_detail.season.id,
-                        'name': db_detail.season.name,
-                        'start_date': getattr(db_detail.season, 'start_date', None),
-                        'end_date': getattr(db_detail.season, 'end_date', None),
-                        'is_active': getattr(db_detail.season, 'is_active', True)
-                    }
-                else:
+else:
                     detail['season_details'] = {
                         'id': detail.get('season_id'),
                         'name': 'Unknown Season',
@@ -405,7 +355,6 @@ class ApplicationsController:
             # Reload with details
             application_with_details = self.db.query(Application).options(
                 joinedload(Application.details).joinedload(ApplicationDetail.subject),
-                joinedload(Application.details).joinedload(ApplicationDetail.season),
                 joinedload(Application.user)
             ).filter(Application.id == db_application.id).first()
             
@@ -426,16 +375,6 @@ class ApplicationsController:
             for i, detail in enumerate(result['details']):
                 # Get the season and subject from the DB object
                 db_detail = application_with_details.details[i]
-                
-                # Add season details
-                if db_detail.season:
-                    detail['season_details'] = {
-                        'id': db_detail.season.id,
-                        'name': db_detail.season.name,
-                        'start_date': getattr(db_detail.season, 'start_date', None),
-                        'end_date': getattr(db_detail.season, 'end_date', None),
-                        'is_active': getattr(db_detail.season, 'is_active', True)
-                    }
                 
                 # Add subject details
                 if db_detail.subject:
@@ -484,14 +423,6 @@ class ApplicationsController:
             if not user:
                 raise BadRequest(f"User with ID {user_id} not found")
             
-            # Verify season exists
-            season = self.db.query(Season).filter(
-                Season.id == season_id,
-                Season.is_active == True
-            ).first()
-            if not season:
-                raise BadRequest(f"Season with ID {season_id} not found or not active")
-            
             # Get all specified subjects and verify they exist
             subjects = self.db.query(Subject).filter(
                 Subject.id.in_(subject_ids),
@@ -503,10 +434,9 @@ class ApplicationsController:
                 missing_ids = [sid for sid in subject_ids if sid not in found_ids]
                 raise BadRequest(f"Some subjects not found or not active: {missing_ids}")
             
-            # Check for existing active applications for this user/season/subjects
+            # Check for existing active applications for this user/subjects
             existing_details = self.db.query(ApplicationDetail).join(Application).filter(
                 Application.user_id == user_id,
-                ApplicationDetail.season_id == season_id,
                 ApplicationDetail.subject_id.in_(subject_ids),
                 Application.is_active == True,
                 ApplicationDetail.is_active == True,
@@ -547,7 +477,6 @@ class ApplicationsController:
                 # Create application detail
                 detail = ApplicationDetail(
                     application_id=application.id,
-                    season_id=season_id,
                     subject_id=subject.id,
                     fee=fee,
                     status=status,
@@ -566,7 +495,6 @@ class ApplicationsController:
             # Reload the application with all details
             application_with_details = self.db.query(Application).options(
                 joinedload(Application.details).joinedload(ApplicationDetail.subject),
-                joinedload(Application.details).joinedload(ApplicationDetail.season),
                 joinedload(Application.user)
             ).filter(Application.id == application.id).first()
             
@@ -587,16 +515,6 @@ class ApplicationsController:
             for i, detail in enumerate(result['details']):
                 # Get the season and subject from the DB object
                 db_detail = application_with_details.details[i]
-                
-                # Add season details
-                if db_detail.season:
-                    detail['season_details'] = {
-                        'id': db_detail.season.id,
-                        'name': db_detail.season.name,
-                        'start_date': getattr(db_detail.season, 'start_date', None),
-                        'end_date': getattr(db_detail.season, 'end_date', None),
-                        'is_active': getattr(db_detail.season, 'is_active', True)
-                    }
                 
                 # Add subject details
                 if db_detail.subject:

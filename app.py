@@ -21,14 +21,11 @@ from security.jwt_handler import JWTHandler
 from public.controllers.self_registration_controller import public
 from auth.controllers.auth_controller import auth
 from database.db_connector import db_session
-from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant, ApplicationStatus
+from subjects.models.models import Subject, Topic, SubTopic, ApplicationStatus
 from subjects.models.schemas import (
-    SeasonCreate, SeasonUpdate, SeasonInDB,
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
-    SubTopicCreate, SubTopicUpdate, SubTopicInDB,
-    SeasonSubjectCreate, SeasonSubjectUpdate, SeasonSubjectInDB,
-    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB
+    SubTopicCreate, SubTopicUpdate, SubTopicInDB
 )
 from studies.models.models import StudyMaterialCategory, SubtopicMaterial
 from studies.models.schemas import (
