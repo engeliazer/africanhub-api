@@ -223,8 +223,15 @@ def get_available_seasons():
 @seasons_bp.route('/seasons/<int:season_id>/available-subjects', methods=['GET'])
 @jwt_required()
 def get_season_available_subjects(season_id):
-    """Get all subjects that haven't been added to the specified season"""
+    """Get subjects available to the current user in a season.
+    
+    Returns subjects that:
+    1. The user hasn't applied for, OR
+    2. The user applied for but access has expired (days past > duration_days)
+    """
     try:
+        from datetime import datetime, timedelta
+        current_user_id = get_jwt_identity()
         db = get_db()
         
         # First verify that the season exists and is active
@@ -241,21 +248,87 @@ def get_season_available_subjects(season_id):
                 "message": "Season not found or inactive"
             }), 404
 
-        # Get all subject IDs that are already in season_subjects for this season
-        existing_subject_ids = db.query(SeasonSubject.subject_id)\
-            .filter(
-                SeasonSubject.season_id == season_id,
-                SeasonSubject.is_active == True
-            )
-
-        # Get all active subjects that are not in the season_subjects
-        subjects = db.query(Subject)\
+        # Get all subjects that are active in this season
+        subjects_in_season = db.query(Subject)\
+            .join(SeasonSubject, Subject.id == SeasonSubject.subject_id)\
             .filter(
                 and_(
+                    SeasonSubject.season_id == season_id,
+                    SeasonSubject.is_active == True,
                     Subject.is_active == True,
-                    ~Subject.id.in_(existing_subject_ids)
+                    Subject.deleted_at.is_(None)
+                )
+            ).distinct().all()
+
+        # Get all approved applications for this user in this season
+        # Only approved applications grant access, so we only check expiration for those
+        user_applications = db.query(ApplicationDetail)\
+            .join(Application, ApplicationDetail.application_id == Application.id)\
+            .filter(
+                and_(
+                    Application.user_id == current_user_id,
+                    ApplicationDetail.season_id == season_id,
+                    Application.is_active == True,
+                    ApplicationDetail.is_active == True,
+                    Application.status == ApplicationStatus.approved.value  # Only check approved applications
                 )
             ).all()
+        
+        # Create a map of subject_id -> application_detail for quick lookup
+        applied_subjects_map = {
+            app_detail.subject_id: app_detail 
+            for app_detail in user_applications
+        }
+        
+        # Filter subjects: include if not applied OR if access has expired
+        available_subjects = []
+        current_date = datetime.utcnow()
+        
+        for subject in subjects_in_season:
+            subject_id = subject.id
+            is_available = False
+            reason = None
+            
+            # Check if user has applied for this subject
+            if subject_id not in applied_subjects_map:
+                # User hasn't applied - available
+                is_available = True
+                reason = "not_applied"
+            else:
+                # User has applied - check if access has expired
+                app_detail = applied_subjects_map[subject_id]
+                application_date = app_detail.created_at
+                
+                # Calculate days since application
+                days_since_application = (current_date - application_date).days
+                
+                # Check if subject has duration_days set
+                if subject.duration_days is not None:
+                    # Access expired if days past > duration_days
+                    if days_since_application > subject.duration_days:
+                        is_available = True
+                        reason = "access_expired"
+                    else:
+                        # Access still valid
+                        reason = "access_active"
+                else:
+                    # No duration set - consider it as always available (or never expires)
+                    # You might want to change this logic based on your business rules
+                    reason = "no_duration_set"
+                    # For now, we'll include it if you want users to re-apply when no duration is set
+                    # Or exclude it if you want to keep access forever when no duration
+                    # Let's exclude it (not available) if no duration is set
+                    is_available = False
+            
+            if is_available:
+                subject_dict = SubjectInDB.from_orm(subject).dict()
+                subject_dict['availability_reason'] = reason
+                if subject_id in applied_subjects_map:
+                    app_detail = applied_subjects_map[subject_id]
+                    days_since = (current_date - app_detail.created_at).days
+                    subject_dict['days_since_application'] = days_since
+                    subject_dict['duration_days'] = subject.duration_days
+                available_subjects.append(subject_dict)
 
         return jsonify({
             "status": "success",
@@ -270,7 +343,7 @@ def get_season_available_subjects(season_id):
                     "description": season.description,
                     "is_active": season.is_active
                 },
-                "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects]
+                "subjects": available_subjects
             }
         }), 200
     except Exception as e:
