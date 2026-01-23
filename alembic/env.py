@@ -10,6 +10,25 @@ from applications.models.models import Base
 # access to the values within the .ini file in use.
 config = context.config
 
+# Override sqlalchemy.url with environment variables if available
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Get database connection parameters from environment
+DB_USER = os.getenv('DB_USER', 'ocpac')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
+DB_PORT = os.getenv('DB_PORT', '3306')
+DB_NAME = os.getenv('DB_NAME', 'ocpac')
+
+# Override the sqlalchemy.url with pymysql
+if DB_PASSWORD:
+    config.set_main_option('sqlalchemy.url', f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+else:
+    config.set_main_option('sqlalchemy.url', f"mysql+pymysql://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:

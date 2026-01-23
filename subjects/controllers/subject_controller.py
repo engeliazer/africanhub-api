@@ -24,6 +24,8 @@ class SubjectsController:
                 code=subject.code,
                 description=subject.description,
                 current_price=subject.current_price,
+                duration_days=subject.duration_days,
+                trial_duration_days=subject.trial_duration_days,
                 is_active=subject.is_active,
                 created_by=subject.created_by,
                 updated_by=subject.updated_by,

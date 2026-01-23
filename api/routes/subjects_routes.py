@@ -576,6 +576,8 @@ def create_subject_with_topic_subtopic():
                 code=subject_data.code,
                 description=subject_data.description,
                 current_price=subject_data.current_price,
+                duration_days=subject_data.duration_days,
+                trial_duration_days=subject_data.trial_duration_days,
                 is_active=subject_data.is_active,
                 created_by=subject_data.created_by,
                 updated_by=subject_data.updated_by
