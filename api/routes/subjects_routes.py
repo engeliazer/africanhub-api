@@ -3,14 +3,11 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import get_db
 from auth.models.models import User
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
-from subjects.models.models import Season, Subject, Topic, SubTopic, SeasonSubject, SeasonApplicant
+from subjects.models.models import Subject, Topic, SubTopic
 from subjects.models.schemas import (
-    SeasonCreate, SeasonUpdate, SeasonInDB,
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
-    SubTopicCreate, SubTopicUpdate, SubTopicInDB,
-    SeasonSubjectCreate, SeasonSubjectUpdate, SeasonSubjectInDB,
-    SeasonApplicantCreate, SeasonApplicantUpdate, SeasonApplicantInDB
+    SubTopicCreate, SubTopicUpdate, SubTopicInDB
 )
 from studies.models.models import SubtopicMaterial
 from sqlalchemy import and_, func
@@ -220,54 +217,36 @@ def get_available_seasons():
     finally:
         db.close()
 
-@seasons_bp.route('/seasons/<int:season_id>/available-subjects', methods=['GET'])
+@subjects_bp.route('/available-subjects', methods=['GET'])
 @jwt_required()
-def get_season_available_subjects(season_id):
-    """Get subjects available to the current user in a season.
+def get_available_subjects():
+    """Get subjects available to the current user.
     
     Returns subjects that:
     1. The user hasn't applied for, OR
     2. The user applied for but access has expired (days past > duration_days)
     """
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         current_user_id = get_jwt_identity()
         db = get_db()
         
-        # First verify that the season exists and is active
-        season = db.query(Season).filter(
-            and_(
-                Season.id == season_id,
-                Season.is_active == True
-            )
-        ).first()
-        
-        if not season:
-            return jsonify({
-                "status": "error",
-                "message": "Season not found or inactive"
-            }), 404
-
-        # Get all subjects that are active in this season
-        subjects_in_season = db.query(Subject)\
-            .join(SeasonSubject, Subject.id == SeasonSubject.subject_id)\
+        # Get all active subjects
+        all_subjects = db.query(Subject)\
             .filter(
                 and_(
-                    SeasonSubject.season_id == season_id,
-                    SeasonSubject.is_active == True,
                     Subject.is_active == True,
                     Subject.deleted_at.is_(None)
                 )
-            ).distinct().all()
+            ).all()
 
-        # Get all approved applications for this user in this season
+        # Get all approved applications for this user
         # Only approved applications grant access, so we only check expiration for those
         user_applications = db.query(ApplicationDetail)\
             .join(Application, ApplicationDetail.application_id == Application.id)\
             .filter(
                 and_(
                     Application.user_id == current_user_id,
-                    ApplicationDetail.season_id == season_id,
                     Application.is_active == True,
                     ApplicationDetail.is_active == True,
                     Application.status == ApplicationStatus.approved.value  # Only check approved applications
@@ -284,7 +263,7 @@ def get_season_available_subjects(season_id):
         available_subjects = []
         current_date = datetime.utcnow()
         
-        for subject in subjects_in_season:
+        for subject in all_subjects:
             subject_id = subject.id
             is_available = False
             reason = None
@@ -312,12 +291,8 @@ def get_season_available_subjects(season_id):
                         # Access still valid
                         reason = "access_active"
                 else:
-                    # No duration set - consider it as always available (or never expires)
-                    # You might want to change this logic based on your business rules
+                    # No duration set - access never expires
                     reason = "no_duration_set"
-                    # For now, we'll include it if you want users to re-apply when no duration is set
-                    # Or exclude it if you want to keep access forever when no duration
-                    # Let's exclude it (not available) if no duration is set
                     is_available = False
             
             if is_available:
@@ -333,18 +308,7 @@ def get_season_available_subjects(season_id):
         return jsonify({
             "status": "success",
             "message": "Available subjects retrieved successfully",
-            "data": {
-                "season": {
-                    "id": season.id,
-                    "name": season.name,
-                    "code": season.code,
-                    "start_date": season.start_date.strftime("%Y-%m-%d"),
-                    "end_date": season.end_date.strftime("%Y-%m-%d"),
-                    "description": season.description,
-                    "is_active": season.is_active
-                },
-                "subjects": available_subjects
-            }
+            "data": available_subjects
         }), 200
     except Exception as e:
         return jsonify({

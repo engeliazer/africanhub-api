@@ -58,8 +58,7 @@ from api.routes.auth_routes import auth_bp
 from api.routes.user_roles_routes import user_roles_bp
 from api.routes.roles_routes import roles_bp
 from api.routes.subjects_routes import (
-    seasons_bp, subjects_bp, topics_bp, subtopics_bp,
-    season_subjects_bp, season_applicants_bp
+    subjects_bp, topics_bp, subtopics_bp
 )
 from subjects.controllers.courses_controller import courses_bp as subjects_courses_bp
 from instructors.controllers.instructors_controller import instructors_bp
@@ -182,12 +181,9 @@ app.register_blueprint(contact_bp)  # Public contact form (no auth required)
 app.register_blueprint(auth_bp, url_prefix='/api', name='api_auth')
 app.register_blueprint(user_roles_bp, url_prefix='/api', name='api_user_roles')
 app.register_blueprint(roles_bp, url_prefix='/api', name='api_roles')
-app.register_blueprint(seasons_bp, url_prefix='/api', name='api_seasons')
 app.register_blueprint(subjects_bp, url_prefix='/api', name='api_subjects')
 app.register_blueprint(topics_bp, url_prefix='/api', name='api_topics')
 app.register_blueprint(subtopics_bp, url_prefix='/api', name='api_subtopics')
-app.register_blueprint(season_subjects_bp, url_prefix='/api', name='api_season_subjects')
-app.register_blueprint(season_applicants_bp, url_prefix='/api', name='api_season_applicants')
 app.register_blueprint(subjects_courses_bp, name='subjects_courses')  # Contains /api/courses/approved (refactored to subjects)
 app.register_blueprint(material_categories_bp, url_prefix='/api', name='api_material_categories')
 app.register_blueprint(subtopic_materials_bp, url_prefix='/api', name='api_subtopic_materials')

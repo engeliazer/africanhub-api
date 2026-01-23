@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from sqlalchemy.types import Enum as SQLAlchemyEnum
 
-from subjects.models.models import Season, Subject
+from subjects.models.models import Subject
 
 class PaymentStatus(str, Enum):
     pending_payment = "pending_payment"
@@ -70,7 +70,6 @@ class ApplicationDetail(Base):
     
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     application_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("applications.id"), nullable=False)
-    season_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("seasons.id"), nullable=False)
     subject_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("subjects.id"), nullable=False)
     fee = Column(Float, default=0.0)
     status = Column(SQLAlchemyEnum(ApplicationStatus), default=ApplicationStatus.pending)
@@ -84,7 +83,6 @@ class ApplicationDetail(Base):
     
     # Relationships
     application = relationship("Application", back_populates="details")
-    season = relationship("Season")
     subject = relationship("Subject")
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
