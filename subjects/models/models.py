@@ -40,6 +40,8 @@ class Subject(Base):
     code = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     current_price = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
+    duration_days = Column(Integer, nullable=True, comment="Standard access duration in days")
+    trial_duration_days = Column(Integer, nullable=True, comment="Trial period duration in days")
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)

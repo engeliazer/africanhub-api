@@ -40,6 +40,8 @@ class SubjectBase(BaseModel):
     code: str
     description: Optional[str] = None
     current_price: Optional[int] = None
+    duration_days: Optional[int] = None
+    trial_duration_days: Optional[int] = None
     is_active: bool = True
     created_by: int
     updated_by: int
@@ -52,6 +54,8 @@ class SubjectUpdate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     current_price: Optional[int] = None
+    duration_days: Optional[int] = None
+    trial_duration_days: Optional[int] = None
     is_active: Optional[bool] = None
     updated_by: int
 
