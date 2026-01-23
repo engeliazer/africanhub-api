@@ -5,7 +5,7 @@ from applications.models.models import (
     Application, ApplicationDetail, PaymentStatus as ApplicationPaymentStatus, 
     ApplicationStatus, Payment, PaymentDetail, PaymentMethod
 )
-from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB, SeasonApplicationCreate
+from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB, MultiSubjectApplicationCreate
 from applications.controllers.applications_controller import ApplicationsController
 from sqlalchemy import desc
 from datetime import datetime
@@ -380,9 +380,8 @@ def create_season_application():
         
         # Get and validate request data
         data = request.get_json()
-        application_data = SeasonApplicationCreate(
+        application_data = MultiSubjectApplicationCreate(
             user_id=current_user_id,
-            season_id=data['season_id'],
             subject_ids=data['subject_ids'],
             payment_status=data.get('payment_status', 'pending_payment'),
             status=data.get('status', 'pending'),
@@ -394,7 +393,6 @@ def create_season_application():
         controller = ApplicationsController(db_session)
         application = controller.create_season_applications(
             user_id=application_data.user_id,
-            season_id=application_data.season_id,
             subject_ids=application_data.subject_ids,
             payment_status=application_data.payment_status,
             status=application_data.status,

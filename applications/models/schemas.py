@@ -5,7 +5,6 @@ from applications.models.models import PaymentStatus, ApplicationStatus, Payment
 
 # Application Detail Schemas
 class ApplicationDetailBase(BaseModel):
-    season_id: int
     subject_id: int
     fee: Optional[float] = None
     status: str = ApplicationStatus.pending.value
@@ -23,7 +22,6 @@ class ApplicationDetailCreate(ApplicationDetailBase):
     pass
 
 class ApplicationDetailUpdate(BaseModel):
-    season_id: Optional[int] = None
     subject_id: Optional[int] = None
     fee: Optional[float] = None
     status: Optional[str] = None
@@ -103,10 +101,9 @@ class ApplicationInDB(ApplicationBase):
     class Config:
         from_attributes = True
 
-# Schema for creating a season application (multiple subjects for one season)
-class SeasonApplicationCreate(BaseModel):
+# Schema for creating an application with multiple subjects (seasons removed)
+class MultiSubjectApplicationCreate(BaseModel):
     user_id: int
-    season_id: int
     subject_ids: List[int]
     payment_status: str = PaymentStatus.pending_payment.value
     status: str = ApplicationStatus.pending.value

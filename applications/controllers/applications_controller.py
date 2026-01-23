@@ -406,7 +406,7 @@ class ApplicationsController:
             self.db.rollback()
             raise e
     
-    def create_season_applications(self, user_id: int, season_id: int, subject_ids: List[int], 
+    def create_season_applications(self, user_id: int, subject_ids: List[int], 
                                  payment_status: str, status: str, created_by: int, updated_by: int) -> Dict[str, Any]:
         """Create an application for a user with multiple subjects for a single season"""
         try:
