@@ -91,8 +91,36 @@ class ApplicationsController:
                 joinedload(Application.user)
             ).filter(Application.id == db_application.id).first()
             
-            # Format the response
-            result = ApplicationInDB.from_orm(application_with_details).dict()
+            # Format the response manually to avoid serialization issues
+            result = {
+                'id': application_with_details.id,
+                'user_id': application_with_details.user_id,
+                'payment_status': application_with_details.payment_status.value,
+                'total_fee': application_with_details.total_fee,
+                'status': application_with_details.status.value,
+                'is_active': application_with_details.is_active,
+                'created_by': application_with_details.created_by,
+                'updated_by': application_with_details.updated_by,
+                'created_at': application_with_details.created_at,
+                'updated_at': application_with_details.updated_at,
+                'details': []
+            }
+            
+            # Add details
+            for db_detail in application_with_details.details:
+                detail_dict = {
+                    'id': db_detail.id,
+                    'application_id': db_detail.application_id,
+                    'subject_id': db_detail.subject_id,
+                    'fee': db_detail.fee,
+                    'status': db_detail.status.value,
+                    'is_active': db_detail.is_active,
+                    'created_by': db_detail.created_by,
+                    'updated_by': db_detail.updated_by,
+                    'created_at': db_detail.created_at,
+                    'updated_at': db_detail.updated_at
+                }
+                result['details'].append(detail_dict)
             
             # Add user details
             if application_with_details.user:
@@ -131,7 +159,6 @@ class ApplicationsController:
         """Get application by ID"""
         application = self.db.query(Application).options(
             joinedload(Application.user),
-            joinedload(Application.details).joinedload(ApplicationDetail.season),
             joinedload(Application.details).joinedload(ApplicationDetail.subject)
         ).filter(
             Application.id == application_id,
@@ -350,8 +377,36 @@ class ApplicationsController:
                 joinedload(Application.user)
             ).filter(Application.id == db_application.id).first()
             
-            # Format the response
-            result = ApplicationInDB.from_orm(application_with_details).dict()
+            # Format the response manually to avoid serialization issues
+            result = {
+                'id': application_with_details.id,
+                'user_id': application_with_details.user_id,
+                'payment_status': application_with_details.payment_status.value,
+                'total_fee': application_with_details.total_fee,
+                'status': application_with_details.status.value,
+                'is_active': application_with_details.is_active,
+                'created_by': application_with_details.created_by,
+                'updated_by': application_with_details.updated_by,
+                'created_at': application_with_details.created_at,
+                'updated_at': application_with_details.updated_at,
+                'details': []
+            }
+            
+            # Add details
+            for db_detail in application_with_details.details:
+                detail_dict = {
+                    'id': db_detail.id,
+                    'application_id': db_detail.application_id,
+                    'subject_id': db_detail.subject_id,
+                    'fee': db_detail.fee,
+                    'status': db_detail.status.value,
+                    'is_active': db_detail.is_active,
+                    'created_by': db_detail.created_by,
+                    'updated_by': db_detail.updated_by,
+                    'created_at': db_detail.created_at,
+                    'updated_at': db_detail.updated_at
+                }
+                result['details'].append(detail_dict)
             
             # Add user details
             if application_with_details.user:
@@ -490,8 +545,36 @@ class ApplicationsController:
                 joinedload(Application.user)
             ).filter(Application.id == application.id).first()
             
-            # Format the response
-            result = ApplicationInDB.from_orm(application_with_details).dict()
+            # Format the response manually to avoid serialization issues
+            result = {
+                'id': application_with_details.id,
+                'user_id': application_with_details.user_id,
+                'payment_status': application_with_details.payment_status.value,
+                'total_fee': application_with_details.total_fee,
+                'status': application_with_details.status.value,
+                'is_active': application_with_details.is_active,
+                'created_by': application_with_details.created_by,
+                'updated_by': application_with_details.updated_by,
+                'created_at': application_with_details.created_at,
+                'updated_at': application_with_details.updated_at,
+                'details': []
+            }
+            
+            # Add details
+            for db_detail in application_with_details.details:
+                detail_dict = {
+                    'id': db_detail.id,
+                    'application_id': db_detail.application_id,
+                    'subject_id': db_detail.subject_id,
+                    'fee': db_detail.fee,
+                    'status': db_detail.status.value,
+                    'is_active': db_detail.is_active,
+                    'created_by': db_detail.created_by,
+                    'updated_by': db_detail.updated_by,
+                    'created_at': db_detail.created_at,
+                    'updated_at': db_detail.updated_at
+                }
+                result['details'].append(detail_dict)
             
             # Add user details
             if application_with_details.user:
