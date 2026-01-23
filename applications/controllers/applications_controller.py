@@ -269,12 +269,11 @@ class ApplicationsController:
                     'phone': application.user.phone
                 }
             
-            # Add details for each subject/season
+            # Add details for each subject
             for db_detail in application.details:
                 detail = {
                     'id': db_detail.id,
                     'application_id': db_detail.application_id,
-                    'season_id': db_detail.season_id,
                     'subject_id': db_detail.subject_id,
                     'fee': db_detail.fee,
                     'status': db_detail.status.value,  # Use .value to get string
@@ -284,13 +283,6 @@ class ApplicationsController:
                     'created_at': db_detail.created_at,
                     'updated_at': db_detail.updated_at
                 }
-                
-else:
-                    detail['season_details'] = {
-                        'id': detail.get('season_id'),
-                        'name': 'Unknown Season',
-                        'is_active': True
-                    }
                 
                 # Add subject details
                 if db_detail.subject:
