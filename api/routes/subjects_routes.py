@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from sqlalchemy.orm import joinedload
 from database.db_connector import get_db
 from auth.models.models import User
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
@@ -506,21 +507,34 @@ def get_subjects():
         
         offset = (page - 1) * per_page
         
-        # Build query excluding deleted records
-        query = db.query(Subject).filter(Subject.deleted_at.is_(None))
-        
+        # Build query excluding deleted records and load topics
+        query = db.query(Subject)\
+            .options(joinedload(Subject.topics))\
+            .filter(Subject.deleted_at.is_(None))
+
         # Get total count for pagination
         total_count = query.count()
-        
-        # Get paginated subjects
+
+        # Get paginated subjects with topics
         subjects = query.order_by(Subject.created_at.desc())\
             .offset(offset)\
             .limit(per_page)\
             .all()
-        
-        # Prepare response data
+
+        # Prepare response data with topics included
+        subjects_data = []
+        for subject in subjects:
+            subject_dict = SubjectInDB.from_orm(subject).dict()
+            # Add topics to the subject
+            subject_dict['topics'] = [
+                TopicInDB.from_orm(topic).dict()
+                for topic in subject.topics
+                if topic.deleted_at is None  # Only include non-deleted topics
+            ]
+            subjects_data.append(subject_dict)
+
         response_data = {
-            "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects]
+            "subjects": subjects_data
         }
         
         # Only include pagination info if per_page was specified
@@ -552,15 +566,27 @@ def get_subjects():
 def get_subject(subject_id):
     try:
         db = get_db()
-        subject = db.query(Subject).filter(Subject.id == subject_id).first()
+        subject = db.query(Subject)\
+            .options(joinedload(Subject.topics))\
+            .filter(Subject.id == subject_id)\
+            .first()
         if not subject:
             return jsonify({
                 "status": "error",
                 "message": "Subject not found"
             }), 404
+
+        subject_dict = SubjectInDB.from_orm(subject).dict()
+        # Add topics to the subject
+        subject_dict['topics'] = [
+            TopicInDB.from_orm(topic).dict()
+            for topic in subject.topics
+            if topic.deleted_at is None  # Only include non-deleted topics
+        ]
+
         return jsonify({
             "status": "success",
-            "data": SubjectInDB.from_orm(subject).dict()
+            "data": subject_dict
         })
     except Exception as e:
         return jsonify({
