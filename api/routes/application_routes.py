@@ -102,7 +102,6 @@ def get_application(application_id):
         db.close()
 
 @applications_bp.route('/applications', methods=['POST'])
-@jwt_required()
 def create_application():
     """Create a new application"""
     try:
