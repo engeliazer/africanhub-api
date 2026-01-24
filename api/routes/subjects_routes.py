@@ -260,65 +260,55 @@ def get_available_subjects():
             for app_detail in user_applications
         }
         
-        # Filter subjects: include if not applied OR if access has expired
+        # Separate subjects into available and applied
         available_subjects = []
+        applied_subjects = []
         current_date = datetime.utcnow()
-        
+
         for subject in all_subjects:
             subject_id = subject.id
-            is_available = False
-            reason = None
 
             # Check if user has applied for this subject
             if subject_id not in applied_subjects_map:
                 # User hasn't applied - available
-                is_available = True
-                reason = "not_applied"
+                subject_dict = SubjectInDB.from_orm(subject).dict()
+                subject_dict['availability_reason'] = "not_applied"
+                available_subjects.append(subject_dict)
             else:
-                # User has applied - check the application status
+                # User has applied - get application details
                 app_detail = applied_subjects_map[subject_id]
 
-                # Get the application status
+                # Get the application
                 application = db.query(Application).filter(Application.id == app_detail.application_id).first()
-                if application:
-                    if application.status == ApplicationStatus.approved.value:
-                        # Approved application - check if access has expired
-                        application_date = app_detail.created_at
-                        days_since_application = (current_date - application_date).days
 
-                        if subject.duration_days is not None:
-                            # Access expired if days past > duration_days
-                            if days_since_application > subject.duration_days:
-                                is_available = True
-                                reason = "access_expired"
-                            else:
-                                # Access still valid
-                                reason = "access_active"
-                        else:
-                            # No duration set - access never expires
-                            reason = "no_duration_set"
-                    else:
-                        # Not approved yet (pending, rejected, etc.) - not available for re-application
-                        reason = f"application_{application.status}"
-                else:
-                    # Application not found - consider available
-                    is_available = True
-                    reason = "application_not_found"
-
-            if is_available:
                 subject_dict = SubjectInDB.from_orm(subject).dict()
-                subject_dict['availability_reason'] = reason
-                if subject_id in applied_subjects_map:
-                    app_detail = applied_subjects_map[subject_id]
+                subject_dict['application_status'] = application.status if application else "unknown"
+                subject_dict['application_date'] = app_detail.created_at.isoformat() if app_detail.created_at else None
+                subject_dict['fee'] = app_detail.fee
+
+                # Calculate days since application
+                if app_detail.created_at:
                     days_since = (current_date - app_detail.created_at).days
                     subject_dict['days_since_application'] = days_since
-                    subject_dict['duration_days'] = subject.duration_days
-                available_subjects.append(subject_dict)
+
+                    # Check if access has expired (only for approved applications)
+                    if application and application.status == ApplicationStatus.approved.value and subject.duration_days:
+                        subject_dict['access_expired'] = days_since > subject.duration_days
+                        subject_dict['days_remaining'] = max(0, subject.duration_days - days_since)
+                    else:
+                        subject_dict['access_expired'] = False
+                        subject_dict['days_remaining'] = None
+
+                subject_dict['duration_days'] = subject.duration_days
+                applied_subjects.append(subject_dict)
 
         return jsonify({
             "status": "success",
-            "message": "Available subjects retrieved successfully",
-            "data": available_subjects
+            "message": "Subjects retrieved successfully",
+            "data": {
+                "available_subjects": available_subjects,
+                "applied_subjects": applied_subjects
+            }
         }), 200
     except Exception as e:
         return jsonify({
