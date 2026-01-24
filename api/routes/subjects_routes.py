@@ -529,7 +529,7 @@ def get_subjects():
             subject_dict['topics'] = [
                 TopicInDB.from_orm(topic).dict()
                 for topic in subject.topics
-                if topic.deleted_at is None  # Only include non-deleted topics
+                if topic.is_active == True  # Only include active topics
             ]
             subjects_data.append(subject_dict)
 
@@ -581,7 +581,7 @@ def get_subject(subject_id):
         subject_dict['topics'] = [
             TopicInDB.from_orm(topic).dict()
             for topic in subject.topics
-            if topic.deleted_at is None  # Only include non-deleted topics
+            if topic.is_active == True  # Only include active topics
         ]
 
         return jsonify({
