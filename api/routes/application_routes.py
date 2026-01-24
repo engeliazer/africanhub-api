@@ -24,13 +24,35 @@ payments_bp = Blueprint('payments_routes', __name__)
 @jwt_required()
 def get_applications():
     try:
+        print(f"DEBUG: Getting applications")
         db = get_db()
         applications = db.query(Application).all()
+        print(f"DEBUG: Found {len(applications)} applications")
+
+        # Manual serialization instead of from_orm().dict()
+        result = []
+        for app in applications:
+            app_dict = {
+                'id': app.id,
+                'user_id': app.user_id,
+                'payment_status': app.payment_status.value if hasattr(app.payment_status, 'value') else app.payment_status,
+                'total_fee': app.total_fee,
+                'status': app.status.value if hasattr(app.status, 'value') else app.status,
+                'is_active': app.is_active,
+                'created_by': app.created_by,
+                'updated_by': app.updated_by,
+                'created_at': app.created_at,
+                'updated_at': app.updated_at,
+                'details': []
+            }
+            result.append(app_dict)
+
         return jsonify({
             "status": "success",
-            "data": [ApplicationInDB.from_orm(app).dict() for app in applications]
+            "data": result
         })
     except Exception as e:
+        print(f"DEBUG: Error in get_applications: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -42,6 +64,7 @@ def get_applications():
 @jwt_required()
 def get_application(application_id):
     try:
+        print(f"DEBUG: Getting application {application_id}")
         db = get_db()
         application = db.query(Application).filter(Application.id == application_id).first()
         if not application:
@@ -49,11 +72,28 @@ def get_application(application_id):
                 "status": "error",
                 "message": "Application not found"
             }), 404
+
+        # Manual serialization instead of from_orm().dict()
+        app_dict = {
+            'id': application.id,
+            'user_id': application.user_id,
+            'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
+            'total_fee': application.total_fee,
+            'status': application.status.value if hasattr(application.status, 'value') else application.status,
+            'is_active': application.is_active,
+            'created_by': application.created_by,
+            'updated_by': application.updated_by,
+            'created_at': application.created_at,
+            'updated_at': application.updated_at,
+            'details': []
+        }
+
         return jsonify({
             "status": "success",
-            "data": ApplicationInDB.from_orm(application).dict()
+            "data": app_dict
         })
     except Exception as e:
+        print(f"DEBUG: Error in get_application: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -146,7 +186,19 @@ def get_my_applications():
         return jsonify({
             "status": "success",
             "data": {
-                "applications": [ApplicationInDB.from_orm(app).dict() for app in applications],
+                "applications": [{
+                    'id': app.id,
+                    'user_id': app.user_id,
+                    'payment_status': app.payment_status.value if hasattr(app.payment_status, 'value') else app.payment_status,
+                    'total_fee': app.total_fee,
+                    'status': app.status.value if hasattr(app.status, 'value') else app.status,
+                    'is_active': app.is_active,
+                    'created_by': app.created_by,
+                    'updated_by': app.updated_by,
+                    'created_at': app.created_at,
+                    'updated_at': app.updated_at,
+                    'details': []
+                } for app in applications],
                 "pagination": {
                     "total": total_count,
                     "page": page,

@@ -22,6 +22,7 @@ class ApplicationsController:
     def create_application(self, application: ApplicationCreate) -> Dict[str, Any]:
         """Create a new application with details"""
         try:
+            print(f"DEBUG: Starting application creation for user {application.user_id}")
             # Verify user exists
             user = self.db.query(User).filter(User.id == application.user_id).first()
             if not user:
