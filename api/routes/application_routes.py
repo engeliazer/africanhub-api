@@ -106,9 +106,6 @@ def create_application():
     """Create a new application"""
     try:
         print(f"DEBUG: Starting create_application endpoint")
-        # Get current user ID from JWT token
-        current_user_id = get_jwt_identity()
-        print(f"DEBUG: Current user ID: {current_user_id}")
 
         # Get and validate request data
         data = request.get_json()
@@ -116,6 +113,10 @@ def create_application():
         print(f"DEBUG: Creating ApplicationCreate with data")
         application_data = ApplicationCreate(**data)
         print(f"DEBUG: ApplicationCreate created successfully")
+
+        # Use user_id from request data (no JWT required for now)
+        current_user_id = application_data.user_id
+        print(f"DEBUG: Using user ID from request: {current_user_id}")
 
         # Create application using the controller
         print(f"DEBUG: Creating application with controller")
