@@ -85,11 +85,15 @@ def create_application():
         controller = ApplicationsController(db_session)
         application = controller.create_application(application_data)
 
+        message = "Application retrieved successfully"
+        if application.get('is_existing', False):
+            message = "Existing application found and retrieved successfully"
+
         return jsonify({
             "status": "success",
-            "message": "Application created successfully",
+            "message": message,
             "data": application
-        }), 201
+        }), 200
     except BadRequest as e:
         return jsonify({
             "status": "error",

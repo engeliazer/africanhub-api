@@ -61,18 +61,80 @@ class ApplicationsController:
             self.db.add(db_application)
             self.db.flush()  # This assigns an ID to db_application
             
-            # Process each detail
-            total_fee = 0
+            # Check if any of the subjects already have applications
+            existing_applications = []
+            subject_ids_to_process = []
+
             for detail in details:
                 # Handle case where detail might be a dict (from JSON) or Pydantic object
                 if isinstance(detail, dict):
                     subject_id = detail.get('subject_id')
+                else:
+                    # Pydantic object
+                    subject_id = detail.subject_id
+
+                # Check if application detail already exists
+                existing_detail = self.db.query(ApplicationDetail).join(Application).filter(
+                    Application.user_id == user_id,
+                    ApplicationDetail.subject_id == subject_id,
+                    ApplicationDetail.deleted_at.is_(None),
+                    Application.deleted_at.is_(None)
+                ).first()
+
+                if existing_detail:
+                    # Get the full application for this existing detail
+                    existing_app = self.db.query(Application).options(
+                        joinedload(Application.details).joinedload(ApplicationDetail.subject),
+                        joinedload(Application.user)
+                    ).filter(Application.id == existing_detail.application_id).first()
+
+                    if existing_app and existing_app not in existing_applications:
+                        existing_applications.append(existing_app)
+                else:
+                    subject_ids_to_process.append((detail, subject_id))
+
+            # If we found existing applications, return them instead of creating new ones
+            if existing_applications:
+                # Rollback the new application we started to create
+                self.db.rollback()
+
+                # Return the existing application data
+                result = ApplicationInDB.from_orm(existing_applications[0]).dict()
+
+                # Add user details
+                if existing_applications[0].user:
+                    result['user_details'] = {
+                        'id': existing_applications[0].user.id,
+                        'email': existing_applications[0].user.email,
+                        'first_name': existing_applications[0].user.first_name,
+                        'last_name': existing_applications[0].user.last_name,
+                        'phone': existing_applications[0].user.phone
+                    }
+
+                # Add details for each subject
+                for i, detail in enumerate(result['details']):
+                    db_detail = existing_applications[0].details[i]
+                    if db_detail.subject:
+                        detail['subject_details'] = {
+                            'id': db_detail.subject.id,
+                            'name': db_detail.subject.name,
+                            'current_price': getattr(db_detail.subject, 'current_price', None),
+                            'description': getattr(db_detail.subject, 'description', None)
+                        }
+
+                result['is_existing'] = True
+                return result
+
+            # Process new details for subjects that don't have applications yet
+            total_fee = 0
+            for detail, subject_id in subject_ids_to_process:
+                # Handle case where detail might be a dict (from JSON) or Pydantic object
+                if isinstance(detail, dict):
                     fee = detail.get('fee')
                     status = detail.get('status', ApplicationStatus.pending.value)
                     is_active = detail.get('is_active', True)
                 else:
                     # Pydantic object
-                    subject_id = detail.subject_id
                     fee = detail.fee
                     status = detail.status
                     is_active = detail.is_active
@@ -84,16 +146,6 @@ class ApplicationsController:
                 ).first()
                 if not subject:
                     raise BadRequest(f"Subject with ID {subject_id} not found or not active")
-
-                # Check if application detail already exists
-                existing_detail = self.db.query(ApplicationDetail).join(Application).filter(
-                    Application.user_id == user_id,
-                    ApplicationDetail.subject_id == subject_id,
-                    ApplicationDetail.deleted_at.is_(None)
-                ).first()
-
-                if existing_detail:
-                    raise BadRequest(f"Application already exists for user and subject {subject_id}")
 
                 # Set fee from subject if not provided
                 fee = fee if fee is not None else subject.current_price or 0
@@ -161,9 +213,10 @@ class ApplicationsController:
                         'current_price': getattr(db_detail.subject, 'current_price', None),
                         'description': getattr(db_detail.subject, 'description', None)
                     }
-            
+
+            result['is_existing'] = False
             return result
-            
+
         except IntegrityError:
             self.db.rollback()
             raise BadRequest("Error creating application due to integrity constraint")
