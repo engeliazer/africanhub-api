@@ -114,7 +114,19 @@ def create_application():
         db.refresh(application)
         return jsonify({
             "status": "success",
-            "data": ApplicationInDB.from_orm(application).dict()
+            "data": {
+                'id': application.id,
+                'user_id': application.user_id,
+                'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
+                'total_fee': application.total_fee,
+                'status': application.status.value if hasattr(application.status, 'value') else application.status,
+                'is_active': application.is_active,
+                'created_by': application.created_by,
+                'updated_by': application.updated_by,
+                'created_at': application.created_at,
+                'updated_at': application.updated_at,
+                'details': []
+            }
         }), 201
     except Exception as e:
         db.rollback()
@@ -147,7 +159,19 @@ def update_application(application_id):
         db.refresh(application)
         return jsonify({
             "status": "success",
-            "data": ApplicationInDB.from_orm(application).dict()
+            "data": {
+                'id': application.id,
+                'user_id': application.user_id,
+                'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
+                'total_fee': application.total_fee,
+                'status': application.status.value if hasattr(application.status, 'value') else application.status,
+                'is_active': application.is_active,
+                'created_by': application.created_by,
+                'updated_by': application.updated_by,
+                'created_at': application.created_at,
+                'updated_at': application.updated_at,
+                'details': []
+            }
         })
     except Exception as e:
         db.rollback()
