@@ -104,29 +104,28 @@ def get_application(application_id):
 @applications_bp.route('/applications', methods=['POST'])
 @jwt_required()
 def create_application():
+    """Create a new application"""
     try:
-        db = get_db()
+        print(f"DEBUG: Starting create_application endpoint")
+        # Get current user ID from JWT token
+        current_user_id = get_jwt_identity()
+        print(f"DEBUG: Current user ID: {current_user_id}")
+
+        # Get and validate request data
         data = request.get_json()
+        print(f"DEBUG: Received data: {data}")
+        print(f"DEBUG: Creating ApplicationCreate with data")
         application_data = ApplicationCreate(**data)
-        application = Application(**application_data.dict())
-        db.add(application)
-        db.commit()
-        db.refresh(application)
+        print(f"DEBUG: ApplicationCreate created successfully")
+
+        # Create application using the controller
+        print(f"DEBUG: Creating application with controller")
+        controller = ApplicationsController(db_session)
+        application = controller.create_application(application_data)
+        print(f"DEBUG: Application created successfully: {application}")
         return jsonify({
             "status": "success",
-            "data": {
-                'id': application.id,
-                'user_id': application.user_id,
-                'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
-                'total_fee': application.total_fee,
-                'status': application.status.value if hasattr(application.status, 'value') else application.status,
-                'is_active': application.is_active,
-                'created_by': application.created_by,
-                'updated_by': application.updated_by,
-                'created_at': application.created_at,
-                'updated_at': application.updated_at,
-                'details': []
-            }
+            "data": application
         }), 201
     except Exception as e:
         db.rollback()
