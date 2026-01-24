@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from werkzeug.exceptions import BadRequest
 from database.db_connector import get_db, db_session
 from applications.models.models import (
     Application, ApplicationDetail, PaymentStatus as ApplicationPaymentStatus, 
@@ -89,6 +90,11 @@ def create_application():
             "message": "Application created successfully",
             "data": application
         }), 201
+    except BadRequest as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
     except ValueError as e:
         return jsonify({
             "status": "error",
@@ -422,7 +428,17 @@ def create_season_application():
             "message": "Season application created successfully",
             "data": application
         }), 201
-        
+
+    except BadRequest as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
     except Exception as e:
         return jsonify({
             "status": "error",
