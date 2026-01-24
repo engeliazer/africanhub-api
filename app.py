@@ -211,12 +211,9 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     db_session.rollback()
-    print(f"DEBUG: 500 Error occurred: {str(error)}")
-    import traceback
-    traceback.print_exc()
     return jsonify({
         "status": "error",
-        "message": f"Internal server error: {str(error)}"
+        "message": "Internal server error"
     }), 500
 
 # Cleanup database session

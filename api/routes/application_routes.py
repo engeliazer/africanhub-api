@@ -5,7 +5,7 @@ from applications.models.models import (
     Application, ApplicationDetail, PaymentStatus as ApplicationPaymentStatus, 
     ApplicationStatus, Payment, PaymentDetail, PaymentMethod
 )
-from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB, MultiSubjectApplicationCreate
+from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB, SeasonApplicationCreate
 from applications.controllers.applications_controller import ApplicationsController
 from sqlalchemy import desc
 from datetime import datetime
@@ -24,35 +24,13 @@ payments_bp = Blueprint('payments_routes', __name__)
 @jwt_required()
 def get_applications():
     try:
-        print(f"DEBUG: Getting applications")
         db = get_db()
         applications = db.query(Application).all()
-        print(f"DEBUG: Found {len(applications)} applications")
-
-        # Manual serialization instead of from_orm().dict()
-        result = []
-        for app in applications:
-            app_dict = {
-                'id': app.id,
-                'user_id': app.user_id,
-                'payment_status': app.payment_status.value if hasattr(app.payment_status, 'value') else app.payment_status,
-                'total_fee': app.total_fee,
-                'status': app.status.value if hasattr(app.status, 'value') else app.status,
-                'is_active': app.is_active,
-                'created_by': app.created_by,
-                'updated_by': app.updated_by,
-                'created_at': app.created_at,
-                'updated_at': app.updated_at,
-                'details': []
-            }
-            result.append(app_dict)
-
         return jsonify({
             "status": "success",
-            "data": result
+            "data": [ApplicationInDB.from_orm(app).dict() for app in applications]
         })
     except Exception as e:
-        print(f"DEBUG: Error in get_applications: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -64,7 +42,6 @@ def get_applications():
 @jwt_required()
 def get_application(application_id):
     try:
-        print(f"DEBUG: Getting application {application_id}")
         db = get_db()
         application = db.query(Application).filter(Application.id == application_id).first()
         if not application:
@@ -72,28 +49,11 @@ def get_application(application_id):
                 "status": "error",
                 "message": "Application not found"
             }), 404
-
-        # Manual serialization instead of from_orm().dict()
-        app_dict = {
-            'id': application.id,
-            'user_id': application.user_id,
-            'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
-            'total_fee': application.total_fee,
-            'status': application.status.value if hasattr(application.status, 'value') else application.status,
-            'is_active': application.is_active,
-            'created_by': application.created_by,
-            'updated_by': application.updated_by,
-            'created_at': application.created_at,
-            'updated_at': application.updated_at,
-            'details': []
-        }
-
         return jsonify({
             "status": "success",
-            "data": app_dict
+            "data": ApplicationInDB.from_orm(application).dict()
         })
     except Exception as e:
-        print(f"DEBUG: Error in get_application: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
@@ -102,30 +62,19 @@ def get_application(application_id):
         db.close()
 
 @applications_bp.route('/applications', methods=['POST'])
+@jwt_required()
 def create_application():
-    """Create a new application"""
     try:
-        print(f"DEBUG: Starting create_application endpoint")
-
-        # Get and validate request data
+        db = get_db()
         data = request.get_json()
-        print(f"DEBUG: Received data: {data}")
-        print(f"DEBUG: Creating ApplicationCreate with data")
         application_data = ApplicationCreate(**data)
-        print(f"DEBUG: ApplicationCreate created successfully")
-
-        # Use user_id from request data (no JWT required for now)
-        current_user_id = application_data.user_id
-        print(f"DEBUG: Using user ID from request: {current_user_id}")
-
-        # Create application using the controller
-        print(f"DEBUG: Creating application with controller")
-        controller = ApplicationsController(db_session)
-        application = controller.create_application(application_data)
-        print(f"DEBUG: Application created successfully: {application}")
+        application = Application(**application_data.dict())
+        db.add(application)
+        db.commit()
+        db.refresh(application)
         return jsonify({
             "status": "success",
-            "data": application
+            "data": ApplicationInDB.from_orm(application).dict()
         }), 201
     except Exception as e:
         db.rollback()
@@ -158,19 +107,7 @@ def update_application(application_id):
         db.refresh(application)
         return jsonify({
             "status": "success",
-            "data": {
-                'id': application.id,
-                'user_id': application.user_id,
-                'payment_status': application.payment_status.value if hasattr(application.payment_status, 'value') else application.payment_status,
-                'total_fee': application.total_fee,
-                'status': application.status.value if hasattr(application.status, 'value') else application.status,
-                'is_active': application.is_active,
-                'created_by': application.created_by,
-                'updated_by': application.updated_by,
-                'created_at': application.created_at,
-                'updated_at': application.updated_at,
-                'details': []
-            }
+            "data": ApplicationInDB.from_orm(application).dict()
         })
     except Exception as e:
         db.rollback()
@@ -209,19 +146,7 @@ def get_my_applications():
         return jsonify({
             "status": "success",
             "data": {
-                "applications": [{
-                    'id': app.id,
-                    'user_id': app.user_id,
-                    'payment_status': app.payment_status.value if hasattr(app.payment_status, 'value') else app.payment_status,
-                    'total_fee': app.total_fee,
-                    'status': app.status.value if hasattr(app.status, 'value') else app.status,
-                    'is_active': app.is_active,
-                    'created_by': app.created_by,
-                    'updated_by': app.updated_by,
-                    'created_at': app.created_at,
-                    'updated_at': app.updated_at,
-                    'details': []
-                } for app in applications],
+                "applications": [ApplicationInDB.from_orm(app).dict() for app in applications],
                 "pagination": {
                     "total": total_count,
                     "page": page,
@@ -455,8 +380,9 @@ def create_season_application():
         
         # Get and validate request data
         data = request.get_json()
-        application_data = MultiSubjectApplicationCreate(
+        application_data = SeasonApplicationCreate(
             user_id=current_user_id,
+            season_id=data['season_id'],
             subject_ids=data['subject_ids'],
             payment_status=data.get('payment_status', 'pending_payment'),
             status=data.get('status', 'pending'),
@@ -468,6 +394,7 @@ def create_season_application():
         controller = ApplicationsController(db_session)
         application = controller.create_season_applications(
             user_id=application_data.user_id,
+            season_id=application_data.season_id,
             subject_ids=application_data.subject_ids,
             payment_status=application_data.payment_status,
             status=application_data.status,
