@@ -19,64 +19,101 @@ class ApplicationsController:
     def __init__(self, db: Session):
         self.db = db
     
-    def create_application(self, application: ApplicationCreate) -> Dict[str, Any]:
+    def create_application(self, application) -> Dict[str, Any]:
         """Create a new application with details"""
         try:
+            # Handle both Pydantic model and dict input
+            if isinstance(application, dict):
+                # Convert dict to Pydantic model if needed
+                if 'details' not in application:
+                    raise BadRequest("Application data must include details")
+                app_data = application
+            else:
+                # Assume it's a Pydantic model
+                app_data = application.dict() if hasattr(application, 'dict') else application.__dict__
+
+            # Extract application data
+            user_id = app_data.get('user_id')
+            payment_status = app_data.get('payment_status', 'pending_payment')
+            total_fee = app_data.get('total_fee', 0.0)
+            status = app_data.get('status', 'pending')
+            is_active = app_data.get('is_active', True)
+            created_by = app_data.get('created_by')
+            updated_by = app_data.get('updated_by')
+            details = app_data.get('details', [])
+
             # Verify user exists
-            user = self.db.query(User).filter(User.id == application.user_id).first()
+            user = self.db.query(User).filter(User.id == user_id).first()
             if not user:
-                raise BadRequest(f"User with ID {application.user_id} not found")
-            
+                raise BadRequest(f"User with ID {user_id} not found")
+
             # Create the main application
             db_application = Application(
-                user_id=application.user_id,
-                payment_status=application.payment_status,
-                total_fee=application.total_fee,
-                status=application.status,
-                is_active=application.is_active,
-                created_by=application.created_by,
-                updated_by=application.updated_by
+                user_id=user_id,
+                payment_status=payment_status,
+                total_fee=total_fee or 0.0,
+                status=status,
+                is_active=is_active if is_active is not None else True,
+                created_by=created_by,
+                updated_by=updated_by
             )
-            
+
             self.db.add(db_application)
             self.db.flush()  # This assigns an ID to db_application
             
             # Process each detail
             total_fee = 0
-            for detail in application.details:
+            for detail in details:
+                # Handle case where detail might be a dict (from JSON) or Pydantic object
+                if isinstance(detail, dict):
+                    subject_id = detail.get('subject_id')
+                    fee = detail.get('fee')
+                    status = detail.get('status', ApplicationStatus.pending.value)
+                    is_active = detail.get('is_active', True)
+                else:
+                    # Pydantic object
+                    subject_id = detail.subject_id
+                    fee = detail.fee
+                    status = detail.status
+                    is_active = detail.is_active
+
                 # Verify subject exists
                 subject = self.db.query(Subject).filter(
-                    Subject.id == detail.subject_id,
+                    Subject.id == subject_id,
                     Subject.is_active == True
                 ).first()
                 if not subject:
-                    raise BadRequest(f"Subject with ID {detail.subject_id} not found or not active")
-                
+                    raise BadRequest(f"Subject with ID {subject_id} not found or not active")
+
                 # Check if application detail already exists
                 existing_detail = self.db.query(ApplicationDetail).join(Application).filter(
-                    Application.user_id == application.user_id,
-                    ApplicationDetail.subject_id == detail.subject_id,
+                    Application.user_id == user_id,
+                    ApplicationDetail.subject_id == subject_id,
                     ApplicationDetail.deleted_at.is_(None)
                 ).first()
-                
+
                 if existing_detail:
-                    raise BadRequest(f"Application already exists for user and subject {detail.subject_id}")
-                
+                    raise BadRequest(f"Application already exists for user and subject {subject_id}")
+
                 # Set fee from subject if not provided
-                fee = detail.fee if detail.fee is not None else subject.current_price or 0
+                fee = fee if fee is not None else subject.current_price or 0
                 total_fee += fee
-                
+
                 # Create detail
                 db_detail = ApplicationDetail(
                     application_id=db_application.id,
-                    subject_id=detail.subject_id,
+                    subject_id=subject_id,
                     fee=fee,
-                    status=detail.status,
-                    is_active=detail.is_active,
-                    created_by=application.created_by,
-                    updated_by=application.updated_by
+                    status=status,
+                    is_active=is_active,
+                    created_by=created_by,
+                    updated_by=updated_by
                 )
-                
+
+                # Ensure db_detail is a SQLAlchemy model
+                if not hasattr(db_detail, '_sa_instance_state'):
+                    raise BadRequest("Failed to create ApplicationDetail model")
+
                 self.db.add(db_detail)
             
             # Update the total fee on the application
@@ -84,13 +121,20 @@ class ApplicationsController:
             
             self.db.commit()
             self.db.refresh(db_application)
-            
+
             # Reload with details
             application_with_details = self.db.query(Application).options(
                 joinedload(Application.details).joinedload(ApplicationDetail.subject),
                 joinedload(Application.user)
             ).filter(Application.id == db_application.id).first()
-            
+
+            if not application_with_details:
+                raise BadRequest("Failed to retrieve created application")
+
+            # Ensure it's a SQLAlchemy model
+            if not hasattr(application_with_details, '_sa_instance_state'):
+                raise BadRequest("Application is not a valid SQLAlchemy model")
+
             # Format the response
             result = ApplicationInDB.from_orm(application_with_details).dict()
             

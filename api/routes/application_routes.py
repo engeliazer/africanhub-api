@@ -65,25 +65,42 @@ def get_application(application_id):
 @jwt_required()
 def create_application():
     try:
-        db = get_db()
+        # Get current user ID from JWT token
+        current_user_id = get_jwt_identity()
+
+        # Get request data
         data = request.get_json()
+
+        # Add created_by and updated_by if not provided
+        if 'created_by' not in data:
+            data['created_by'] = current_user_id
+        if 'updated_by' not in data:
+            data['updated_by'] = current_user_id
+
+        # Create application data object
         application_data = ApplicationCreate(**data)
-        application = Application(**application_data.dict())
-        db.add(application)
-        db.commit()
-        db.refresh(application)
+
+        # Process application using controller
+        controller = ApplicationsController(db_session)
+        application = controller.create_application(application_data)
+
         return jsonify({
             "status": "success",
-            "data": ApplicationInDB.from_orm(application).dict()
+            "message": "Application created successfully",
+            "data": application
         }), 201
+    except ValueError as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 400
     except Exception as e:
-        db.rollback()
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
     finally:
-        db.close()
+        db_session.remove()
 
 @applications_bp.route('/applications/<int:application_id>', methods=['PUT'])
 @jwt_required()
