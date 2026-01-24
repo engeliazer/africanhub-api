@@ -240,8 +240,8 @@ def get_available_subjects():
                 )
             ).all()
 
-        # Get all approved applications for this user
-        # Only approved applications grant access, so we only check expiration for those
+        # Get all applications for this user (any status)
+        # We check all applications to prevent duplicate applications
         user_applications = db.query(ApplicationDetail)\
             .join(Application, ApplicationDetail.application_id == Application.id)\
             .filter(
@@ -249,7 +249,8 @@ def get_available_subjects():
                     Application.user_id == current_user_id,
                     Application.is_active == True,
                     ApplicationDetail.is_active == True,
-                    Application.status == ApplicationStatus.approved.value  # Only check approved applications
+                    Application.deleted_at.is_(None),
+                    ApplicationDetail.deleted_at.is_(None)
                 )
             ).all()
         
@@ -267,34 +268,43 @@ def get_available_subjects():
             subject_id = subject.id
             is_available = False
             reason = None
-            
+
             # Check if user has applied for this subject
             if subject_id not in applied_subjects_map:
                 # User hasn't applied - available
                 is_available = True
                 reason = "not_applied"
             else:
-                # User has applied - check if access has expired
+                # User has applied - check the application status
                 app_detail = applied_subjects_map[subject_id]
-                application_date = app_detail.created_at
-                
-                # Calculate days since application
-                days_since_application = (current_date - application_date).days
-                
-                # Check if subject has duration_days set
-                if subject.duration_days is not None:
-                    # Access expired if days past > duration_days
-                    if days_since_application > subject.duration_days:
-                        is_available = True
-                        reason = "access_expired"
+
+                # Get the application status
+                application = db.query(Application).filter(Application.id == app_detail.application_id).first()
+                if application:
+                    if application.status == ApplicationStatus.approved.value:
+                        # Approved application - check if access has expired
+                        application_date = app_detail.created_at
+                        days_since_application = (current_date - application_date).days
+
+                        if subject.duration_days is not None:
+                            # Access expired if days past > duration_days
+                            if days_since_application > subject.duration_days:
+                                is_available = True
+                                reason = "access_expired"
+                            else:
+                                # Access still valid
+                                reason = "access_active"
+                        else:
+                            # No duration set - access never expires
+                            reason = "no_duration_set"
                     else:
-                        # Access still valid
-                        reason = "access_active"
+                        # Not approved yet (pending, rejected, etc.) - not available for re-application
+                        reason = f"application_{application.status}"
                 else:
-                    # No duration set - access never expires
-                    reason = "no_duration_set"
-                    is_available = False
-            
+                    # Application not found - consider available
+                    is_available = True
+                    reason = "application_not_found"
+
             if is_available:
                 subject_dict = SubjectInDB.from_orm(subject).dict()
                 subject_dict['availability_reason'] = reason
