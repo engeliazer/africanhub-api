@@ -168,8 +168,36 @@ class ApplicationsController:
         if not application:
             raise NotFound(f"Application with ID {application_id} not found")
         
-        # Format the response
-        result = ApplicationInDB.from_orm(application).dict()
+        # Format the response manually
+        result = {
+            'id': application.id,
+            'user_id': application.user_id,
+            'payment_status': application.payment_status.value,
+            'total_fee': application.total_fee,
+            'status': application.status.value,
+            'is_active': application.is_active,
+            'created_by': application.created_by,
+            'updated_by': application.updated_by,
+            'created_at': application.created_at,
+            'updated_at': application.updated_at,
+            'details': []
+        }
+
+        # Add details
+        for db_detail in application.details:
+            detail_dict = {
+                'id': db_detail.id,
+                'application_id': db_detail.application_id,
+                'subject_id': db_detail.subject_id,
+                'fee': db_detail.fee,
+                'status': db_detail.status.value,
+                'is_active': db_detail.is_active,
+                'created_by': db_detail.created_by,
+                'updated_by': db_detail.updated_by,
+                'created_at': db_detail.created_at,
+                'updated_at': db_detail.updated_at
+            }
+            result['details'].append(detail_dict)
         
         # Add user details
         if application.user:
