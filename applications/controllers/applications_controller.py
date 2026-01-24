@@ -23,6 +23,7 @@ class ApplicationsController:
         """Create a new application with details"""
         try:
             print(f"DEBUG: Starting application creation for user {application.user_id}")
+            print(f"DEBUG: Application details: {[{'subject_id': d.subject_id, 'fee': d.fee} for d in application.details]}")
             # Verify user exists
             user = self.db.query(User).filter(User.id == application.user_id).first()
             if not user:
