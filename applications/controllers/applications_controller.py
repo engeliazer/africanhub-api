@@ -406,9 +406,9 @@ class ApplicationsController:
             self.db.rollback()
             raise e
     
-    def create_season_applications(self, user_id: int, season_id: int, subject_ids: List[int], 
+    def create_season_applications(self, user_id: int, subject_ids: List[int],
                                  payment_status: str, status: str, created_by: int, updated_by: int) -> Dict[str, Any]:
-        """Create an application for a user with multiple subjects for a single season"""
+        """Create an application for a user with multiple subjects"""
         try:
             # Verify user exists
             user = self.db.query(User).filter(User.id == user_id).first()
@@ -441,7 +441,7 @@ class ApplicationsController:
             
             # Validate before any database modifications
             if not new_subject_ids:
-                raise BadRequest("Applications already exist for all specified subjects in this season")
+                raise BadRequest("Applications already exist for all specified subjects")
             
             # Create new application
             application = Application(

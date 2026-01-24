@@ -67,7 +67,7 @@ class Application(Base):
 
 class ApplicationDetail(Base):
     __tablename__ = "application_details"
-    
+
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     application_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("applications.id"), nullable=False)
     subject_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("subjects.id"), nullable=False)

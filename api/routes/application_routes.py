@@ -382,19 +382,17 @@ def create_season_application():
         data = request.get_json()
         application_data = SeasonApplicationCreate(
             user_id=current_user_id,
-            season_id=data['season_id'],
             subject_ids=data['subject_ids'],
             payment_status=data.get('payment_status', 'pending_payment'),
             status=data.get('status', 'pending'),
             created_by=current_user_id,
             updated_by=current_user_id
         )
-        
+
         # Create application using the controller
         controller = ApplicationsController(db_session)
         application = controller.create_season_applications(
             user_id=application_data.user_id,
-            season_id=application_data.season_id,
             subject_ids=application_data.subject_ids,
             payment_status=application_data.payment_status,
             status=application_data.status,
