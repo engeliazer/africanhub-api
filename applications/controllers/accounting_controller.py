@@ -725,6 +725,8 @@ class AccountingController:
                         sms_result = SMSService.send_message(
                             phone=formatted_phone,
                             message=message,
+                            process_name='payment_approved',
+                            created_by=user_id,
                         )
                         print(f"SMS sending result: {sms_result}")
                 elif status == 'rejected':

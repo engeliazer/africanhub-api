@@ -112,6 +112,7 @@ def self_registration():
         SMSService.send_message(
             phone=formatted_phone,
             message=welcome_message,
+            process_name='registration',
         )
 
         return jsonify({

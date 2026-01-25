@@ -9,9 +9,12 @@ Env vars (recommended):
   MSHASTRA_USER     – Profile ID (e.g. AFRICANHUB)
   MSHASTRA_PWD      – Password
   MSHASTRA_SENDER   – Sender ID (e.g. AFRICANHUB)
+
+All SMS are logged to sms_logs for audit and reconciliation.
 """
 
 from flask import Blueprint, request, jsonify
+import json
 import re
 import os
 import logging
@@ -23,6 +26,52 @@ load_dotenv()
 
 sms_bp = Blueprint('sms', __name__)
 logger = logging.getLogger(__name__)
+
+# Lazy imports for DB (avoid circular imports / import at module load)
+def _get_session_and_model():
+    from database.db_connector import SessionLocal
+    from applications.models.models import SmsLog
+    return SessionLocal, SmsLog
+
+
+def _log_sms(
+    *,
+    sender_id: str,
+    recipient: str,
+    message: str,
+    message_length: int,
+    process_name: str,
+    status: str,
+    provider: str = "mshastra",
+    external_id: Optional[str] = None,
+    api_response_raw: Optional[str] = None,
+    error_message: Optional[str] = None,
+    created_by: Optional[int] = None,
+) -> None:
+    """Write audit log for an SMS. Uses a dedicated session; swallows errors so logging never breaks SMS flow."""
+    try:
+        SessionLocal, SmsLog = _get_session_and_model()
+        session = SessionLocal()
+        try:
+            row = SmsLog(
+                sender_id=sender_id,
+                recipient=recipient,
+                message=message,
+                message_length=message_length,
+                process_name=process_name,
+                status=status,
+                provider=provider,
+                external_id=external_id,
+                api_response_raw=api_response_raw,
+                error_message=error_message,
+                created_by=created_by,
+            )
+            session.add(row)
+            session.commit()
+        finally:
+            session.close()
+    except Exception as e:
+        logger.warning("SMS audit log write failed: %s", e)
 
 # mShastra JSON API endpoint
 MSHASTRA_JSON_URL = os.getenv('MSHASTRA_API_URL', 'https://mshastra.com/sendsms_api_json.aspx')
@@ -93,6 +142,17 @@ def _send_json_payload(payload: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {'success': False, 'status_code': None, 'text': str(e)}
 
 
+def _parse_external_id(response_text: str) -> Optional[str]:
+    """Extract msg_id from mShastra JSON response [{"msg_id":"...", ...}]."""
+    try:
+        arr = json.loads(response_text)
+        if arr and isinstance(arr[0], dict) and arr[0].get("msg_id"):
+            return str(arr[0]["msg_id"])
+    except Exception:
+        pass
+    return None
+
+
 class SMSService:
     @staticmethod
     def send_message(
@@ -100,33 +160,49 @@ class SMSService:
         message: str,
         sender: Optional[str] = None,
         use_last_nine: bool = True,
+        process_name: str = "unknown",
+        created_by: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Send a single SMS via mShastra JSON API.
+        Send a single SMS via mShastra JSON API. Always logged to sms_logs.
 
         Args:
             phone: Recipient number (e.g. 0712001002 or 255712001002).
             message: SMS text.
             sender: Sender ID override; if None, uses MSHASTRA_SENDER env.
             use_last_nine: If True, use last 9 digits + 255; else use full normalized number.
+            process_name: Process/campaign name for audit (e.g. registration, password_reset).
+            created_by: Optional user id for audit.
 
         Returns:
             {'success': bool, 'data': {...} | None, 'message': str}
         """
         cfg = _config()
+        sender_id = sender or cfg["sender"]
+        msg_len = len(message or "")
         normalized = _normalize_phone(phone, use_last_nine=use_last_nine)
+
         logger.info(
-            "SMS send_message: phone=%r normalized=%r sender=%r msg_len=%d",
+            "SMS send_message: phone=%r normalized=%r sender=%r msg_len=%d process=%s",
             phone,
             normalized,
-            sender or cfg['sender'],
-            len(message or ''),
+            sender_id,
+            msg_len,
+            process_name,
         )
         if not normalized:
-            logger.warning("SMS send_message: invalid or empty phone phone=%r", phone)
+            _log_sms(
+                sender_id=sender_id,
+                recipient=phone or "",
+                message=message or "",
+                message_length=msg_len,
+                process_name=process_name,
+                status="failed",
+                error_message="Invalid or empty phone number",
+                created_by=created_by,
+            )
             return {'success': False, 'data': None, 'message': 'Invalid or empty phone number'}
 
-        sender_id = sender or cfg['sender']
         item = {
             'user': cfg['user'],
             'pwd': cfg['pwd'],
@@ -138,39 +214,55 @@ class SMSService:
         out = _send_json_payload([item])
 
         if out['success']:
-            logger.info("SMS send_message: success number=%s", normalized)
+            ext_id = _parse_external_id(out['text'])
+            _log_sms(
+                sender_id=sender_id,
+                recipient=normalized,
+                message=message or "",
+                message_length=msg_len,
+                process_name=process_name,
+                status="sent",
+                external_id=ext_id,
+                api_response_raw=out['text'],
+                created_by=created_by,
+            )
             return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS sent'}
-        logger.warning(
-            "SMS send_message: failed number=%s status=%s response=%s",
-            normalized,
-            out.get('status_code'),
-            out['text'],
+        _log_sms(
+            sender_id=sender_id,
+            recipient=normalized,
+            message=message or "",
+            message_length=msg_len,
+            process_name=process_name,
+            status="failed",
+            api_response_raw=out['text'],
+            error_message=out['text'],
+            created_by=created_by,
         )
-        return {
-            'success': False,
-            'data': None,
-            'message': f"SMS sending failed: {out['text']}",
-        }
+        return {'success': False, 'data': None, 'message': f"SMS sending failed: {out['text']}"}
 
     @staticmethod
     def send_messages(
         recipients: List[Dict[str, str]],
         default_sender: Optional[str] = None,
         use_last_nine: bool = True,
+        process_name: str = "batch",
+        created_by: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Send multiple SMS via mShastra JSON API.
+        Send multiple SMS via mShastra JSON API. Each SMS is logged to sms_logs.
 
         Args:
             recipients: List of {'phone': str, 'message': str}. Optional 'sender' per item.
             default_sender: Default sender ID; overridden by recipient['sender'] if present.
             use_last_nine: Same as send_message.
+            process_name: Process name for audit.
+            created_by: Optional user id for audit.
 
         Returns:
             {'success': bool, 'data': {...}, 'message': str}
         """
         cfg = _config()
-        sender_id = default_sender or cfg['sender']
+        default_sid = default_sender or cfg['sender']
         payload = []
 
         for r in recipients:
@@ -180,13 +272,23 @@ class SMSService:
                 continue
             normalized = _normalize_phone(phone, use_last_nine=use_last_nine)
             if not normalized:
+                _log_sms(
+                    sender_id=default_sid,
+                    recipient=phone or "",
+                    message=msg,
+                    message_length=len(msg),
+                    process_name=process_name,
+                    status="failed",
+                    error_message="Invalid or empty phone number",
+                    created_by=created_by,
+                )
                 continue
             payload.append({
                 'user': cfg['user'],
                 'pwd': cfg['pwd'],
                 'number': normalized,
                 'msg': msg,
-                'sender': r.get('sender') or sender_id,
+                'sender': r.get('sender') or default_sid,
                 'language': DEFAULT_LANGUAGE,
             })
 
@@ -196,19 +298,35 @@ class SMSService:
 
         logger.info("SMS send_messages: count=%d numbers=%s", len(payload), [p['number'] for p in payload])
         out = _send_json_payload(payload)
+
+        try:
+            resp_arr = json.loads(out['text']) if out.get('text') else []
+        except Exception:
+            resp_arr = []
+
+        for i, p in enumerate(payload):
+            rec = p['number']
+            msg = p['msg']
+            sid = p['sender']
+            entry = resp_arr[i] if i < len(resp_arr) and isinstance(resp_arr[i], dict) else {}
+            ok = out['success'] and (entry.get('str_response') or '').lower().find('success') >= 0
+            ext_id = str(entry['msg_id']) if entry.get('msg_id') else None
+            _log_sms(
+                sender_id=sid,
+                recipient=rec,
+                message=msg,
+                message_length=len(msg),
+                process_name=process_name,
+                status="sent" if ok else "failed",
+                external_id=ext_id,
+                api_response_raw=json.dumps(entry) if entry else out.get('text'),
+                error_message=None if ok else (out.get('text') or 'Batch send failed'),
+                created_by=created_by,
+            )
+
         if out['success']:
-            logger.info("SMS send_messages: success")
             return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS batch sent'}
-        logger.warning(
-            "SMS send_messages: failed status=%s response=%s",
-            out.get('status_code'),
-            out['text'],
-        )
-        return {
-            'success': False,
-            'data': None,
-            'message': f"SMS batch failed: {out['text']}",
-        }
+        return {'success': False, 'data': None, 'message': f"SMS batch failed: {out['text']}"}
 
 
 @sms_bp.route('/api/sms/send', methods=['POST'])
@@ -225,7 +343,9 @@ def send_sms():
             'message': 'phone and message are required',
         }), 400
 
-    result = SMSService.send_message(phone, message, sender=sender)
+    result = SMSService.send_message(
+        phone, message, sender=sender, process_name='api_send'
+    )
     if not result['success']:
         return jsonify(result), 400
     return jsonify(result)
@@ -249,7 +369,9 @@ def send_sms_batch():
             'message': 'recipients (array of {phone, message}) is required',
         }), 400
 
-    result = SMSService.send_messages(recipients, default_sender=sender)
+    result = SMSService.send_messages(
+        recipients, default_sender=sender, process_name='api_send_batch'
+    )
     if not result['success']:
         return jsonify(result), 400
     return jsonify(result)

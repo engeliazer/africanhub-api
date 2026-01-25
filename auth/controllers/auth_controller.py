@@ -537,7 +537,8 @@ def reset_password():
             
             sms_result = SMSService.send_message(
                 phone=formatted_phone,
-                message=message
+                message=message,
+                process_name='password_reset',
             )
             
             logger.info(f"SMS sending result: {sms_result}")

@@ -336,4 +336,27 @@ class PaymentMethodModel(Base):
     updater = relationship("User", foreign_keys=[updated_by])
     
     def __repr__(self):
-        return f"<PaymentMethodModel(id={self.id}, name={self.name}, code={self.code}, is_active={self.is_active})>" 
+        return f"<PaymentMethodModel(id={self.id}, name={self.name}, code={self.code}, is_active={self.is_active})>"
+
+
+class SmsLog(Base):
+    """Audit log for all SMS sent. Used for reconciliation and compliance."""
+
+    __tablename__ = "sms_logs"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    sender_id = Column(String(100), nullable=False)
+    recipient = Column(String(20), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    message_length = Column(Integer, nullable=False)
+    process_name = Column(String(100), nullable=False, index=True)
+    status = Column(String(20), nullable=False)  # 'sent' | 'failed'
+    provider = Column(String(50), nullable=False, default="mshastra")
+    external_id = Column(String(100), nullable=True)  # e.g. msg_id from provider
+    api_response_raw = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SmsLog(id={self.id}, recipient={self.recipient}, process={self.process_name}, status={self.status})>" 
