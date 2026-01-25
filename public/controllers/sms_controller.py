@@ -55,21 +55,21 @@ def _log_sms(
         SessionLocal, SmsLog = _get_session_and_model()
         session = SessionLocal()
         try:
-        sms_count = _sms_count_from_length(message_length)
-        row = SmsLog(
-            sender_id=sender_id,
-            recipient=recipient,
-            message=message,
-            message_length=message_length,
-            sms_count=sms_count,
-            process_name=process_name,
-            status=status,
-            provider=provider,
-            external_id=external_id,
-            api_response_raw=api_response_raw,
-            error_message=error_message,
-            created_by=created_by,
-        )
+            sms_count = _sms_count_from_length(message_length)
+            row = SmsLog(
+                sender_id=sender_id,
+                recipient=recipient,
+                message=message,
+                message_length=message_length,
+                sms_count=sms_count,
+                process_name=process_name,
+                status=status,
+                provider=provider,
+                external_id=external_id,
+                api_response_raw=api_response_raw,
+                error_message=error_message,
+                created_by=created_by,
+            )
             session.add(row)
             session.commit()
         finally:
