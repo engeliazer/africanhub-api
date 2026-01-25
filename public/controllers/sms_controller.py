@@ -526,15 +526,25 @@ def send_broadcast():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _looks_like_user_id(x) -> bool:
+    """Treat as user ID only if int and in plausible range (e.g. < 10^9)."""
+    try:
+        n = int(x)
+        return isinstance(n, int) and 0 < n < 10**9
+    except (TypeError, ValueError):
+        return False
+
+
 @sms_bp.route('/api/sms/send-custom', methods=['POST'])
 @jwt_required()
 def send_custom():
     """
-    Send custom SMS to specified user IDs. Body: {
-      "message": "Hi [FULLNAME], ...",
-      "recipients": [1, 2, 3]
+    Send custom SMS to recipients. Body: {
+      "message": "Hi [FULLNAME], ..." or plain text,
+      "recipients": [1, 2, 3]  (user IDs) and/or ["255755344162", "0717098911"]  (phone numbers)
     }
-    [FULLNAME] / [SINGLENAME] replaced per user.
+    - User IDs (small ints): lookup user, use phone, replace [FULLNAME]/[SINGLENAME].
+    - Phone numbers (strings): send message as-is.
     """
     try:
         from database.db_connector import get_db
@@ -547,24 +557,40 @@ def send_custom():
         if not message:
             return jsonify({"status": "error", "message": "message is required"}), 400
         if not recipients or not isinstance(recipients, list):
-            return jsonify({"status": "error", "message": "recipients (array of user IDs) is required"}), 400
+            return jsonify({
+                "status": "error",
+                "message": "recipients is required (array of user IDs and/or phone numbers)",
+            }), 400
 
         user_ids = []
+        phones = []
         for x in recipients:
-            try:
+            if x is None:
+                continue
+            if _looks_like_user_id(x):
                 user_ids.append(int(x))
-            except (TypeError, ValueError):
-                pass
-        if not user_ids:
-            return jsonify({"status": "error", "message": "recipients must contain at least one valid user ID"}), 400
+            else:
+                # Phone: string (e.g. "255755344162") or stringifiable
+                raw = str(x).strip()
+                digits = re.sub(r"\D", "", raw)
+                if digits:
+                    phones.append(raw)
+        if not user_ids and not phones:
+            return jsonify({
+                "status": "error",
+                "message": "recipients must contain at least one user ID or phone number",
+            }), 400
 
         db = get_db()
         try:
-            users = db.query(User).filter(
-                User.id.in_(user_ids),
-                User.deleted_at.is_(None),
-            ).all()
-            by_id = {u.id: u for u in users}
+            by_id = {}
+            if user_ids:
+                users = db.query(User).filter(
+                    User.id.in_(user_ids),
+                    User.deleted_at.is_(None),
+                ).all()
+                by_id = {u.id: u for u in users}
+
             current_user_id = get_jwt_identity()
             try:
                 uid = int(current_user_id)
@@ -603,11 +629,29 @@ def send_custom():
                         "reason": r.get("message", "unknown"),
                     })
 
+            for phone in phones:
+                r = SMSService.send_message(
+                    phone, message,
+                    process_name="custom",
+                    created_by=uid,
+                )
+                if r.get("success"):
+                    sent += 1
+                    results.append({"phone": phone, "status": "sent"})
+                else:
+                    failed += 1
+                    results.append({
+                        "phone": phone,
+                        "status": "failed",
+                        "reason": r.get("message", "unknown"),
+                    })
+
+            total = len(user_ids) + len(phones)
             return jsonify({
                 "status": "success",
                 "message": f"Custom send completed: {sent} sent, {failed} failed",
                 "data": {
-                    "total_recipients": len(user_ids),
+                    "total_recipients": total,
                     "sent": sent,
                     "failed": failed,
                     "results": results,
