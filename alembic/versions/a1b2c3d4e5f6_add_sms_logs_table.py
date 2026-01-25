@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 revision: str = "a1b2c3d4e5f6"
 down_revision: Union[str, None] = "6e04b5d9a8c2"
@@ -17,6 +18,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    if inspect(conn).has_table("sms_logs"):
+        return
     op.create_table(
         "sms_logs",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
@@ -42,6 +46,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    if not inspect(conn).has_table("sms_logs"):
+        return
     op.drop_index("ix_sms_logs_created_at", table_name="sms_logs")
     op.drop_index("ix_sms_logs_process_name", table_name="sms_logs")
     op.drop_index("ix_sms_logs_recipient", table_name="sms_logs")
