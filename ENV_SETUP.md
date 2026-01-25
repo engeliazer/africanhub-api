@@ -41,6 +41,13 @@ B2_BUCKET_NAME=your-bucket-name
 # Redis (Celery)
 REDIS_URL=redis://localhost:6379/0
 
+# SMS (mShastra)
+MSHASTRA_USER=AFRICANHUB
+MSHASTRA_PWD=AfricanHub@2026
+MSHASTRA_SENDER=AFRICANHUB
+# Optional: override API URL (default https://mshastra.com/sendsms_api_json.aspx)
+# MSHASTRA_API_URL=https://mshastra.com/sendsms_api_json.aspx
+
 # Upload
 UPLOAD_FOLDER=./storage/uploads
 ```
