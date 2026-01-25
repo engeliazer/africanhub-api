@@ -55,19 +55,21 @@ def _log_sms(
         SessionLocal, SmsLog = _get_session_and_model()
         session = SessionLocal()
         try:
-            row = SmsLog(
-                sender_id=sender_id,
-                recipient=recipient,
-                message=message,
-                message_length=message_length,
-                process_name=process_name,
-                status=status,
-                provider=provider,
-                external_id=external_id,
-                api_response_raw=api_response_raw,
-                error_message=error_message,
-                created_by=created_by,
-            )
+        sms_count = _sms_count_from_length(message_length)
+        row = SmsLog(
+            sender_id=sender_id,
+            recipient=recipient,
+            message=message,
+            message_length=message_length,
+            sms_count=sms_count,
+            process_name=process_name,
+            status=status,
+            provider=provider,
+            external_id=external_id,
+            api_response_raw=api_response_raw,
+            error_message=error_message,
+            created_by=created_by,
+        )
             session.add(row)
             session.commit()
         finally:
@@ -79,6 +81,17 @@ def _log_sms(
 MSHASTRA_JSON_URL = os.getenv('MSHASTRA_API_URL', 'https://mshastra.com/sendsms_api_json.aspx')
 DEFAULT_COUNTRY_CODE = '255'
 DEFAULT_LANGUAGE = 'English'
+
+# GSM-7 segment size. 1–160 chars → 1 SMS, 161–320 → 2, etc. Used for billing reconciliation.
+SMS_CHARS_PER_SEGMENT = 160
+
+
+def _sms_count_from_length(message_length: int) -> int:
+    """Number of SMS segments for billing. 0 length → 1; 1–160 → 1; 161–320 → 2; etc."""
+    n = max(0, int(message_length))
+    if n == 0:
+        return 1
+    return max(1, (n + SMS_CHARS_PER_SEGMENT - 1) // SMS_CHARS_PER_SEGMENT)
 
 
 def _normalize_phone(phone: str, use_last_nine: bool = True) -> str:
@@ -386,6 +399,7 @@ def _sms_log_to_dict(row) -> Dict[str, Any]:
         "recipient": row.recipient,
         "message": row.message,
         "message_length": row.message_length,
+        "sms_count": row.sms_count,
         "process_name": row.process_name,
         "status": row.status,
         "provider": row.provider,
@@ -424,6 +438,7 @@ def get_sms_logs():
     try:
         from database.db_connector import get_db
         from applications.models.models import SmsLog
+        from sqlalchemy import func
 
         db = get_db()
         try:
@@ -451,23 +466,31 @@ def get_sms_logs():
                     "message": "from_date must be on or before to_date",
                 }), 400
 
-            q = db.query(SmsLog)
-            if process_name:
-                q = q.filter(SmsLog.process_name == process_name)
-            if status:
-                q = q.filter(SmsLog.status == status)
-            if recipient:
-                q = q.filter(SmsLog.recipient.contains(recipient))
-            if from_date is not None:
-                q = q.filter(SmsLog.created_at >= from_date)
-            if to_date is not None:
-                end_of_day = datetime.combine(to_date.date(), time.max)
-                q = q.filter(SmsLog.created_at <= end_of_day)
+            def _apply_filters(q):
+                if process_name:
+                    q = q.filter(SmsLog.process_name == process_name)
+                if status:
+                    q = q.filter(SmsLog.status == status)
+                if recipient:
+                    q = q.filter(SmsLog.recipient.contains(recipient))
+                if from_date is not None:
+                    q = q.filter(SmsLog.created_at >= from_date)
+                if to_date is not None:
+                    end_of_day = datetime.combine(to_date.date(), time.max)
+                    q = q.filter(SmsLog.created_at <= end_of_day)
+                return q
 
+            q = _apply_filters(db.query(SmsLog))
             total_count = q.count()
+            total_sms_count = _apply_filters(
+                db.query(func.coalesce(func.sum(SmsLog.sms_count), 0))
+            ).scalar() or 0
+            total_sms_count = int(total_sms_count)
+
             offset = (page - 1) * per_page
             rows = (
-                q.order_by(SmsLog.created_at.desc())
+                _apply_filters(db.query(SmsLog))
+                .order_by(SmsLog.created_at.desc())
                 .offset(offset)
                 .limit(per_page)
                 .all()
@@ -478,6 +501,7 @@ def get_sms_logs():
                 "message": "SMS logs retrieved successfully",
                 "data": {
                     "logs": [_sms_log_to_dict(r) for r in rows],
+                    "total_sms_count": total_sms_count,
                     "pagination": {
                         "total": total_count,
                         "page": page,

@@ -339,6 +339,10 @@ class PaymentMethodModel(Base):
         return f"<PaymentMethodModel(id={self.id}, name={self.name}, code={self.code}, is_active={self.is_active})>"
 
 
+# GSM-7 segment size (chars per SMS). Multi-part: 161–320 → 2, 321–480 → 3, etc.
+SMS_CHARS_PER_SEGMENT = 160
+
+
 class SmsLog(Base):
     """Audit log for all SMS sent. Used for reconciliation and compliance."""
 
@@ -349,6 +353,7 @@ class SmsLog(Base):
     recipient = Column(String(20), nullable=False, index=True)
     message = Column(Text, nullable=False)
     message_length = Column(Integer, nullable=False)
+    sms_count = Column(Integer, nullable=False)  # segments used (1 per 160 chars; for billing reconciliation)
     process_name = Column(String(100), nullable=False, index=True)
     status = Column(String(20), nullable=False)  # 'sent' | 'failed'
     provider = Column(String(50), nullable=False, default="mshastra")
