@@ -379,6 +379,156 @@ class AccountingController:
         except Exception as e:
             raise e
 
+    def list_bank_details(self) -> List[Dict[str, Any]]:
+        """List all active bank details"""
+        try:
+            rows = (
+                self.db.query(BankDetails)
+                .filter(BankDetails.is_active == True)
+                .order_by(BankDetails.is_default.desc(), BankDetails.bank_name)
+                .all()
+            )
+            return [self._bank_details_to_dict(b) for b in rows]
+        except Exception as e:
+            raise e
+
+    def get_bank_details_by_id(self, bank_details_id: int) -> Dict[str, Any]:
+        """Get a single bank details record by ID"""
+        try:
+            bank = (
+                self.db.query(BankDetails)
+                .filter(BankDetails.id == bank_details_id, BankDetails.is_active == True)
+                .first()
+            )
+            if not bank:
+                raise NotFound('Bank details not found')
+            return self._bank_details_to_dict(bank)
+        except NotFound:
+            raise
+        except Exception as e:
+            raise e
+
+    def _bank_details_to_dict(self, b: BankDetails) -> Dict[str, Any]:
+        """Convert BankDetails model to API response dict"""
+        return {
+            'id': b.id,
+            'bank_name': b.bank_name,
+            'account_name': b.account_name,
+            'account_number': b.account_number,
+            'branch_code': b.branch_code,
+            'swift_code': b.swift_code,
+            'is_default': b.is_default,
+            'is_active': b.is_active,
+            'created_at': b.created_at.isoformat() if b.created_at else None,
+            'updated_at': b.updated_at.isoformat() if b.updated_at else None,
+            'created_by': b.created_by,
+            'updated_by': b.updated_by,
+        }
+
+    def create_bank_details(self, data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
+        """Create a new bank details record"""
+        try:
+            bank_name = data.get('bank_name')
+            account_name = data.get('account_name')
+            account_number = data.get('account_number')
+            branch_code = data.get('branch_code')
+            swift_code = data.get('swift_code')
+            is_default = data.get('is_default', False)
+
+            if not all([bank_name, account_name, account_number, branch_code]):
+                raise BadRequest('bank_name, account_name, account_number, and branch_code are required')
+
+            # Ensure only one is_default: clear all others when this one will be default
+            if is_default:
+                self.db.query(BankDetails).update(
+                    {BankDetails.is_default: False},
+                    synchronize_session=False
+                )
+
+            bank = BankDetails(
+                bank_name=bank_name,
+                account_name=account_name,
+                account_number=account_number,
+                branch_code=branch_code,
+                swift_code=swift_code or None,
+                is_default=bool(is_default),
+                is_active=True,
+                created_by=user_id,
+                updated_by=user_id,
+            )
+            self.db.add(bank)
+            self.db.commit()
+            self.db.refresh(bank)
+            return self._bank_details_to_dict(bank)
+        except IntegrityError as e:
+            self.db.rollback()
+            raise BadRequest(f'Invalid bank details or duplicate: {str(e)}')
+        except BadRequest:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def update_bank_details(self, bank_details_id: int, data: Dict[str, Any], user_id: int) -> Dict[str, Any]:
+        """Update an existing bank details record"""
+        try:
+            bank = (
+                self.db.query(BankDetails)
+                .filter(BankDetails.id == bank_details_id, BankDetails.is_active == True)
+                .first()
+            )
+            if not bank:
+                raise NotFound('Bank details not found')
+
+            # Ensure only one is_default: clear all others when this one is set to default
+            is_default = data.get('is_default')
+            if is_default is True:
+                self.db.query(BankDetails).filter(BankDetails.id != bank_details_id).update(
+                    {BankDetails.is_default: False},
+                    synchronize_session=False
+                )
+
+            for key in ('bank_name', 'account_name', 'account_number', 'branch_code', 'swift_code', 'is_default', 'is_active'):
+                if key in data:
+                    setattr(bank, key, data[key] if key != 'swift_code' else (data[key] or None))
+            bank.updated_by = user_id
+            bank.updated_at = datetime.utcnow()
+
+            self.db.commit()
+            self.db.refresh(bank)
+            return self._bank_details_to_dict(bank)
+        except NotFound:
+            raise
+        except IntegrityError as e:
+            self.db.rollback()
+            raise BadRequest(f'Invalid bank details or duplicate: {str(e)}')
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def delete_bank_details(self, bank_details_id: int, user_id: int) -> Dict[str, Any]:
+        """Soft-delete a bank details record (set is_active=False)"""
+        try:
+            bank = (
+                self.db.query(BankDetails)
+                .filter(BankDetails.id == bank_details_id, BankDetails.is_active == True)
+                .first()
+            )
+            if not bank:
+                raise NotFound('Bank details not found')
+
+            bank.is_active = False
+            bank.updated_by = user_id
+            bank.updated_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(bank)
+            return {'id': bank.id, 'message': 'Bank details deactivated successfully'}
+        except NotFound:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
     def upload_bank_statement(self, data: Dict[str, Any], current_user_id: int) -> Dict[str, Any]:
         """Upload bank statement transactions"""
         try:
@@ -1470,11 +1620,96 @@ def get_default_bank_details():
             'status': 'success',
             'data': bank_details
         }), 200
+    except NotFound as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
         }), 500
+
+@accounting_bp.route('/bank_details', methods=['POST'])
+@jwt_required()
+def create_bank_details():
+    """Create a new bank details record"""
+    try:
+        current_user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        bank = accounting_controller.create_bank_details(data, current_user_id)
+        return jsonify({
+            'status': 'success',
+            'message': 'Bank details created successfully',
+            'data': bank
+        }), 201
+    except BadRequest as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@accounting_bp.route('/bank_details/list', methods=['GET'])
+@jwt_required()
+def list_bank_details():
+    """List all active bank details"""
+    try:
+        items = accounting_controller.list_bank_details()
+        return jsonify({
+            'status': 'success',
+            'data': items
+        }), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@accounting_bp.route('/bank_details/<int:bank_details_id>', methods=['GET'])
+@jwt_required()
+def get_bank_details_by_id(bank_details_id):
+    """Get a single bank details record by ID"""
+    try:
+        bank = accounting_controller.get_bank_details_by_id(bank_details_id)
+        return jsonify({
+            'status': 'success',
+            'data': bank
+        }), 200
+    except NotFound as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@accounting_bp.route('/bank_details/<int:bank_details_id>', methods=['PUT'])
+@jwt_required()
+def update_bank_details(bank_details_id):
+    """Update an existing bank details record"""
+    try:
+        current_user_id = get_jwt_identity()
+        data = request.get_json() or {}
+        bank = accounting_controller.update_bank_details(bank_details_id, data, current_user_id)
+        return jsonify({
+            'status': 'success',
+            'message': 'Bank details updated successfully',
+            'data': bank
+        }), 200
+    except NotFound as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+    except BadRequest as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@accounting_bp.route('/bank_details/<int:bank_details_id>', methods=['DELETE'])
+@jwt_required()
+def delete_bank_details(bank_details_id):
+    """Soft-delete a bank details record (deactivate)"""
+    try:
+        current_user_id = get_jwt_identity()
+        result = accounting_controller.delete_bank_details(bank_details_id, current_user_id)
+        return jsonify({
+            'status': 'success',
+            'message': result.get('message', 'Bank details deactivated successfully'),
+            'data': result
+        }), 200
+    except NotFound as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 404
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @accounting_bp.route('/upload_statement', methods=['POST'])
 @jwt_required()
