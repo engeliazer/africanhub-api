@@ -142,8 +142,14 @@ class AccountingController:
                     payments_query = payments_query.filter(BankReconciliation.status == 'verified')
                 elif role.upper() == 'ACCOUNTANT':
                     payments_query = payments_query.filter(BankReconciliation.status == 'matched')
+                elif role.upper() == 'SYSADMIN':
+                    payments_query = payments_query.filter(
+                        BankReconciliation.status.in_(['matched', 'verified'])
+                    )
                 else:
-                    raise BadRequest(f"Invalid role: {role}. Must be either 'MANAGER' or 'ACCOUNTANT'")
+                    raise BadRequest(
+                        f"Invalid role: {role}. Must be 'MANAGER', 'ACCOUNTANT', or 'SYSADMIN'"
+                    )
             
             # Execute query and get results
             payments = payments_query.all()
@@ -220,6 +226,8 @@ class AccountingController:
                 result.append(payment_data)
             
             return result
+        except BadRequest:
+            raise
         except Exception as e:
             print(f"Error in get_pending_payments: {str(e)}")
             traceback.print_exc()
@@ -1577,6 +1585,8 @@ def get_pending_payments(role):
             'status': 'success',
             'data': payments
         }), 200
+    except BadRequest as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
     except Exception as e:
         print(f"Error in get_pending_payments endpoint: {str(e)}")
         traceback.print_exc()
