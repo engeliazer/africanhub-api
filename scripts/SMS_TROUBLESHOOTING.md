@@ -11,6 +11,20 @@ To send a **test SMS** (e.g. to `255717098911`) and see the API response:
 
 ```bash
 cd /var/www/africanhub-api.africanhub.ac.tz
+```
+
+**Option A – use venv** (recommended; has `requests`):
+
+```bash
+# If you have venv or .venv:
+bash scripts/run_send_test_sms.sh 255717098911 "Test from AfricanHub API"
+# or
+venv/bin/python3 scripts/send_test_sms.py 255717098911 "Test from AfricanHub API"
+```
+
+**Option B – system python** (requires `requests`: `pip install requests`):
+
+```bash
 python3 scripts/send_test_sms.py 255717098911 "Test from AfricanHub API"
 ```
 
@@ -20,7 +34,7 @@ With no args, it uses `255717098911` and a default message:
 python3 scripts/send_test_sms.py
 ```
 
-Ensure `MSHASTRA_PWD` is set in `.env`. The script prints config, result, and (via logging) the raw mShastra response.
+Ensure `MSHASTRA_PWD` is set in `.env`. The script prints config and the raw mShastra API response (status + body).
 
 ---
 

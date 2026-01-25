@@ -1,29 +1,39 @@
 #!/usr/bin/env python3
 """
 Send a test SMS via mShastra. Run from project root:
-  python scripts/send_test_sms.py
-  # or
-  python scripts/send_test_sms.py 255717098911 "Your message"
+  python3 scripts/send_test_sms.py
+  python3 scripts/send_test_sms.py 255717098911 "Your message"
 
-Uses .env in project root for MSHASTRA_*.
+Uses .env in project root for MSHASTRA_*. No venv required; needs 'requests'.
 """
 
 import os
 import re
 import sys
-import logging
 
 # Project root (parent of scripts/)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+# Load .env manually (no python-dotenv required)
+def _load_env():
+    path = os.path.join(ROOT, ".env")
+    if not os.path.isfile(path):
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if v.startswith('"') and v.endswith('"') or v.startswith("'") and v.endswith("'"):
+                v = v[1:-1]
+            os.environ.setdefault(k, v)
 
-from dotenv import load_dotenv
-load_dotenv()
+_load_env()
 
-# Default test number and message
 DEFAULT_PHONE = "255717098911"
 DEFAULT_MSG = "Test SMS from AfricanHub API. If you receive this, mShastra is working."
 
@@ -55,29 +65,50 @@ def main():
         print("ERROR: MSHASTRA_PWD is not set. Add it to .env and try again.")
         sys.exit(1)
 
-    # Normalize phone (same logic as sms_controller)
     digits = re.sub(r"\D", "", phone)
     if len(digits) >= 9:
         normalized = "255" + digits[-9:]
     else:
-        normalized = "255" + digits if not digits.startswith("255") else digits
+        normalized = "255" + digits.lstrip("0") if not digits.startswith("255") else digits
     print(f"Normalized phone: {normalized}")
     print()
 
-    # Call SMSService
-    from public.controllers.sms_controller import SMSService
+    payload = [
+        {
+            "user": user,
+            "pwd": pwd,
+            "number": normalized,
+            "msg": message,
+            "sender": sender,
+            "language": "English",
+        }
+    ]
 
     print("Sending...")
-    result = SMSService.send_message(phone, message)
-    print()
-    print("Result:")
-    print(f"  success: {result.get('success')}")
-    print(f"  message: {result.get('message')}")
-    if result.get("data"):
-        print(f"  data:    {result['data']}")
-    print("=" * 50)
+    try:
+        import requests
+    except ImportError:
+        print("ERROR: 'requests' not found. Run: pip install requests")
+        print("Or use the project venv: venv/bin/python3 scripts/send_test_sms.py ...")
+        sys.exit(1)
 
-    sys.exit(0 if result.get("success") else 1)
+    try:
+        r = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+        print()
+        print("API response:")
+        print(f"  Status: {r.status_code}")
+        print(f"  Body:   {r.text}")
+        print("=" * 50)
+        ok = r.status_code == 200
+        if ok:
+            print("Success. Check the phone for the SMS.")
+        else:
+            print("Failed. Check status/body above.")
+        sys.exit(0 if ok else 1)
+    except Exception as e:
+        print()
+        print(f"ERROR: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
