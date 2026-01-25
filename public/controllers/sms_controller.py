@@ -14,6 +14,7 @@ Env vars (recommended):
 from flask import Blueprint, request, jsonify
 import re
 import os
+import logging
 import requests
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -21,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sms_bp = Blueprint('sms', __name__)
+logger = logging.getLogger(__name__)
 
 # mShastra JSON API endpoint
 MSHASTRA_JSON_URL = os.getenv('MSHASTRA_API_URL', 'https://mshastra.com/sendsms_api_json.aspx')
@@ -50,15 +52,26 @@ def _normalize_phone(phone: str, use_last_nine: bool = True) -> str:
 
 
 def _config() -> Dict[str, str]:
-    return {
+    cfg = {
         'user': os.getenv('MSHASTRA_USER', 'AFRICANHUB'),
         'pwd': os.getenv('MSHASTRA_PWD', ''),
         'sender': os.getenv('MSHASTRA_SENDER', 'AFRICANHUB'),
     }
+    if not cfg['pwd']:
+        logger.warning("MSHASTRA_PWD is not set; SMS API may reject requests")
+    return cfg
 
 
 def _send_json_payload(payload: List[Dict[str, Any]]) -> Dict[str, Any]:
     """POST JSON array to mShastra JSON API. payload = list of {user, pwd, number, msg, sender, language}."""
+    # Log request with masked password
+    mask = [{**p, 'pwd': '***'} for p in payload]
+    logger.info(
+        "SMS API request: url=%s payload=%s",
+        MSHASTRA_JSON_URL,
+        mask,
+        extra={'sms_payload_masked': mask},
+    )
     try:
         resp = requests.post(
             MSHASTRA_JSON_URL,
@@ -66,8 +79,17 @@ def _send_json_payload(payload: List[Dict[str, Any]]) -> Dict[str, Any]:
             headers={'Content-Type': 'application/json'},
             timeout=30,
         )
+        logger.info(
+            "SMS API response: status=%s body=%s",
+            resp.status_code,
+            resp.text,
+            extra={'sms_status': resp.status_code, 'sms_response': resp.text},
+        )
+        # Grep-friendly line: "SMS API says: ..."
+        logger.info("SMS API says: [status=%s] %s", resp.status_code, resp.text)
         return {'success': resp.status_code == 200, 'status_code': resp.status_code, 'text': resp.text}
     except Exception as e:
+        logger.exception("SMS API error: %s", e)
         return {'success': False, 'status_code': None, 'text': str(e)}
 
 
@@ -93,7 +115,15 @@ class SMSService:
         """
         cfg = _config()
         normalized = _normalize_phone(phone, use_last_nine=use_last_nine)
+        logger.info(
+            "SMS send_message: phone=%r normalized=%r sender=%r msg_len=%d",
+            phone,
+            normalized,
+            sender or cfg['sender'],
+            len(message or ''),
+        )
         if not normalized:
+            logger.warning("SMS send_message: invalid or empty phone phone=%r", phone)
             return {'success': False, 'data': None, 'message': 'Invalid or empty phone number'}
 
         sender_id = sender or cfg['sender']
@@ -108,7 +138,14 @@ class SMSService:
         out = _send_json_payload([item])
 
         if out['success']:
+            logger.info("SMS send_message: success number=%s", normalized)
             return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS sent'}
+        logger.warning(
+            "SMS send_message: failed number=%s status=%s response=%s",
+            normalized,
+            out.get('status_code'),
+            out['text'],
+        )
         return {
             'success': False,
             'data': None,
@@ -154,11 +191,19 @@ class SMSService:
             })
 
         if not payload:
+            logger.warning("SMS send_messages: no valid recipients")
             return {'success': False, 'data': None, 'message': 'No valid recipients'}
 
+        logger.info("SMS send_messages: count=%d numbers=%s", len(payload), [p['number'] for p in payload])
         out = _send_json_payload(payload)
         if out['success']:
+            logger.info("SMS send_messages: success")
             return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS batch sent'}
+        logger.warning(
+            "SMS send_messages: failed status=%s response=%s",
+            out.get('status_code'),
+            out['text'],
+        )
         return {
             'success': False,
             'data': None,
