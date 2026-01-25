@@ -739,20 +739,15 @@ def create_subject_with_topic_subtopic():
 @subjects_bp.route('/subjects/<int:subject_id>', methods=['PUT'])
 @jwt_required()
 def update_subject(subject_id):
-    """Update a specific subject"""
+    """Update a specific subject (including is_active for re-activation)."""
     try:
         db = get_db()
-        subject = db.query(Subject).filter(
-            Subject.id == subject_id,
-            Subject.is_active == True
-        ).first()
-        
+        subject = db.query(Subject).filter(Subject.id == subject_id).first()
         if not subject:
             return jsonify({
                 "status": "error",
                 "message": "Subject not found"
             }), 404
-        
         data = request.get_json()
         subject_data = SubjectUpdate(**data)
         
