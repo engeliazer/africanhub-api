@@ -532,7 +532,7 @@ def reset_password():
             logger.info(f"Password updated for user ID: {user.id}")
 
             # Send SMS with new password
-            message = f"Your DCRC Online CPA Review Classes password has been reset. Your new password is: {new_password}. Please log in and change it."
+            message = f"Your password for The African Hub has been reset. Your new password is: {new_password}. Please log in and change it."
             logger.info(f"Sending SMS to {formatted_phone} with message: {message}")
             
             sms_result = SMSService.send_message(

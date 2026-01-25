@@ -107,12 +107,11 @@ def self_registration():
         access_token = create_access_token(identity=identity)
 
         # Send welcome SMS with the new format
-        welcome_message = f"Welcome to DCRC Online CPA Review Classes. Your account is ready. Initial password: {plain_password}. Please log in to change it."
-            
+        welcome_message = f"Welcome to The African Hub. Your account is ready. Initial password: {plain_password}. Please log in to change it."
+
         SMSService.send_message(
-            phone=formatted_phone,  # Use formatted phone number
+            phone=formatted_phone,
             message=welcome_message,
-            sender="DCRC"
         )
 
         return jsonify({

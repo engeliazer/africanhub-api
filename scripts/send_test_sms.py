@@ -19,18 +19,29 @@ sys.path.insert(0, ROOT)
 # Load .env manually (no python-dotenv required)
 def _load_env():
     path = os.path.join(ROOT, ".env")
+    path = os.path.abspath(path)
+    print(f"Loading .env from: {path}")
     if not os.path.isfile(path):
+        print("  -> Not found. Create .env in project root with MSHASTRA_USER, MSHASTRA_PWD, MSHASTRA_SENDER.")
         return
+    loaded = []
     with open(path) as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if "=" not in line:
                 continue
             k, v = line.split("=", 1)
             k, v = k.strip(), v.strip()
-            if v.startswith('"') and v.endswith('"') or v.startswith("'") and v.endswith("'"):
+            if v.startswith('"') and v.endswith('"') or (v.startswith("'") and v.endswith("'")):
                 v = v[1:-1]
-            os.environ.setdefault(k, v)
+            os.environ[k] = v
+            if k.startswith("MSHASTRA_"):
+                loaded.append(k)
+    print(f"  -> Loaded. MSHASTRA_* keys: {', '.join(loaded) or '(none)'}")
 
 _load_env()
 

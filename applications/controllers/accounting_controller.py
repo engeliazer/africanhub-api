@@ -718,14 +718,13 @@ class AccountingController:
                             formatted_phone = f"255{digits}"
                         
                         # Create a welcoming message
-                        message = f"Welcome to DCRC Online CPA Review Classes. Your application payment has been approved. You can now access all the study materials. Happy learning."
-                        
+                        message = f"Welcome to The African Hub. Your application payment has been approved. You can now access all the study materials. Happy learning."
+
                         # Send SMS notification
                         print(f"Sending SMS to {formatted_phone} with message: {message}")
                         sms_result = SMSService.send_message(
                             phone=formatted_phone,
                             message=message,
-                            sender="DCRC"
                         )
                         print(f"SMS sending result: {sms_result}")
                 elif status == 'rejected':
