@@ -14,7 +14,7 @@ All SMS are logged to sms_logs for audit and reconciliation.
 """
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity
 import json
 import re
 import os
@@ -390,6 +390,234 @@ def send_sms_batch():
     if not result['success']:
         return jsonify(result), 400
     return jsonify(result)
+
+
+# --- Custom / broadcast SMS helpers ---
+
+BROADCAST_CATEGORIES = ("all_users", "active_subscribers", "inactive_no_application")
+
+
+def _replace_message_placeholders(message: str, first_name: str, last_name: str) -> str:
+    """Replace [FULLNAME] and [SINGLENAME] in message."""
+    first = (first_name or "").strip()
+    last = (last_name or "").strip()
+    full = f"{first} {last}".strip() or " "
+    out = (message or "").replace("[FULLNAME]", full).replace("[SINGLENAME]", first)
+    return out
+
+
+def _get_users_by_category(db, category: str):
+    """
+    Return list of User with non-empty phone, deleted_at IS NULL.
+    category: all_users | active_subscribers | inactive_no_application
+    """
+    from sqlalchemy import exists
+    from auth.models.models import User
+    from applications.models.models import Application, ApplicationStatus
+
+    base = db.query(User).filter(
+        User.deleted_at.is_(None),
+        User.phone.isnot(None),
+        User.phone != "",
+    )
+    if category == "all_users":
+        return base.all()
+    if category == "active_subscribers":
+        subq = (
+            db.query(Application.id)
+            .filter(
+                Application.user_id == User.id,
+                Application.status == ApplicationStatus.approved,
+                Application.is_active == True,
+                Application.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return base.filter(exists(subq)).all()
+    if category == "inactive_no_application":
+        subq = (
+            db.query(Application.id)
+            .filter(
+                Application.user_id == User.id,
+                Application.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return base.filter(~exists(subq)).all()
+    return []
+
+
+@sms_bp.route('/api/sms/send-broadcast', methods=['POST'])
+@jwt_required()
+def send_broadcast():
+    """
+    Send SMS to users by category. Body: {
+      "category": "all_users" | "active_subscribers" | "inactive_no_application",
+      "message": "Hi [FULLNAME], ..." or "Hi [SINGLENAME], ..."
+    }
+    [FULLNAME] → "First Last", [SINGLENAME] → "First".
+    """
+    try:
+        from database.db_connector import get_db
+
+        data = request.get_json() or {}
+        category = (data.get("category") or "").strip()
+        message = (data.get("message") or "").strip()
+
+        if not category or category not in BROADCAST_CATEGORIES:
+            return jsonify({
+                "status": "error",
+                "message": f"category is required and must be one of: {', '.join(BROADCAST_CATEGORIES)}",
+            }), 400
+        if not message:
+            return jsonify({"status": "error", "message": "message is required"}), 400
+
+        db = get_db()
+        try:
+            users = _get_users_by_category(db, category)
+            current_user_id = get_jwt_identity()
+            try:
+                uid = int(current_user_id)
+            except (TypeError, ValueError):
+                uid = None
+
+            sent, failed = 0, 0
+            results = []
+
+            for u in users:
+                phone = (u.phone or "").strip()
+                if not phone:
+                    failed += 1
+                    results.append({"user_id": u.id, "phone": None, "status": "skipped", "reason": "no phone"})
+                    continue
+                msg = _replace_message_placeholders(message, u.first_name or "", u.last_name or "")
+                r = SMSService.send_message(
+                    phone, msg,
+                    process_name="broadcast",
+                    created_by=uid,
+                )
+                if r.get("success"):
+                    sent += 1
+                    results.append({"user_id": u.id, "phone": phone, "status": "sent"})
+                else:
+                    failed += 1
+                    results.append({
+                        "user_id": u.id,
+                        "phone": phone,
+                        "status": "failed",
+                        "reason": r.get("message", "unknown"),
+                    })
+
+            return jsonify({
+                "status": "success",
+                "message": f"Broadcast completed: {sent} sent, {failed} failed",
+                "data": {
+                    "category": category,
+                    "total_recipients": len(users),
+                    "sent": sent,
+                    "failed": failed,
+                    "results": results,
+                },
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.exception("send_broadcast: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@sms_bp.route('/api/sms/send-custom', methods=['POST'])
+@jwt_required()
+def send_custom():
+    """
+    Send custom SMS to specified user IDs. Body: {
+      "message": "Hi [FULLNAME], ...",
+      "recipients": [1, 2, 3]
+    }
+    [FULLNAME] / [SINGLENAME] replaced per user.
+    """
+    try:
+        from database.db_connector import get_db
+        from auth.models.models import User
+
+        data = request.get_json() or {}
+        message = (data.get("message") or "").strip()
+        recipients = data.get("recipients")
+
+        if not message:
+            return jsonify({"status": "error", "message": "message is required"}), 400
+        if not recipients or not isinstance(recipients, list):
+            return jsonify({"status": "error", "message": "recipients (array of user IDs) is required"}), 400
+
+        user_ids = []
+        for x in recipients:
+            try:
+                user_ids.append(int(x))
+            except (TypeError, ValueError):
+                pass
+        if not user_ids:
+            return jsonify({"status": "error", "message": "recipients must contain at least one valid user ID"}), 400
+
+        db = get_db()
+        try:
+            users = db.query(User).filter(
+                User.id.in_(user_ids),
+                User.deleted_at.is_(None),
+            ).all()
+            by_id = {u.id: u for u in users}
+            current_user_id = get_jwt_identity()
+            try:
+                uid = int(current_user_id)
+            except (TypeError, ValueError):
+                uid = None
+
+            sent, failed = 0, 0
+            results = []
+
+            for uid_key in user_ids:
+                u = by_id.get(uid_key)
+                if not u:
+                    failed += 1
+                    results.append({"user_id": uid_key, "status": "skipped", "reason": "user not found"})
+                    continue
+                phone = (u.phone or "").strip()
+                if not phone:
+                    failed += 1
+                    results.append({"user_id": u.id, "phone": None, "status": "skipped", "reason": "no phone"})
+                    continue
+                msg = _replace_message_placeholders(message, u.first_name or "", u.last_name or "")
+                r = SMSService.send_message(
+                    phone, msg,
+                    process_name="custom",
+                    created_by=uid,
+                )
+                if r.get("success"):
+                    sent += 1
+                    results.append({"user_id": u.id, "phone": phone, "status": "sent"})
+                else:
+                    failed += 1
+                    results.append({
+                        "user_id": u.id,
+                        "phone": phone,
+                        "status": "failed",
+                        "reason": r.get("message", "unknown"),
+                    })
+
+            return jsonify({
+                "status": "success",
+                "message": f"Custom send completed: {sent} sent, {failed} failed",
+                "data": {
+                    "total_recipients": len(user_ids),
+                    "sent": sent,
+                    "failed": failed,
+                    "results": results,
+                },
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.exception("send_custom: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 def _sms_log_to_dict(row) -> Dict[str, Any]:
