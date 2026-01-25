@@ -14,6 +14,7 @@ All SMS are logged to sms_logs for audit and reconciliation.
 """
 
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required
 import json
 import re
 import os
@@ -375,3 +376,81 @@ def send_sms_batch():
     if not result['success']:
         return jsonify(result), 400
     return jsonify(result)
+
+
+def _sms_log_to_dict(row) -> Dict[str, Any]:
+    return {
+        "id": row.id,
+        "sender_id": row.sender_id,
+        "recipient": row.recipient,
+        "message": row.message,
+        "message_length": row.message_length,
+        "process_name": row.process_name,
+        "status": row.status,
+        "provider": row.provider,
+        "external_id": row.external_id,
+        "api_response_raw": row.api_response_raw,
+        "error_message": row.error_message,
+        "created_by": row.created_by,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@sms_bp.route('/api/sms/logs', methods=['GET'])
+@jwt_required()
+def get_sms_logs():
+    """
+    Retrieve paginated SMS logs. Query params:
+      - page (default 1)
+      - per_page (default 20)
+      - process_name: filter by process (e.g. registration, payment_approved)
+      - status: filter by status (sent | failed)
+      - recipient: filter by recipient number (partial match)
+    """
+    try:
+        from database.db_connector import get_db
+        from applications.models.models import SmsLog
+
+        db = get_db()
+        try:
+            page = max(1, request.args.get('page', 1, type=int))
+            per_page = min(100, max(1, request.args.get('per_page', 20, type=int)))
+            process_name = request.args.get('process_name', '').strip() or None
+            status = request.args.get('status', '').strip().lower() or None
+            recipient = request.args.get('recipient', '').strip() or None
+
+            q = db.query(SmsLog)
+            if process_name:
+                q = q.filter(SmsLog.process_name == process_name)
+            if status:
+                q = q.filter(SmsLog.status == status)
+            if recipient:
+                q = q.filter(SmsLog.recipient.contains(recipient))
+
+            total_count = q.count()
+            offset = (page - 1) * per_page
+            rows = (
+                q.order_by(SmsLog.created_at.desc())
+                .offset(offset)
+                .limit(per_page)
+                .all()
+            )
+
+            return jsonify({
+                "status": "success",
+                "message": "SMS logs retrieved successfully",
+                "data": {
+                    "logs": [_sms_log_to_dict(r) for r in rows],
+                    "pagination": {
+                        "total": total_count,
+                        "page": page,
+                        "per_page": per_page,
+                        "total_pages": (total_count + per_page - 1) // per_page,
+                    },
+                },
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.exception("get_sms_logs: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
