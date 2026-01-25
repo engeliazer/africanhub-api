@@ -20,6 +20,7 @@ import re
 import os
 import logging
 import requests
+from datetime import datetime, time
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -396,6 +397,17 @@ def _sms_log_to_dict(row) -> Dict[str, Any]:
     }
 
 
+def _parse_date(s: str) -> Optional[datetime]:
+    """Parse YYYY-MM-DD to datetime. Returns None if empty/invalid."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
 @sms_bp.route('/api/sms/logs', methods=['GET'])
 @jwt_required()
 def get_sms_logs():
@@ -406,6 +418,8 @@ def get_sms_logs():
       - process_name: filter by process (e.g. registration, payment_approved)
       - status: filter by status (sent | failed)
       - recipient: filter by recipient number (partial match)
+      - from_date: filter created_at >= this date (YYYY-MM-DD)
+      - to_date: filter created_at <= this date (YYYY-MM-DD)
     """
     try:
         from database.db_connector import get_db
@@ -418,6 +432,24 @@ def get_sms_logs():
             process_name = request.args.get('process_name', '').strip() or None
             status = request.args.get('status', '').strip().lower() or None
             recipient = request.args.get('recipient', '').strip() or None
+            from_date = _parse_date(request.args.get('from_date', ''))
+            to_date = _parse_date(request.args.get('to_date', ''))
+
+            if request.args.get('from_date', '').strip() and from_date is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "from_date must be YYYY-MM-DD",
+                }), 400
+            if request.args.get('to_date', '').strip() and to_date is None:
+                return jsonify({
+                    "status": "error",
+                    "message": "to_date must be YYYY-MM-DD",
+                }), 400
+            if from_date is not None and to_date is not None and from_date > to_date:
+                return jsonify({
+                    "status": "error",
+                    "message": "from_date must be on or before to_date",
+                }), 400
 
             q = db.query(SmsLog)
             if process_name:
@@ -426,6 +458,11 @@ def get_sms_logs():
                 q = q.filter(SmsLog.status == status)
             if recipient:
                 q = q.filter(SmsLog.recipient.contains(recipient))
+            if from_date is not None:
+                q = q.filter(SmsLog.created_at >= from_date)
+            if to_date is not None:
+                end_of_day = datetime.combine(to_date.date(), time.max)
+                q = q.filter(SmsLog.created_at <= end_of_day)
 
             total_count = q.count()
             offset = (page - 1) * per_page
