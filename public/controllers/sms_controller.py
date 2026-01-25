@@ -411,7 +411,6 @@ def _get_users_by_category(db, category: str):
     Return list of User with non-empty phone, deleted_at IS NULL.
     category: all_users | active_subscribers | inactive_no_application
     """
-    from sqlalchemy import exists
     from auth.models.models import User
     from applications.models.models import Application, ApplicationStatus
 
@@ -424,26 +423,22 @@ def _get_users_by_category(db, category: str):
         return base.all()
     if category == "active_subscribers":
         subq = (
-            db.query(Application.id)
+            db.query(Application.user_id)
             .filter(
-                Application.user_id == User.id,
                 Application.status == ApplicationStatus.approved,
                 Application.is_active == True,
                 Application.deleted_at.is_(None),
             )
-            .limit(1)
+            .distinct()
         )
-        return base.filter(exists(subq)).all()
+        return base.filter(User.id.in_(subq)).all()
     if category == "inactive_no_application":
         subq = (
-            db.query(Application.id)
-            .filter(
-                Application.user_id == User.id,
-                Application.deleted_at.is_(None),
-            )
-            .limit(1)
+            db.query(Application.user_id)
+            .filter(Application.deleted_at.is_(None))
+            .distinct()
         )
-        return base.filter(~exists(subq)).all()
+        return base.filter(~User.id.in_(subq)).all()
     return []
 
 
