@@ -20,10 +20,7 @@ class SubTopicsController:
         """Create a new subtopic"""
         try:
             # Check if topic exists
-            topic = self.db.query(Topic).filter(
-                Topic.id == subtopic.topic_id,
-                Topic.deleted_at.is_(None)
-            ).first()
+            topic = self.db.query(Topic).filter(Topic.id == subtopic.topic_id).first()
             if not topic:
                 raise NotFound("Topic not found")
 
@@ -48,30 +45,22 @@ class SubTopicsController:
 
     def get_subtopic(self, subtopic_id: int) -> Optional[SubTopicInDB]:
         """Get a subtopic by ID"""
-        subtopic = self.db.query(SubTopic).filter(
-            SubTopic.id == subtopic_id,
-            SubTopic.deleted_at.is_(None)
-        ).first()
+        subtopic = self.db.query(SubTopic).filter(SubTopic.id == subtopic_id).first()
         if not subtopic:
             raise NotFound("SubTopic not found")
         return SubTopicInDB.from_orm(subtopic)
 
     def get_subtopics(self, skip: int = 0, limit: int = 100, topic_id: Optional[int] = None) -> List[SubTopicInDB]:
         """Get all subtopics with pagination and optional topic filter"""
-        query = self.db.query(SubTopic).filter(SubTopic.deleted_at.is_(None))
-        
+        query = self.db.query(SubTopic)
         if topic_id:
             query = query.filter(SubTopic.topic_id == topic_id)
-        
         subtopics = query.offset(skip).limit(limit).all()
         return [SubTopicInDB.from_orm(subtopic) for subtopic in subtopics]
 
     def update_subtopic(self, subtopic_id: int, subtopic_update: SubTopicUpdate) -> SubTopicInDB:
         """Update a subtopic"""
-        db_subtopic = self.db.query(SubTopic).filter(
-            SubTopic.id == subtopic_id,
-            SubTopic.deleted_at.is_(None)
-        ).first()
+        db_subtopic = self.db.query(SubTopic).filter(SubTopic.id == subtopic_id).first()
         if not db_subtopic:
             raise NotFound("SubTopic not found")
 
@@ -90,16 +79,12 @@ class SubTopicsController:
             raise BadRequest("SubTopic code already exists for this topic")
 
     def delete_subtopic(self, subtopic_id: int) -> bool:
-        """Soft delete a subtopic"""
-        db_subtopic = self.db.query(SubTopic).filter(
-            SubTopic.id == subtopic_id,
-            SubTopic.deleted_at.is_(None)
-        ).first()
+        """Hard delete a subtopic"""
+        db_subtopic = self.db.query(SubTopic).filter(SubTopic.id == subtopic_id).first()
         if not db_subtopic:
             raise NotFound("SubTopic not found")
-
-        db_subtopic.deleted_at = datetime.utcnow()
         try:
+            self.db.delete(db_subtopic)
             self.db.commit()
             return True
         except Exception:

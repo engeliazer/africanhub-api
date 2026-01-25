@@ -896,20 +896,15 @@ def get_topic(topic_id):
 @topics_bp.route('/topics/<int:topic_id>', methods=['PUT'])
 @jwt_required()
 def update_topic(topic_id):
-    """Update a specific topic"""
+    """Update a specific topic (including is_active status)."""
     try:
         db = get_db()
-        topic = db.query(Topic).filter(
-            Topic.id == topic_id,
-            Topic.is_active == True
-        ).first()
-        
+        topic = db.query(Topic).filter(Topic.id == topic_id).first()
         if not topic:
             return jsonify({
                 "status": "error",
                 "message": "Topic not found"
             }), 404
-        
         data = request.get_json()
         topic_data = TopicUpdate(**data)
         
@@ -944,29 +939,21 @@ def update_topic(topic_id):
 @topics_bp.route('/topics/<int:topic_id>', methods=['DELETE'])
 @jwt_required()
 def delete_topic(topic_id):
-    """Soft delete a topic by setting is_active to False"""
+    """Hard delete a topic (and cascade to subtopics via FK)."""
     try:
         db = get_db()
-        topic = db.query(Topic).filter(
-            Topic.id == topic_id,
-            Topic.is_active == True
-        ).first()
-        
+        topic = db.query(Topic).filter(Topic.id == topic_id).first()
         if not topic:
             return jsonify({
                 "status": "error",
-                "message": "Topic not found or already deleted"
+                "message": "Topic not found"
             }), 404
-        
-        # Soft delete by setting is_active to False
-        topic.is_active = False
+        db.delete(topic)
         db.commit()
-        
         return jsonify({
             "status": "success",
             "message": "Topic deleted successfully"
         }), 200
-        
     except Exception as e:
         db.rollback()
         return jsonify({
@@ -1163,7 +1150,7 @@ def get_subtopic(subtopic_id):
 @subtopics_bp.route('/subtopics/<int:subtopic_id>', methods=['PUT'])
 @jwt_required()
 def update_subtopic(subtopic_id):
-    """Update a specific subtopic"""
+    """Update a specific subtopic (including is_active status)."""
     try:
         db = get_db()
         subtopic = db.query(SubTopic).filter(
