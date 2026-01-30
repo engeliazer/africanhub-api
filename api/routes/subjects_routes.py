@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 from database.db_connector import get_db
 from auth.models.models import User
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
-from subjects.models.models import Subject, Topic, SubTopic, Season, SeasonSubject, Course
+from subjects.models.models import Subject, Topic, SubTopic, Season, SeasonSubject, Course, CourseSubject
 from subjects.models.schemas import (
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
@@ -1822,7 +1822,11 @@ def get_schedules_public():
                 ).first()
                 
                 if subject:
-                    course = db.query(Course).filter(Course.id == subject.course_id).first() if subject.course_id else None
+                    cs = db.query(CourseSubject).filter(
+                        CourseSubject.subject_id == subject.id,
+                        CourseSubject.is_active == True,
+                    ).first()
+                    course = db.query(Course).filter(Course.id == cs.course_id).first() if cs else None
                     subject_dict = {
                         "id": subject.id,
                         "name": subject.name,

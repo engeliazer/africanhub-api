@@ -54,14 +54,33 @@ def upgrade() -> None:
                 ('Final Level', 'CPA-FNL', 'Advanced professional competency in accounting, taxation, and business law.', 1, 1, 1)
             """))
 
-    # 2. Add course_id to subjects (nullable)
-    if inspect(conn).has_table("subjects"):
-        cols = [c["name"] for c in inspect(conn).get_columns("subjects")]
-        if "course_id" not in cols:
-            op.add_column("subjects", sa.Column("course_id", sa.BigInteger(), nullable=True))
-            op.create_foreign_key("fk_subjects_course_id", "subjects", "courses", ["course_id"], ["id"], ondelete="CASCADE")
-            # Default existing subjects to CPA-FND (id=3)
-            conn.execute(text("UPDATE subjects SET course_id = 3 WHERE course_id IS NULL"))
+    # 2. Create course_subjects mapping (no course_id on subjects)
+    if not inspect(conn).has_table("course_subjects"):
+        op.create_table(
+            "course_subjects",
+            sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+            sa.Column("course_id", sa.BigInteger(), nullable=False),
+            sa.Column("subject_id", sa.BigInteger(), nullable=False),
+            sa.Column("is_active", sa.Boolean(), nullable=False, server_default="1"),
+            sa.Column("created_by", sa.BigInteger(), nullable=False),
+            sa.Column("updated_by", sa.BigInteger(), nullable=False),
+            sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+            sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")),
+            sa.ForeignKeyConstraint(["course_id"], ["courses.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["subject_id"], ["subjects.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
+            sa.ForeignKeyConstraint(["updated_by"], ["users.id"]),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("course_id", "subject_id", name="course_subject_unique"),
+        )
+        op.create_index("ix_course_subjects_id", "course_subjects", ["id"])
+        # Link existing subjects to CPA-FND (course id 3) for display grouping
+        if inspect(conn).has_table("subjects"):
+            conn.execute(text("""
+                INSERT INTO course_subjects (course_id, subject_id, is_active, created_by, updated_by)
+                SELECT 3, id, 1, 1, 1 FROM subjects
+                WHERE deleted_at IS NULL AND is_active = 1
+            """))
 
     # 3. Create seasons table
     if not inspect(conn).has_table("seasons"):
@@ -113,10 +132,7 @@ def downgrade() -> None:
         op.drop_table("season_subjects")
     if inspect(conn).has_table("seasons"):
         op.drop_table("seasons")
-    if inspect(conn).has_table("subjects"):
-        cols = [c["name"] for c in inspect(conn).get_columns("subjects")]
-        if "course_id" in cols:
-            op.drop_constraint("fk_subjects_course_id", "subjects", type_="foreignkey")
-            op.drop_column("subjects", "course_id")
+    if inspect(conn).has_table("course_subjects"):
+        op.drop_table("course_subjects")
     if inspect(conn).has_table("courses"):
         op.drop_table("courses")

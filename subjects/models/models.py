@@ -20,7 +20,7 @@ class Course(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     deleted_at = Column(DateTime, nullable=True)
 
-    subjects = relationship("Subject", back_populates="course", foreign_keys="Subject.course_id")
+    course_subject_links = relationship("CourseSubject", back_populates="course", foreign_keys="CourseSubject.course_id")
 
 
 class Season(Base):
@@ -39,6 +39,23 @@ class Season(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
     season_subjects = relationship("SeasonSubject", back_populates="season")
+
+
+class CourseSubject(Base):
+    """Many-to-many: courses <-> subjects (no course_id on subjects)."""
+    __tablename__ = "course_subjects"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    course_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    subject_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+    course = relationship("Course", back_populates="course_subject_links")
+    subject = relationship("Subject", back_populates="course_subject_links")
 
 
 class SeasonSubject(Base):
@@ -70,7 +87,6 @@ class Subject(Base):
     __tablename__ = "subjects"
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
-    course_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     name = Column(String(255), nullable=False)
     code = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
@@ -84,8 +100,8 @@ class Subject(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     deleted_at = Column(DateTime, nullable=True)
 
-    # Relationships
-    course = relationship("Course", back_populates="subjects", foreign_keys=[course_id])
+    # Relationships (no course_id - use course_subjects mapping)
+    course_subject_links = relationship("CourseSubject", back_populates="subject", foreign_keys="CourseSubject.subject_id")
     topics = relationship("Topic", back_populates="subject", cascade="all, delete-orphan")
 
 class Topic(Base):

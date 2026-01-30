@@ -5,7 +5,6 @@ from subjects.models.models import ApplicationStatus
 
 # Subject schemas
 class SubjectBase(BaseModel):
-    course_id: Optional[int] = None
     name: str
     code: str
     description: Optional[str] = None
@@ -20,7 +19,6 @@ class SubjectCreate(SubjectBase):
     pass
 
 class SubjectUpdate(BaseModel):
-    course_id: Optional[int] = None
     name: Optional[str] = None
     code: Optional[str] = None
     description: Optional[str] = None

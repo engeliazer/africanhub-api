@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import wraps
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import db_session
-from subjects.models.models import Subject, Topic, SubTopic, Course
+from subjects.models.models import Subject, Topic, SubTopic, Course, CourseSubject
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 
 courses_bp = Blueprint('courses', __name__)
@@ -24,11 +24,18 @@ def get_courses_public():
 
         result = []
         for c in courses:
-            subjects = db_session.query(Subject).filter(
-                Subject.course_id == c.id,
-                Subject.is_active == True,
-                Subject.deleted_at.is_(None),
-            ).order_by(Subject.name).all()
+            subjects = (
+                db_session.query(Subject)
+                .join(CourseSubject, CourseSubject.subject_id == Subject.id)
+                .filter(
+                    CourseSubject.course_id == c.id,
+                    CourseSubject.is_active == True,
+                    Subject.is_active == True,
+                    Subject.deleted_at.is_(None),
+                )
+                .order_by(Subject.name)
+                .all()
+            )
 
             subjects_data = []
             for s in subjects:
