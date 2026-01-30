@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import wraps
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import db_session
-from subjects.models.models import Subject, Topic, SubTopic, Course, CourseSubject
+from subjects.models.models import Subject, Topic, SubTopic
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 
 courses_bp = Blueprint('courses', __name__)
@@ -15,76 +15,34 @@ courses_bp = Blueprint('courses', __name__)
 
 @courses_bp.route('/api/courses/public', methods=['GET'])
 def get_courses_public():
-    """Public catalog: courses with nested subjects (matches DCRC/cloned system format). No auth required."""
+    """Public catalog: active subjects (no courses). No auth required."""
     try:
-        courses = db_session.query(Course).filter(
-            Course.is_active == True,
-            Course.deleted_at.is_(None),
-        ).order_by(Course.id).all()
-
-        result = []
-        for c in courses:
-            subjects = (
-                db_session.query(Subject)
-                .join(CourseSubject, CourseSubject.subject_id == Subject.id)
-                .filter(
-                    CourseSubject.course_id == c.id,
-                    CourseSubject.is_active == True,
-                    Subject.is_active == True,
-                    Subject.deleted_at.is_(None),
-                )
-                .order_by(Subject.name)
-                .all()
+        subjects = (
+            db_session.query(Subject)
+            .filter(
+                Subject.is_active == True,
+                Subject.deleted_at.is_(None),
             )
+            .order_by(Subject.name)
+            .all()
+        )
 
-            subjects_data = []
-            for s in subjects:
-                subject_dict = {
-                    "id": s.id,
-                    "name": s.name,
-                    "code": s.code,
-                    "description": s.description,
-                    "current_price": s.current_price,
-                    "course_id": c.id,
-                    "course": {
-                        "id": c.id,
-                        "name": c.name,
-                        "code": c.code,
-                        "created_at": c.created_at.isoformat() if c.created_at else None,
-                        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-                        "created_by": c.created_by,
-                        "updated_by": c.updated_by,
-                        "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None,
-                        "is_active": c.is_active,
-                        "description": c.description,
-                    },
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
-                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-                    "created_by": s.created_by,
-                    "updated_by": s.updated_by,
-                    "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None,
-                    "deleted_by": None,
-                }
-                subjects_data.append(subject_dict)
-
-            course_dict = {
-                "id": c.id,
-                "name": c.name,
-                "code": c.code,
-                "description": c.description,
-                "is_active": c.is_active,
-                "created_by": c.created_by,
-                "updated_by": c.updated_by,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-                "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None,
-                "subjects": subjects_data,
+        result = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "code": s.code,
+                "description": s.description,
+                "current_price": s.current_price,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
             }
-            result.append(course_dict)
+            for s in subjects
+        ]
 
         return jsonify({
             "status": "success",
-            "message": "Public courses retrieved successfully",
+            "message": "Public subjects retrieved successfully",
             "data": result,
         })
     except Exception as e:
