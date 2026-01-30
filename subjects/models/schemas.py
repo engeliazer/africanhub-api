@@ -5,6 +5,7 @@ from subjects.models.models import ApplicationStatus
 
 # Subject schemas
 class SubjectBase(BaseModel):
+    course_id: Optional[int] = None
     name: str
     code: str
     description: Optional[str] = None
@@ -19,6 +20,7 @@ class SubjectCreate(SubjectBase):
     pass
 
 class SubjectUpdate(BaseModel):
+    course_id: Optional[int] = None
     name: Optional[str] = None
     code: Optional[str] = None
     description: Optional[str] = None
@@ -93,3 +95,83 @@ class SubTopicInDB(SubTopicBase):
 
     class Config:
         from_attributes = True
+
+
+# Course schemas
+class CourseBase(BaseModel):
+    name: str
+    code: str
+    description: Optional[str] = None
+    is_active: bool = True
+    created_by: int
+    updated_by: int
+
+
+class CourseCreate(CourseBase):
+    pass
+
+
+class CourseUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    updated_by: int
+
+
+class CourseInDB(CourseBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Season schemas
+class SeasonBase(BaseModel):
+    name: str
+    code: str
+    start_date: date
+    end_date: date
+    description: Optional[str] = None
+    is_active: bool = True
+    created_by: int
+    updated_by: int
+
+
+class SeasonCreate(SeasonBase):
+    pass
+
+
+class SeasonUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    updated_by: int
+
+
+class SeasonInDB(SeasonBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# SeasonSubject schemas
+class SeasonSubjectBase(BaseModel):
+    season_id: int
+    subject_id: int
+    is_active: bool = True
+    created_by: int
+    updated_by: int
+
+
+class SeasonSubjectCreate(SeasonSubjectBase):
+    pass

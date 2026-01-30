@@ -4,11 +4,12 @@ from sqlalchemy.orm import joinedload
 from database.db_connector import get_db
 from auth.models.models import User
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
-from subjects.models.models import Subject, Topic, SubTopic
+from subjects.models.models import Subject, Topic, SubTopic, Season, SeasonSubject, Course
 from subjects.models.schemas import (
     SubjectCreate, SubjectUpdate, SubjectInDB,
     TopicCreate, TopicUpdate, TopicInDB,
-    SubTopicCreate, SubTopicUpdate, SubTopicInDB
+    SubTopicCreate, SubTopicUpdate, SubTopicInDB,
+    SeasonCreate, SeasonInDB, SeasonSubjectCreate,
 )
 from studies.models.models import SubtopicMaterial
 from sqlalchemy import and_, func
@@ -1821,12 +1822,14 @@ def get_schedules_public():
                 ).first()
                 
                 if subject:
+                    course = db.query(Course).filter(Course.id == subject.course_id).first() if subject.course_id else None
                     subject_dict = {
                         "id": subject.id,
                         "name": subject.name,
                         "code": subject.code,
                         "description": subject.description,
-                        "current_price": subject.current_price
+                        "current_price": subject.current_price,
+                        "course": {"id": course.id, "code": course.code, "name": course.name} if course else None,
                     }
                     subjects_data.append(subject_dict)
             
