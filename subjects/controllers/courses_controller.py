@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request, current_app
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 from datetime import datetime
 from functools import wraps
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -15,10 +16,11 @@ courses_bp = Blueprint('courses', __name__)
 
 @courses_bp.route('/api/courses/public', methods=['GET'])
 def get_courses_public():
-    """Public catalog: active subjects (no courses). No auth required."""
+    """Public catalog: active subjects with topics. No auth required."""
     try:
         subjects = (
             db_session.query(Subject)
+            .options(joinedload(Subject.topics).joinedload(Topic.sub_topics))
             .filter(
                 Subject.is_active == True,
                 Subject.deleted_at.is_(None),
@@ -27,8 +29,24 @@ def get_courses_public():
             .all()
         )
 
-        result = [
-            {
+        result = []
+        for s in subjects:
+            topics_data = []
+            for t in s.topics:
+                if not t.is_active:
+                    continue
+                topics_data.append({
+                    "id": t.id,
+                    "name": t.name,
+                    "code": t.code,
+                    "description": t.description,
+                    "subtopics": [
+                        {"id": st.id, "name": st.name, "code": st.code, "description": st.description}
+                        for st in t.sub_topics
+                        if st.is_active
+                    ],
+                })
+            result.append({
                 "id": s.id,
                 "name": s.name,
                 "code": s.code,
@@ -36,9 +54,8 @@ def get_courses_public():
                 "current_price": s.current_price,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-            }
-            for s in subjects
-        ]
+                "topics": topics_data,
+            })
 
         return jsonify({
             "status": "success",
