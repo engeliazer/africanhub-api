@@ -126,19 +126,18 @@ def user_lookup_callback(_jwt_header, jwt_data):
     identity = jwt_data["sub"]
     return db_session.query(User).filter(User.id == int(identity)).first()
 
-# Configure CORS with specific settings
-# NOTE: CORS is handled by nginx in production to avoid duplicate headers
-# Uncomment this if running without nginx (e.g., local development)
-# CORS(app, resources={
-#     r"/*": {  # Apply to all routes
-#         "origins": "*",  # Allow all origins (for testing - restrict in production)
-#         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-#         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
-#         "supports_credentials": True,
-#         "expose_headers": ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "X-New-Token", "X-Token-Refreshed"],
-#         "max_age": 3600  # Cache preflight requests for 1 hour
-#     }
-# })
+# Configure CORS - required for frontend at africanhub.ac.tz to call API
+_cors_origins = os.environ.get("CORS_ORIGINS", "https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000")
+CORS(app, resources={
+    r".*": {  # All routes
+        "origins": [o.strip() for o in _cors_origins.split(",") if o.strip()],
+        "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
+        "supports_credentials": True,
+        "expose_headers": ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "X-New-Token", "X-Token-Refreshed"],
+        "max_age": 3600,
+    }
+})
 
 # Add a global OPTIONS handler for all routes
 # NOTE: OPTIONS requests are handled by nginx in production
