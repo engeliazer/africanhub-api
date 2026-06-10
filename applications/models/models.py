@@ -364,4 +364,69 @@ class SmsLog(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def __repr__(self):
-        return f"<SmsLog(id={self.id}, recipient={self.recipient}, process={self.process_name}, status={self.status})>" 
+        return f"<SmsLog(id={self.id}, recipient={self.recipient}, process={self.process_name}, status={self.status})>"
+
+
+class MailBatchStatus(str, Enum):
+    pending = "PENDING"
+    processing = "PROCESSING"
+    completed = "COMPLETED"
+
+
+class MailRecipientStatus(str, Enum):
+    pending = "PENDING"
+    processed = "PROCESSED"
+    failed = "FAILED"
+
+
+class MailBatch(Base):
+    """Outbound mail campaign batch with rate-limited sending."""
+
+    __tablename__ = "mail_batches"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    source_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    message_body = Column(Text, nullable=False)
+    interval_seconds = Column(Integer, nullable=False)
+    interval_limit = Column(Integer, nullable=False)
+    status = Column(SQLAlchemyEnum(MailBatchStatus), nullable=False, default=MailBatchStatus.pending)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    recipients = relationship(
+        "MailBatchRecipient",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<MailBatch(id={self.id}, status={self.status}, source={self.source_email})>"
+
+
+class MailBatchRecipient(Base):
+    """Individual recipient within a mail batch."""
+
+    __tablename__ = "mail_batch_recipients"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    batch_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("mail_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email = Column(String(255), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    status = Column(SQLAlchemyEnum(MailRecipientStatus), nullable=False, default=MailRecipientStatus.pending)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+    batch = relationship("MailBatch", back_populates="recipients")
+
+    def __repr__(self):
+        return f"<MailBatchRecipient(id={self.id}, email={self.email}, status={self.status})>" 

@@ -42,6 +42,7 @@ celery.conf.update(
     task_routes={
         'tasks.convert_video_to_hls': {'queue': 'video_processing'},
         'tasks.migrate_hls_to_b2': {'queue': 'video_processing'},
+        'tasks_mail.process_mail_batch': {'queue': 'mail_processing'},
     },
     task_queues={
         'video_processing': {
@@ -51,7 +52,11 @@ celery.conf.update(
                 'x-max-length': 50,  # Reduced queue length for larger videos
                 'x-overflow': 'reject-publish'  # Reject new tasks when queue is full
             }
-        }
+        },
+        'mail_processing': {
+            'exchange': 'mail_processing',
+            'routing_key': 'mail_processing',
+        },
     },
     task_default_queue='video_processing',
     task_default_exchange='video_processing',
@@ -88,6 +93,7 @@ celery.conf.update(
 logger.info("Registering tasks...")
 import tasks_streamlined
 import tasks_migration
+import tasks_mail
 logger.info("Tasks registered successfully")
 
 # Export the Celery instance as the default export of the module

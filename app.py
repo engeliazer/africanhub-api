@@ -64,6 +64,7 @@ from api.routes.study_routes import material_categories_bp
 from api.routes.application_routes import applications_bp, payments_bp
 from public.controllers.sms_controller import sms_bp
 from public.controllers.contact_controller import contact_bp
+from public.controllers.mail_processing_controller import mail_processing_bp
 from api.routes.bank_reconciliation_routes import bank_reconciliation_bp
 from auth.middleware.token_middleware import token_refresh_middleware, add_refreshed_token_to_response
 from api.routes.vdocipher_routes import vdocipher_bp
@@ -172,6 +173,7 @@ app.register_blueprint(public)
 # app.register_blueprint(auth)  # Commenting out the original auth blueprint
 app.register_blueprint(sms_bp)
 app.register_blueprint(contact_bp)  # Public contact form (no auth required)
+app.register_blueprint(mail_processing_bp)
 
 # Register new blueprints from route files
 app.register_blueprint(auth_bp, url_prefix='/api', name='api_auth')
