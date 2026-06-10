@@ -1,6 +1,8 @@
 """
-SMTP mail sending for batch campaigns (Zoho).
-Credentials from MAIL_SMTP_* environment variables.
+Mail sending for batch campaigns.
+
+Preferred on cloud VPS (DigitalOcean etc.): SendGrid API over HTTPS (port 443).
+Fallback: Zoho SMTP via MAIL_SMTP_* variables.
 """
 
 import logging
@@ -18,9 +20,37 @@ logger = logging.getLogger(__name__)
 
 NAME_PLACEHOLDER = "[NAME]"
 
+try:
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail
+    SENDGRID_AVAILABLE = True
+except ImportError:
+    SENDGRID_AVAILABLE = False
+
 
 def personalize_message(message_body: str, full_name: str) -> str:
     return message_body.replace(NAME_PLACEHOLDER, full_name or "")
+
+
+def _mail_transport() -> str:
+    """api | smtp | auto (default: api if key present, else smtp)."""
+    mode = (os.getenv("MAIL_TRANSPORT") or "auto").strip().lower()
+    if mode in ("api", "smtp"):
+        return mode
+    api_key = os.getenv("MAIL_SENDGRID_API_KEY") or os.getenv("SENDGRID_API_KEY")
+    return "api" if api_key and SENDGRID_AVAILABLE else "smtp"
+
+
+def _default_from_email() -> str:
+    return (
+        os.getenv("MAIL_FROM")
+        or os.getenv("MAIL_SMTP_USER")
+        or ""
+    ).strip()
+
+
+def _sendgrid_api_key() -> str:
+    return (os.getenv("MAIL_SENDGRID_API_KEY") or os.getenv("SENDGRID_API_KEY") or "").strip()
 
 
 def _smtp_config() -> dict:
@@ -40,14 +70,52 @@ def _smtp_config() -> dict:
 
 def _connection_error_message(host: str, port: int, err: Exception) -> str:
     if isinstance(err, (TimeoutError, socket.timeout)) or (
-        isinstance(err, OSError) and err.errno in (110, 60, 61)
+        isinstance(err, OSError) and getattr(err, "errno", None) in (110, 60, 61)
     ):
         return (
             f"SMTP connection timed out to {host}:{port}. "
-            "Your server may block outbound SMTP — try MAIL_SMTP_PORT=587 and "
-            "MAIL_SMTP_USE_SSL=false, or open the port in the cloud firewall."
+            "Outbound SMTP is blocked on this server — set MAIL_TRANSPORT=api and "
+            "configure MAIL_SENDGRID_API_KEY (SendGrid uses HTTPS port 443)."
         )
     return str(err)
+
+
+def _send_via_sendgrid(
+    *,
+    from_email: str,
+    to_email: str,
+    subject: str,
+    body: str,
+) -> Tuple[bool, Optional[str]]:
+    if not SENDGRID_AVAILABLE:
+        return False, "SendGrid library not installed"
+    api_key = _sendgrid_api_key()
+    if not api_key:
+        return False, "MAIL_SENDGRID_API_KEY not configured"
+    send_from = _default_from_email() or from_email
+    if from_email.lower() != send_from.lower():
+        logger.warning(
+            "from_email %s differs from MAIL_FROM %s; sending as %s",
+            from_email,
+            send_from,
+            send_from,
+        )
+    try:
+        mail = Mail(
+            from_email=(send_from, "African Hub"),
+            to_emails=[to_email],
+            subject=subject,
+            plain_text_content=body,
+        )
+        sg = SendGridAPIClient(api_key)
+        response = sg.send(mail)
+        if response.status_code in (200, 201, 202):
+            return True, None
+        error_body = response.body.decode("utf-8") if response.body else "No error body"
+        return False, f"SendGrid API error {response.status_code}: {error_body}"
+    except Exception as e:
+        logger.exception("SendGrid error sending to %s", to_email)
+        return False, f"SendGrid send failed: {e}"
 
 
 def _send_smtp_message(cfg: dict, msg: MIMEText) -> None:
@@ -69,19 +137,13 @@ def _send_smtp_message(cfg: dict, msg: MIMEText) -> None:
             pass
 
 
-def send_batch_email(
+def _send_via_smtp(
     *,
     from_email: str,
     to_email: str,
     subject: str,
     body: str,
 ) -> Tuple[bool, Optional[str]]:
-    """
-    Send a single plain-text email via SMTP.
-
-    Returns:
-        (success, error_message)
-    """
     cfg = _smtp_config()
     if not cfg["user"] or not cfg["password"]:
         return False, "Mail SMTP credentials not configured"
@@ -115,3 +177,32 @@ def send_batch_email(
     except Exception as e:
         logger.exception("Unexpected error sending to %s", to_email)
         return False, str(e)
+
+
+def send_batch_email(
+    *,
+    from_email: str,
+    to_email: str,
+    subject: str,
+    body: str,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Send a single plain-text email.
+
+    Uses SendGrid API when MAIL_TRANSPORT=api (or auto + API key set),
+    otherwise SMTP.
+    """
+    transport = _mail_transport()
+    if transport == "api":
+        return _send_via_sendgrid(
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+        )
+    return _send_via_smtp(
+        from_email=from_email,
+        to_email=to_email,
+        subject=subject,
+        body=body,
+    )
