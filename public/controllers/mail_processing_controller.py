@@ -202,15 +202,20 @@ def start_mail_batch(batch_id: int):
         batch.updated_at = datetime.utcnow()
         db.commit()
 
+        from public.services.mail_batch_processor import process_mail_batch
+
         queued_async = False
         try:
-            from tasks_mail import process_mail_batch
-            process_mail_batch.delay(batch_id)
+            from tasks_mail import process_mail_batch as celery_process_mail_batch
+            celery_process_mail_batch.delay(batch_id)
             queued_async = True
         except Exception as e:
             logger.warning("Celery unavailable, using background thread: %s", e)
-            from tasks_mail import _process_batch
-            threading.Thread(target=_process_batch, args=(batch_id,), daemon=True).start()
+            threading.Thread(
+                target=process_mail_batch,
+                args=(batch_id,),
+                daemon=True,
+            ).start()
 
         db.refresh(batch)
         return jsonify({
