@@ -4,7 +4,6 @@ Mail batch processing: create campaigns, start rate-limited sending, view status
 
 import logging
 import re
-import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +52,7 @@ def _recipient_to_dict(recipient: MailBatchRecipient) -> Dict[str, Any]:
         "email": recipient.email,
         "full_name": recipient.full_name,
         "status": recipient.status.value if recipient.status else None,
+        "error_message": recipient.error_message,
         "created_at": recipient.created_at.isoformat() if recipient.created_at else None,
         "processed_at": recipient.processed_at.isoformat() if recipient.processed_at else None,
     }
@@ -173,17 +173,17 @@ def create_mail_batch():
 @mail_processing_bp.route("/api/mail/batches/<int:batch_id>/start", methods=["POST"])
 @jwt_required()
 def start_mail_batch(batch_id: int):
-    """Start sending for a PENDING batch. Marks batch PROCESSING and queues Celery task."""
+    """Start or resume sending. Allowed when PENDING, or PROCESSING with pending recipients."""
     db = get_db()
     try:
         batch = db.query(MailBatch).filter(MailBatch.id == batch_id).first()
         if not batch:
             return jsonify({"status": "error", "message": "Mail batch not found"}), 404
 
-        if batch.status != MailBatchStatus.pending:
+        if batch.status == MailBatchStatus.completed:
             return jsonify({
                 "status": "error",
-                "message": f"Batch can only be started when status is PENDING (current: {batch.status.value})",
+                "message": "Batch is already COMPLETED",
             }), 400
 
         pending_count = (
@@ -197,12 +197,14 @@ def start_mail_batch(batch_id: int):
         if pending_count == 0:
             return jsonify({"status": "error", "message": "No pending recipients in batch"}), 400
 
-        batch.status = MailBatchStatus.processing
-        batch.started_at = datetime.utcnow()
-        batch.updated_at = datetime.utcnow()
-        db.commit()
+        resuming = batch.status == MailBatchStatus.processing
+        if batch.status == MailBatchStatus.pending:
+            batch.status = MailBatchStatus.processing
+            batch.started_at = datetime.utcnow()
+            batch.updated_at = datetime.utcnow()
+            db.commit()
 
-        from public.services.mail_batch_processor import process_mail_batch
+        from public.services.mail_batch_processor import start_mail_batch_background
 
         queued_async = False
         try:
@@ -211,19 +213,16 @@ def start_mail_batch(batch_id: int):
             queued_async = True
         except Exception as e:
             logger.warning("Celery unavailable, using background thread: %s", e)
-            threading.Thread(
-                target=process_mail_batch,
-                args=(batch_id,),
-                daemon=True,
-            ).start()
+            start_mail_batch_background(batch_id)
 
         db.refresh(batch)
         return jsonify({
             "status": "success",
-            "message": "Mail batch processing started",
+            "message": "Mail batch processing resumed" if resuming else "Mail batch processing started",
             "data": {
                 **_batch_to_dict(batch, include_recipients=False),
                 "queued_via_celery": queued_async,
+                "resumed": resuming,
             },
         })
     except Exception as e:

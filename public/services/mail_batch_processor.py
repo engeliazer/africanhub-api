@@ -3,6 +3,7 @@ Rate-limited mail batch processing (no Celery dependency).
 """
 
 import logging
+import threading
 import time
 from datetime import datetime
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 def process_mail_batch(batch_id: int) -> None:
     """Send all pending recipients in a batch with interval throttling."""
+    logger.info("Starting mail batch processing for batch_id=%s", batch_id)
     session = SessionLocal()
     try:
         batch = session.query(MailBatch).filter(MailBatch.id == batch_id).first()
@@ -47,7 +49,7 @@ def process_mail_batch(batch_id: int) -> None:
 
             for recipient in pending:
                 body = personalize_message(batch.message_body, recipient.full_name)
-                ok, _err = send_batch_email(
+                ok, err = send_batch_email(
                     from_email=batch.source_email,
                     to_email=recipient.email,
                     subject=batch.subject,
@@ -56,9 +58,17 @@ def process_mail_batch(batch_id: int) -> None:
                 recipient.status = (
                     MailRecipientStatus.processed if ok else MailRecipientStatus.failed
                 )
+                recipient.error_message = None if ok else err
                 recipient.processed_at = datetime.utcnow()
                 recipient.updated_at = datetime.utcnow()
                 session.commit()
+                logger.info(
+                    "Mail batch %s recipient %s (%s): %s",
+                    batch_id,
+                    recipient.id,
+                    recipient.email,
+                    recipient.status.value,
+                )
 
             remaining = (
                 session.query(MailBatchRecipient)
@@ -82,3 +92,25 @@ def process_mail_batch(batch_id: int) -> None:
         raise
     finally:
         session.close()
+
+
+def _run_mail_batch_safe(batch_id: int) -> None:
+    try:
+        process_mail_batch(batch_id)
+    except Exception:
+        logger.exception("Background mail batch %s terminated with error", batch_id)
+
+
+def start_mail_batch_background(batch_id: int) -> None:
+    """
+    Run batch processing in a non-daemon thread so Gunicorn does not kill it
+    when the HTTP request finishes.
+    """
+    thread = threading.Thread(
+        target=_run_mail_batch_safe,
+        args=(batch_id,),
+        daemon=False,
+        name=f"mail-batch-{batch_id}",
+    )
+    thread.start()
+    logger.info("Mail batch %s background thread started (tid=%s)", batch_id, thread.ident)

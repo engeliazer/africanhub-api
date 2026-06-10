@@ -437,6 +437,7 @@ class MailBatchRecipient(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
 
     batch = relationship("MailBatch", back_populates="recipients")
 

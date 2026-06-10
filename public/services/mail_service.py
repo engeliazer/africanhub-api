@@ -49,8 +49,18 @@ def send_batch_email(
     if not cfg["user"] or not cfg["password"]:
         return False, "Mail SMTP credentials not configured"
 
+    # Zoho (and most SMTP providers) require From to match the authenticated mailbox.
+    send_from = cfg["user"]
+    if from_email.lower() != send_from.lower():
+        logger.warning(
+            "from_email %s does not match MAIL_SMTP_USER %s; sending as %s",
+            from_email,
+            send_from,
+            send_from,
+        )
+
     msg = MIMEText(body, "plain", "utf-8")
-    msg["From"] = from_email
+    msg["From"] = send_from
     msg["To"] = to_email
     msg["Subject"] = subject
 
