@@ -379,6 +379,10 @@ class MailRecipientStatus(str, Enum):
     failed = "FAILED"
 
 
+def _mail_enum_values(enum_cls):
+    return [member.value for member in enum_cls]
+
+
 class MailBatch(Base):
     """Outbound mail campaign batch with rate-limited sending."""
 
@@ -390,7 +394,11 @@ class MailBatch(Base):
     message_body = Column(Text, nullable=False)
     interval_seconds = Column(Integer, nullable=False)
     interval_limit = Column(Integer, nullable=False)
-    status = Column(SQLAlchemyEnum(MailBatchStatus), nullable=False, default=MailBatchStatus.pending)
+    status = Column(
+        SQLAlchemyEnum(MailBatchStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=MailBatchStatus.pending,
+    )
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -421,7 +429,11 @@ class MailBatchRecipient(Base):
     )
     email = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    status = Column(SQLAlchemyEnum(MailRecipientStatus), nullable=False, default=MailRecipientStatus.pending)
+    status = Column(
+        SQLAlchemyEnum(MailRecipientStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=MailRecipientStatus.pending,
+    )
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
