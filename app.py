@@ -128,7 +128,7 @@ def user_lookup_callback(_jwt_header, jwt_data):
     return db_session.query(User).filter(User.id == int(identity)).first()
 
 # Configure CORS - required for frontend at africanhub.ac.tz to call API
-_cors_origins = os.environ.get("CORS_ORIGINS", "https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000")
+_cors_origins = os.environ.get("CORS_ORIGINS", "https://online.africanhub.ac.tz,https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000")
 CORS(app, resources={
     r".*": {  # All routes
         "origins": [o.strip() for o in _cors_origins.split(",") if o.strip()],
