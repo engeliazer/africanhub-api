@@ -6,6 +6,7 @@ Credentials from MAIL_SMTP_* environment variables.
 import logging
 import os
 import smtplib
+import socket
 from email.mime.text import MIMEText
 from typing import Optional, Tuple
 
@@ -23,13 +24,49 @@ def personalize_message(message_body: str, full_name: str) -> str:
 
 
 def _smtp_config() -> dict:
+    port = int(os.getenv("MAIL_SMTP_PORT", "587"))
+    use_ssl = os.getenv("MAIL_SMTP_USE_SSL", "false").lower() in ("1", "true", "yes")
+    if port == 465:
+        use_ssl = True
     return {
         "host": os.getenv("MAIL_SMTP_HOST", "smtppro.zoho.com"),
-        "port": int(os.getenv("MAIL_SMTP_PORT", "465")),
+        "port": port,
         "user": os.getenv("MAIL_SMTP_USER", ""),
         "password": os.getenv("MAIL_SMTP_PASS", ""),
-        "use_ssl": os.getenv("MAIL_SMTP_USE_SSL", "true").lower() in ("1", "true", "yes"),
+        "use_ssl": use_ssl,
+        "timeout": int(os.getenv("MAIL_SMTP_TIMEOUT", "30")),
     }
+
+
+def _connection_error_message(host: str, port: int, err: Exception) -> str:
+    if isinstance(err, (TimeoutError, socket.timeout)) or (
+        isinstance(err, OSError) and err.errno in (110, 60, 61)
+    ):
+        return (
+            f"SMTP connection timed out to {host}:{port}. "
+            "Your server may block outbound SMTP — try MAIL_SMTP_PORT=587 and "
+            "MAIL_SMTP_USE_SSL=false, or open the port in the cloud firewall."
+        )
+    return str(err)
+
+
+def _send_smtp_message(cfg: dict, msg: MIMEText) -> None:
+    if cfg["use_ssl"]:
+        server = smtplib.SMTP_SSL(
+            cfg["host"], cfg["port"], timeout=cfg["timeout"]
+        )
+    else:
+        server = smtplib.SMTP(cfg["host"], cfg["port"], timeout=cfg["timeout"])
+    try:
+        if not cfg["use_ssl"]:
+            server.starttls()
+        server.login(cfg["user"], cfg["password"])
+        server.send_message(msg)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
 
 
 def send_batch_email(
@@ -49,7 +86,6 @@ def send_batch_email(
     if not cfg["user"] or not cfg["password"]:
         return False, "Mail SMTP credentials not configured"
 
-    # Zoho (and most SMTP providers) require From to match the authenticated mailbox.
     send_from = cfg["user"]
     if from_email.lower() != send_from.lower():
         logger.warning(
@@ -65,22 +101,17 @@ def send_batch_email(
     msg["Subject"] = subject
 
     try:
-        if cfg["use_ssl"] or cfg["port"] == 465:
-            with smtplib.SMTP_SSL(cfg["host"], cfg["port"]) as server:
-                server.login(cfg["user"], cfg["password"])
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(cfg["host"], cfg["port"]) as server:
-                server.starttls()
-                server.login(cfg["user"], cfg["password"])
-                server.send_message(msg)
+        _send_smtp_message(cfg, msg)
         return True, None
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error("SMTP authentication failed: %s", e)
+    except smtplib.SMTPAuthenticationError:
+        logger.error("SMTP authentication failed for %s", cfg["user"])
         return False, "SMTP authentication failed"
     except smtplib.SMTPException as e:
         logger.error("SMTP error sending to %s: %s", to_email, e)
-        return False, "SMTP send failed"
+        return False, f"SMTP send failed: {e}"
+    except (OSError, TimeoutError, socket.timeout) as e:
+        logger.error("SMTP connection error to %s:%s: %s", cfg["host"], cfg["port"], e)
+        return False, _connection_error_message(cfg["host"], cfg["port"], e)
     except Exception as e:
         logger.exception("Unexpected error sending to %s", to_email)
         return False, str(e)

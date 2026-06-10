@@ -18,6 +18,28 @@ from public.services.mail_service import personalize_message, send_batch_email
 
 logger = logging.getLogger(__name__)
 
+_active_batch_ids: set[int] = set()
+_active_batches_lock = threading.Lock()
+
+
+def _clear_stale_pending_state(session, batch_id: int) -> None:
+    """Clear processed_at/error_message on PENDING rows left from interrupted runs."""
+    (
+        session.query(MailBatchRecipient)
+        .filter(
+            MailBatchRecipient.batch_id == batch_id,
+            MailBatchRecipient.status == MailRecipientStatus.pending,
+        )
+        .update(
+            {
+                MailBatchRecipient.processed_at: None,
+                MailBatchRecipient.error_message: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    session.commit()
+
 
 def process_mail_batch(batch_id: int) -> None:
     """Send all pending recipients in a batch with interval throttling."""
@@ -32,6 +54,8 @@ def process_mail_batch(batch_id: int) -> None:
         if batch.status != MailBatchStatus.processing:
             logger.warning("Mail batch %s is not PROCESSING (status=%s)", batch_id, batch.status)
             return
+
+        _clear_stale_pending_state(session, batch_id)
 
         while True:
             pending = (
@@ -92,6 +116,8 @@ def process_mail_batch(batch_id: int) -> None:
         raise
     finally:
         session.close()
+        with _active_batches_lock:
+            _active_batch_ids.discard(batch_id)
 
 
 def _run_mail_batch_safe(batch_id: int) -> None:
@@ -101,11 +127,17 @@ def _run_mail_batch_safe(batch_id: int) -> None:
         logger.exception("Background mail batch %s terminated with error", batch_id)
 
 
-def start_mail_batch_background(batch_id: int) -> None:
+def start_mail_batch_background(batch_id: int) -> bool:
     """
     Run batch processing in a non-daemon thread so Gunicorn does not kill it
-    when the HTTP request finishes.
+    when the HTTP request finishes. Returns False if already running in this worker.
     """
+    with _active_batches_lock:
+        if batch_id in _active_batch_ids:
+            logger.warning("Mail batch %s is already processing in this worker", batch_id)
+            return False
+        _active_batch_ids.add(batch_id)
+
     thread = threading.Thread(
         target=_run_mail_batch_safe,
         args=(batch_id,),
@@ -114,3 +146,4 @@ def start_mail_batch_background(batch_id: int) -> None:
     )
     thread.start()
     logger.info("Mail batch %s background thread started (tid=%s)", batch_id, thread.ident)
+    return True

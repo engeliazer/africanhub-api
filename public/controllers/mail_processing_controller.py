@@ -213,7 +213,17 @@ def start_mail_batch(batch_id: int):
             queued_async = True
         except Exception as e:
             logger.warning("Celery unavailable, using background thread: %s", e)
-            start_mail_batch_background(batch_id)
+            if not start_mail_batch_background(batch_id):
+                return jsonify({
+                    "status": "success",
+                    "message": "Mail batch is already processing in this server worker",
+                    "data": {
+                        **_batch_to_dict(batch, include_recipients=False),
+                        "queued_via_celery": False,
+                        "resumed": resuming,
+                        "already_running": True,
+                    },
+                })
 
         db.refresh(batch)
         return jsonify({
@@ -223,6 +233,7 @@ def start_mail_batch(batch_id: int):
                 **_batch_to_dict(batch, include_recipients=False),
                 "queued_via_celery": queued_async,
                 "resumed": resuming,
+                "already_running": False,
             },
         })
     except Exception as e:
