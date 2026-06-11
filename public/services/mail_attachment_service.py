@@ -31,10 +31,10 @@ def _ensure_upload_dir(batch_id: int) -> Path:
     return directory
 
 
-def validate_pdf_upload(file_storage) -> Optional[str]:
-    """Return error message if invalid, None if OK or no file provided."""
+def validate_pdf_upload(file_storage, *, required: bool = False) -> Optional[str]:
+    """Return error message if invalid, None if OK. When required=True, missing file is an error."""
     if not file_storage or not file_storage.filename:
-        return None
+        return "PDF attachment is required" if required else None
 
     filename = file_storage.filename
     if not filename.lower().endswith(".pdf"):
@@ -74,6 +74,15 @@ def save_batch_pdf(batch_id: int, file_storage) -> Tuple[str, str]:
     file_storage.save(str(dest))
     logger.info("Saved mail batch %s PDF attachment to %s", batch_id, dest)
     return str(dest), original_name
+
+
+def delete_batch_attachment_file(attachment_path: Optional[str]) -> None:
+    if not attachment_path:
+        return
+    path = Path(attachment_path)
+    if path.is_file():
+        path.unlink()
+        logger.info("Removed mail batch attachment %s", path)
 
 
 def read_batch_pdf(attachment_path: str) -> bytes:

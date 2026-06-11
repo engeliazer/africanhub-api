@@ -7,7 +7,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -19,7 +19,11 @@ from applications.models.models import (
     MailRecipientStatus,
 )
 from database.db_connector import get_db
-from public.services.mail_attachment_service import save_batch_pdf, validate_pdf_upload
+from public.services.mail_attachment_service import (
+    delete_batch_attachment_file,
+    save_batch_pdf,
+    validate_pdf_upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,42 +132,13 @@ def _validate_create_payload(data: dict) -> Optional[str]:
     return None
 
 
-def _parse_create_request() -> Tuple[Optional[dict], Optional[str], Union[str, Any, None]]:
-    """
-    Parse JSON or multipart batch create request.
-
-    Returns:
-        (data_dict, pdf_validation_error, request_format_error)
-    """
-    if request.content_type and "multipart/form-data" in request.content_type:
-        form = request.form
-        data = {
-            "source_email": form.get("source_email"),
-            "subject": form.get("subject"),
-            "message_body": form.get("message_body"),
-            "interval_seconds": form.get("interval_seconds"),
-            "interval_limit": form.get("interval_limit"),
-            "recipients": form.get("recipients"),
-        }
-        attachment = request.files.get("attachment")
-        pdf_error = validate_pdf_upload(attachment)
-        if pdf_error:
-            return None, pdf_error, None
-        return data, None, attachment
-
-    data = request.get_json(silent=True) or {}
-    if "attachment" in data:
-        return None, None, "JSON requests cannot include attachments; use multipart/form-data"
-    return data, None, None
-
-
 @mail_processing_bp.route("/api/mail/batches", methods=["POST"])
 @jwt_required()
 def create_mail_batch():
     """
     Create a mail batch with recipients (all default status PENDING).
 
-    JSON body (no attachment):
+    JSON body:
     {
       "source_email": "...",
       "subject": "...",
@@ -173,21 +148,9 @@ def create_mail_batch():
       "recipients": [{"email": "...", "full_name": "..."}]
     }
 
-    Multipart form (optional PDF attachment):
-      - source_email, subject, message_body, interval_seconds, interval_limit
-      - recipients: JSON string array
-      - attachment: PDF file only (max 15MB by default)
+    Optional PDF: POST /api/mail/batches/{id}/attachment before starting.
     """
-    data, pdf_error, extra = _parse_create_request()
-    if extra and isinstance(extra, str):
-        return jsonify({"status": "error", "message": extra}), 400
-    if pdf_error:
-        return jsonify({"status": "error", "message": pdf_error}), 400
-    if not data:
-        return jsonify({"status": "error", "message": "Invalid request body"}), 400
-
-    attachment_file = extra if extra is not None and not isinstance(extra, str) else None
-
+    data = request.get_json(silent=True) or {}
     error = _validate_create_payload(data)
     if error:
         return jsonify({"status": "error", "message": error}), 400
@@ -206,11 +169,6 @@ def create_mail_batch():
         )
         db.add(batch)
         db.flush()
-
-        if attachment_file and attachment_file.filename:
-            path, filename = save_batch_pdf(batch.id, attachment_file)
-            batch.attachment_path = path
-            batch.attachment_filename = filename
 
         for item in data["recipients"]:
             db.add(
@@ -232,6 +190,99 @@ def create_mail_batch():
     except Exception as e:
         db.rollback()
         logger.exception("create_mail_batch: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+def _require_pending_batch_for_attachment(batch: MailBatch) -> Optional[tuple]:
+    if batch.status != MailBatchStatus.pending:
+        return jsonify({
+            "status": "error",
+            "message": (
+                f"Attachment can only be changed while batch is PENDING "
+                f"(current: {batch.status.value})"
+            ),
+        }), 400
+    return None
+
+
+@mail_processing_bp.route("/api/mail/batches/<int:batch_id>/attachment", methods=["POST"])
+@jwt_required()
+def upload_mail_batch_attachment(batch_id: int):
+    """
+    Upload or replace PDF attachment for a PENDING batch.
+
+    multipart/form-data with field: attachment (PDF only, max 15MB)
+    """
+    db = get_db()
+    try:
+        batch = db.query(MailBatch).filter(MailBatch.id == batch_id).first()
+        if not batch:
+            return jsonify({"status": "error", "message": "Mail batch not found"}), 404
+
+        blocked = _require_pending_batch_for_attachment(batch)
+        if blocked:
+            return blocked
+
+        file_storage = request.files.get("attachment")
+        pdf_error = validate_pdf_upload(file_storage, required=True)
+        if pdf_error:
+            return jsonify({"status": "error", "message": pdf_error}), 400
+
+        delete_batch_attachment_file(batch.attachment_path)
+        path, filename = save_batch_pdf(batch.id, file_storage)
+        batch.attachment_path = path
+        batch.attachment_filename = filename
+        batch.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(batch)
+
+        return jsonify({
+            "status": "success",
+            "message": "Attachment uploaded",
+            "data": _batch_to_dict(batch, include_recipients=False),
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("upload_mail_batch_attachment: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@mail_processing_bp.route("/api/mail/batches/<int:batch_id>/attachment", methods=["DELETE"])
+@jwt_required()
+def remove_mail_batch_attachment(batch_id: int):
+    """Remove PDF attachment from a PENDING batch."""
+    db = get_db()
+    try:
+        batch = db.query(MailBatch).filter(MailBatch.id == batch_id).first()
+        if not batch:
+            return jsonify({"status": "error", "message": "Mail batch not found"}), 404
+
+        blocked = _require_pending_batch_for_attachment(batch)
+        if blocked:
+            return blocked
+
+        if not batch.attachment_path:
+            return jsonify({"status": "error", "message": "No attachment on this batch"}), 404
+
+        delete_batch_attachment_file(batch.attachment_path)
+        batch.attachment_path = None
+        batch.attachment_filename = None
+        batch.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(batch)
+
+        return jsonify({
+            "status": "success",
+            "message": "Attachment removed",
+            "data": _batch_to_dict(batch, include_recipients=False),
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("remove_mail_batch_attachment: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
