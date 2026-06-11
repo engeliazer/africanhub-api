@@ -43,7 +43,12 @@ def render_invitation_pdf_bytes(
     try:
         from xhtml2pdf import pisa
     except ImportError as e:
-        raise RuntimeError("xhtml2pdf is not installed") from e
+        raise RuntimeError(
+            "xhtml2pdf is not installed in this Python environment. "
+            "On the server run: source venv/bin/activate && pip install -r requirements.txt "
+            "then restart Gunicorn and Celery. "
+            "Verify with: python scripts/check_invitation_pdf_deps.py"
+        ) from e
 
     buffer = BytesIO()
     status = pisa.CreatePDF(html_content, dest=buffer, encoding="utf-8")

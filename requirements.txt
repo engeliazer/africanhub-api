@@ -15,5 +15,14 @@ redis==5.0.1
 setuptools>=69.0.0
 b2sdk==1.25.0
 sendgrid==6.11.0
-xhtml2pdf==0.2.16
-Jinja2==3.1.4 
+Jinja2==3.1.4
+# Invitation PDF generation (install in server venv — see scripts/check_invitation_pdf_deps.py)
+arabic-reshaper>=3.0.0
+python-bidi>=0.4.2
+html5lib>=1.1
+Pillow>=10.0.0
+pyHanko>=0.12.1
+pyhanko-certvalidator>=0.19.5
+pypdf>=3.0.0
+reportlab>=4.0.4,<5
+xhtml2pdf==0.2.16 
