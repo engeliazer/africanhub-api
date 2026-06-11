@@ -19,6 +19,8 @@ from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
+from public.services.mail_html_template import render_batch_email_html
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -43,6 +45,20 @@ except ImportError:
 
 def personalize_message(message_body: str, full_name: str) -> str:
     return message_body.replace(NAME_PLACEHOLDER, full_name or "")
+
+
+def _html_enabled() -> bool:
+    return os.getenv("MAIL_HTML_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+def _build_html_body(plain_body: str, subject: str) -> Optional[str]:
+    if not _html_enabled():
+        return None
+    try:
+        return render_batch_email_html(message_body=plain_body, subject=subject)
+    except Exception:
+        logger.exception("Failed to render HTML email template")
+        return None
 
 
 def _mail_transport() -> str:
@@ -150,12 +166,14 @@ def _send_via_sendgrid(
         reply_to = _reply_to_email()
     except ValueError as e:
         return False, str(e)
+    html_body = _build_html_body(body, subject)
     try:
         mail = Mail(
             from_email=(send_from, _from_display_name()),
             to_emails=[to_email],
             subject=subject,
             plain_text_content=body,
+            html_content=html_body,
         )
         mail.reply_to = (reply_to, _from_display_name())
         attachment = _load_attachment(attachment_path, attachment_filename)
@@ -199,6 +217,19 @@ def _send_via_sendgrid(
         return False, f"SendGrid send failed: {e}"
 
 
+def _build_body_multipart(plain_body: str, subject: str) -> MIMEMultipart:
+    """Plain + HTML alternative parts."""
+    html_body = _build_html_body(plain_body, subject)
+    if html_body:
+        alternative = MIMEMultipart("alternative")
+        alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
+        alternative.attach(MIMEText(html_body, "html", "utf-8"))
+        return alternative
+    wrapper = MIMEMultipart("alternative")
+    wrapper.attach(MIMEText(plain_body, "plain", "utf-8"))
+    return wrapper
+
+
 def _build_smtp_message(
     *,
     send_from: str,
@@ -210,9 +241,10 @@ def _build_smtp_message(
     attachment_filename: Optional[str] = None,
 ) -> MIMEMultipart:
     attachment = _load_attachment(attachment_path, attachment_filename)
+    body_part = _build_body_multipart(body, subject)
     if attachment:
-        msg = MIMEMultipart()
-        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg = MIMEMultipart("mixed")
+        msg.attach(body_part)
         data, filename = attachment
         part = MIMEBase("application", "pdf")
         part.set_payload(data)
@@ -220,8 +252,7 @@ def _build_smtp_message(
         part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
         msg.attach(part)
     else:
-        msg = MIMEMultipart()
-        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg = body_part
 
     msg["From"] = send_from
     msg["To"] = to_email
@@ -314,7 +345,7 @@ def send_batch_email(
     attachment_filename: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send a single plain-text email with optional PDF attachment.
+    Send a branded HTML + plain-text email with optional PDF attachment.
 
     Uses SendGrid API when MAIL_TRANSPORT=api (or auto + API key set),
     otherwise SMTP.
