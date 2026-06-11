@@ -10,11 +10,13 @@ import os
 import smtplib
 import socket
 from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
-load_dotenv()
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(_PROJECT_ROOT / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +116,23 @@ def _send_via_sendgrid(
         error_body = response.body.decode("utf-8") if response.body else "No error body"
         return False, f"SendGrid API error {response.status_code}: {error_body}"
     except Exception as e:
+        status = getattr(e, "status_code", None)
+        body = getattr(e, "body", None)
+        if body and hasattr(body, "decode"):
+            body = body.decode("utf-8")
+        if status == 401:
+            msg = (
+                "SendGrid API key rejected (401 Unauthorized). "
+                "Check SENDGRID_API_KEY in the server .env, restart Gunicorn, "
+                "and ensure the key has Mail Send permission."
+            )
+            if body:
+                msg = f"{msg} Response: {body}"
+            logger.error("SendGrid 401 for %s: %s", to_email, body or e)
+            return False, msg
         logger.exception("SendGrid error sending to %s", to_email)
+        if status and body:
+            return False, f"SendGrid API error {status}: {body}"
         return False, f"SendGrid send failed: {e}"
 
 
