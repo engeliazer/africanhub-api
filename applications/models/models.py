@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, BigInteger, Enum, Float, func, Text, Date
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, BigInteger, Enum, Float, func, Text, Date, Time, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from database.db_connector import Base
@@ -444,4 +444,286 @@ class MailBatchRecipient(Base):
     batch = relationship("MailBatch", back_populates="recipients")
 
     def __repr__(self):
-        return f"<MailBatchRecipient(id={self.id}, email={self.email}, status={self.status})>" 
+        return f"<MailBatchRecipient(id={self.id}, email={self.email}, status={self.status})>"
+
+
+class InvitationMailBatch(Base):
+    """Invitation mail campaign — per-recipient customized PDF attachments."""
+
+    __tablename__ = "invitation_mail_batches"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    source_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    message_body = Column(Text, nullable=False)
+    interval_seconds = Column(Integer, nullable=False)
+    interval_limit = Column(Integer, nullable=False)
+    status = Column(
+        SQLAlchemyEnum(MailBatchStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=MailBatchStatus.pending,
+    )
+    invitation_template_path = Column(String(500), nullable=True)
+    invitation_template_filename = Column(String(255), nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    recipients = relationship(
+        "InvitationMailBatchRecipient",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<InvitationMailBatch(id={self.id}, status={self.status})>"
+
+
+class InvitationMailBatchRecipient(Base):
+    """Invitation recipient with address and organization for personalized PDF."""
+
+    __tablename__ = "invitation_mail_batch_recipients"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    batch_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitation_mail_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email = Column(String(255), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    address = Column(Text, nullable=False)
+    organization = Column(String(255), nullable=False)
+    status = Column(
+        SQLAlchemyEnum(MailRecipientStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=MailRecipientStatus.pending,
+    )
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    batch = relationship("InvitationMailBatch", back_populates="recipients")
+
+    def __repr__(self):
+        return f"<InvitationMailBatchRecipient(id={self.id}, email={self.email})>"
+
+
+class InvitationCampaignStatus(str, Enum):
+    draft = "DRAFT"
+    validated = "VALIDATED"
+    scheduled = "SCHEDULED"
+    processing = "PROCESSING"
+    completed = "COMPLETED"
+    cancelled = "CANCELLED"
+
+
+class InviteeValidationStatus(str, Enum):
+    pending = "PENDING"
+    valid = "VALID"
+    invalid = "INVALID"
+    duplicate = "DUPLICATE"
+
+
+class InviteeSendStatus(str, Enum):
+    pending = "PENDING"
+    sending = "SENDING"
+    sent = "SENT"
+    failed = "FAILED"
+
+
+class InvitationEmailLogStatus(str, Enum):
+    pending = "PENDING"
+    sending = "SENDING"
+    sent = "SENT"
+    delivered = "DELIVERED"
+    opened = "OPENED"
+    failed = "FAILED"
+
+
+class InvitationTrainer(Base):
+    """Reusable trainer profile for invitation campaigns."""
+
+    __tablename__ = "invitation_trainers"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    full_name = Column(String(255), nullable=False, index=True)
+    designation = Column(String(255), nullable=True)
+    bio = Column(Text, nullable=True)
+    qualifications = Column(Text, nullable=True)
+    photo = Column(String(500), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    assignments = relationship("InvitationTrainerAssignment", back_populates="trainer")
+
+    def __repr__(self):
+        return f"<InvitationTrainer(id={self.id}, full_name={self.full_name})>"
+
+
+class Invitation(Base):
+    """Full invitation campaign (course, payment, email, schedule)."""
+
+    __tablename__ = "invitations"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    course_title = Column(String(500), nullable=False)
+    course_description = Column(Text, nullable=False)
+    venue = Column(String(500), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+    learning_outcomes = Column(Text, nullable=True)
+    source_email = Column(String(255), nullable=False)
+    email_subject = Column(String(500), nullable=False)
+    email_message = Column(Text, nullable=False)
+    course_fee = Column(Numeric(12, 2), nullable=True)
+    deposit_amount = Column(Numeric(12, 2), nullable=True)
+    reservation_deadline = Column(Date, nullable=True)
+    bank_account_name = Column(String(255), nullable=True)
+    bank_account_number = Column(String(100), nullable=True)
+    bank_name = Column(String(255), nullable=True)
+    interval_seconds = Column(Integer, nullable=False, default=10)
+    interval_limit = Column(Integer, nullable=False, default=5)
+    scheduled_at = Column(DateTime, nullable=True)
+    invitation_template_path = Column(String(500), nullable=True)
+    invitation_template_filename = Column(String(255), nullable=True)
+    status = Column(
+        SQLAlchemyEnum(InvitationCampaignStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=InvitationCampaignStatus.draft,
+    )
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    trainer_assignments = relationship(
+        "InvitationTrainerAssignment",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
+    invitees = relationship(
+        "InvitationInvitee",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
+    email_logs = relationship(
+        "InvitationEmailLog",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self):
+        return f"<Invitation(id={self.id}, title={self.title}, status={self.status})>"
+
+
+class InvitationTrainerAssignment(Base):
+    __tablename__ = "invitation_trainer_assignments"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    invitation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    trainer_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitation_trainers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    invitation = relationship("Invitation", back_populates="trainer_assignments")
+    trainer = relationship("InvitationTrainer", back_populates="assignments")
+
+    def __repr__(self):
+        return f"<InvitationTrainerAssignment(invitation={self.invitation_id}, trainer={self.trainer_id})>"
+
+
+class InvitationInvitee(Base):
+    __tablename__ = "invitation_invitees"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    invitation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    full_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    address = Column(Text, nullable=True)
+    organization = Column(String(255), nullable=True)
+    validation_status = Column(
+        SQLAlchemyEnum(InviteeValidationStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=InviteeValidationStatus.pending,
+    )
+    validation_message = Column(String(500), nullable=True)
+    send_status = Column(
+        SQLAlchemyEnum(InviteeSendStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=InviteeSendStatus.pending,
+    )
+    error_message = Column(Text, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    processed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    invitation = relationship("Invitation", back_populates="invitees")
+    email_logs = relationship("InvitationEmailLog", back_populates="invitee")
+
+    def __repr__(self):
+        return f"<InvitationInvitee(id={self.id}, email={self.email})>"
+
+
+class InvitationEmailLog(Base):
+    __tablename__ = "invitation_email_logs"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    invitation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    invitee_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitation_invitees.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email = Column(String(255), nullable=False)
+    status = Column(
+        SQLAlchemyEnum(InvitationEmailLogStatus, values_callable=_mail_enum_values),
+        nullable=False,
+        default=InvitationEmailLogStatus.pending,
+    )
+    error_message = Column(Text, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    opened_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    invitation = relationship("Invitation", back_populates="email_logs")
+    invitee = relationship("InvitationInvitee", back_populates="email_logs")
+
+    def __repr__(self):
+        return f"<InvitationEmailLog(id={self.id}, email={self.email}, status={self.status})>" 

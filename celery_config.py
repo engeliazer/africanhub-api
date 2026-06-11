@@ -43,6 +43,9 @@ celery.conf.update(
         'tasks.convert_video_to_hls': {'queue': 'video_processing'},
         'tasks.migrate_hls_to_b2': {'queue': 'video_processing'},
         'tasks_mail.process_mail_batch': {'queue': 'mail_processing'},
+        'tasks_invitation_mail.process_invitation_mail_batch': {'queue': 'mail_processing'},
+        'tasks_invitation_campaign.process_invitation_campaign_task': {'queue': 'mail_processing'},
+        'tasks_invitation_campaign.check_scheduled_invitation_campaigns': {'queue': 'mail_processing'},
     },
     task_queues={
         'video_processing': {
@@ -94,6 +97,8 @@ logger.info("Registering tasks...")
 import tasks_streamlined
 import tasks_migration
 import tasks_mail
+import tasks_invitation_mail
+import tasks_invitation_campaign
 logger.info("Tasks registered successfully")
 
 # Export the Celery instance as the default export of the module

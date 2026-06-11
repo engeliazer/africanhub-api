@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ course.title }} — Invitation</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body {
+      font-family: Helvetica, Arial, sans-serif;
+      color: #1F2937;
+      font-size: 11pt;
+      line-height: 1.55;
+    }
+    .section { margin-bottom: 22px; }
+    .section-title {
+      font-size: 10pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #A8861E;
+      border-bottom: 2px solid #C9A227;
+      padding-bottom: 6px;
+      margin: 0 0 12px 0;
+    }
+    .header-bar {
+      height: 6px;
+      background-color: #C9A227;
+      margin-bottom: 18px;
+    }
+    .brand {
+      font-size: 18pt;
+      font-weight: bold;
+      letter-spacing: 0.05em;
+      color: #1F2937;
+      margin: 0 0 4px 0;
+    }
+    .tagline {
+      font-size: 10pt;
+      color: #6B7280;
+      margin: 0 0 20px 0;
+    }
+    .recipient-box {
+      border: 1px solid #E5E7EB;
+      border-left: 4px solid #C9A227;
+      padding: 14px 18px;
+      background: #FAFAFA;
+    }
+    .label {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6B7280;
+      margin: 0 0 2px 0;
+    }
+    .value {
+      font-size: 11pt;
+      font-weight: bold;
+      margin: 0 0 10px 0;
+      color: #1F2937;
+    }
+    .course-meta { margin: 8px 0; }
+    .course-meta strong { color: #1F2937; }
+    ul.outcomes {
+      margin: 8px 0 0 18px;
+      padding: 0;
+    }
+    ul.outcomes li { margin-bottom: 4px; }
+    .trainer-block {
+      border: 1px solid #E5E7EB;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      background: #FFFFFF;
+    }
+    .trainer-name {
+      font-size: 12pt;
+      font-weight: bold;
+      margin: 0 0 4px 0;
+      color: #1F2937;
+    }
+    .trainer-designation {
+      font-size: 10pt;
+      color: #A8861E;
+      margin: 0 0 8px 0;
+    }
+    .payment-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .payment-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #E5E7EB;
+      vertical-align: top;
+    }
+    .payment-table td:first-child {
+      width: 38%;
+      color: #6B7280;
+      font-size: 10pt;
+    }
+    .footer {
+      margin-top: 28px;
+      padding-top: 14px;
+      border-top: 1px solid #E5E7EB;
+      font-size: 9pt;
+      color: #6B7280;
+    }
+    .gold { color: #A8861E; }
+  </style>
+</head>
+<body>
+
+  {# 1. Header #}
+  <div class="section">
+    <div class="header-bar"></div>
+    <p class="brand">{{ brand.name }}</p>
+    <p class="tagline">{{ brand.tagline }}</p>
+  </div>
+
+  {# 2. Recipient Information #}
+  <div class="section">
+    <p class="section-title">Recipient Information</p>
+    <div class="recipient-box">
+      <p class="label">Invitee</p>
+      <p class="value">{{ invitee.full_name }}</p>
+      {% if invitee.organization %}
+      <p class="label">Organization</p>
+      <p class="value">{{ invitee.organization }}</p>
+      {% endif %}
+      {% if invitee.address %}
+      <p class="label">Address</p>
+      <p class="value">{{ invitee.address | nl2br }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# 3. Invitation Section #}
+  <div class="section">
+    <p class="section-title">Invitation</p>
+    <p>Dear <strong>{{ invitee.full_name }}</strong>,</p>
+    {% if invitation.email_message %}
+    <div>{{ invitation.email_message | nl2br }}</div>
+    {% else %}
+    <p>
+      On behalf of <span class="gold">{{ brand.name }}</span>, we are pleased to invite you
+      {% if invitee.organization %}and <strong>{{ invitee.organization }}</strong>{% endif %}
+      to participate in our upcoming training programme.
+    </p>
+    {% endif %}
+  </div>
+
+  {# 4. About the Course #}
+  <div class="section">
+    <p class="section-title">About the Course</p>
+    <p class="trainer-name">{{ course.title }}</p>
+    <p class="course-meta"><strong>Venue:</strong> {{ course.venue }}</p>
+    <p class="course-meta"><strong>Dates:</strong> {{ course.date_range }}</p>
+    <p class="course-meta"><strong>Time:</strong> {{ course.time_range }}</p>
+    {% if course.description %}
+    <p>{{ course.description | nl2br }}</p>
+    {% endif %}
+    {% if course.learning_outcomes %}
+    <p><strong>Learning Outcomes</strong></p>
+    <ul class="outcomes">
+      {% for outcome in course.learning_outcomes %}
+      <li>{{ outcome }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  {# 5. About the Trainer(s) #}
+  {% if trainers %}
+  <div class="section">
+    <p class="section-title">About the Trainer{% if trainers | length > 1 %}s{% endif %}</p>
+    {% for trainer in trainers %}
+    <div class="trainer-block">
+      <p class="trainer-name">{{ trainer.full_name }}</p>
+      {% if trainer.designation %}
+      <p class="trainer-designation">{{ trainer.designation }}</p>
+      {% endif %}
+      {% if trainer.bio %}
+      <p>{{ trainer.bio | nl2br }}</p>
+      {% endif %}
+      {% if trainer.qualifications %}
+      <p><strong>Qualifications:</strong> {{ trainer.qualifications | nl2br }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# 6. Payment Details #}
+  {% if payment.has_payment_info %}
+  <div class="section">
+    <p class="section-title">Payment Details</p>
+    <table class="payment-table">
+      {% if payment.course_fee %}
+      <tr>
+        <td>Course Fee</td>
+        <td><strong>{{ payment.course_fee }}</strong></td>
+      </tr>
+      {% endif %}
+      {% if payment.deposit_amount %}
+      <tr>
+        <td>Deposit Amount</td>
+        <td><strong>{{ payment.deposit_amount }}</strong></td>
+      </tr>
+      {% endif %}
+      {% if payment.reservation_deadline %}
+      <tr>
+        <td>Reservation Deadline</td>
+        <td>{{ payment.reservation_deadline }}</td>
+      </tr>
+      {% endif %}
+      {% if payment.bank_name %}
+      <tr>
+        <td>Bank</td>
+        <td>{{ payment.bank_name }}</td>
+      </tr>
+      {% endif %}
+      {% if payment.bank_account_name %}
+      <tr>
+        <td>Account Name</td>
+        <td>{{ payment.bank_account_name }}</td>
+      </tr>
+      {% endif %}
+      {% if payment.bank_account_number %}
+      <tr>
+        <td>Account Number</td>
+        <td>{{ payment.bank_account_number }}</td>
+      </tr>
+      {% endif %}
+    </table>
+  </div>
+  {% endif %}
+
+  {# 7. Footer #}
+  <div class="section footer">
+    <p>
+      <strong>{{ brand.name }}</strong><br />
+      {{ brand.contact_email }}<br />
+      {% if brand.website %}{{ brand.website }}{% endif %}
+    </p>
+    <p>We look forward to your participation.</p>
+  </div>
+
+</body>
+</html>
