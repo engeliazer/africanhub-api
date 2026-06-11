@@ -5,10 +5,14 @@ Preferred on cloud VPS (DigitalOcean etc.): SendGrid API over HTTPS (port 443).
 Fallback: Zoho SMTP via MAIL_SMTP_* variables.
 """
 
+import base64
 import logging
 import os
 import smtplib
 import socket
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional, Tuple
@@ -24,7 +28,14 @@ NAME_PLACEHOLDER = "[NAME]"
 
 try:
     from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
+    from sendgrid.helpers.mail import (
+        Attachment,
+        Disposition,
+        FileContent,
+        FileName,
+        FileType,
+        Mail,
+    )
     SENDGRID_AVAILABLE = True
 except ImportError:
     SENDGRID_AVAILABLE = False
@@ -49,6 +60,29 @@ def _default_from_email() -> str:
         or os.getenv("MAIL_SMTP_USER")
         or ""
     ).strip()
+
+
+def _from_display_name() -> str:
+    return (os.getenv("MAIL_FROM_NAME") or "African Hub").strip() or "African Hub"
+
+
+def _resolve_sender_email(from_email: str) -> str:
+    """Use batch source_email when set; otherwise fall back to MAIL_FROM."""
+    explicit = (from_email or "").strip()
+    if explicit:
+        return explicit
+    fallback = _default_from_email()
+    if not fallback:
+        raise ValueError("No sender email: set source_email on the batch or MAIL_FROM in .env")
+    return fallback
+
+
+def _reply_to_email() -> str:
+    """Inbox that receives replies (independent of batch source_email / From header)."""
+    reply_to = (os.getenv("MAIL_REPLY_TO") or _default_from_email() or "").strip()
+    if not reply_to:
+        raise ValueError("No reply-to email: set MAIL_REPLY_TO or MAIL_FROM in .env")
+    return reply_to
 
 
 def _sendgrid_api_key() -> str:
@@ -82,39 +116,68 @@ def _connection_error_message(host: str, port: int, err: Exception) -> str:
     return str(err)
 
 
+def _load_attachment(
+    attachment_path: Optional[str],
+    attachment_filename: Optional[str],
+) -> Optional[Tuple[bytes, str]]:
+    if not attachment_path:
+        return None
+    path = Path(attachment_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Attachment not found: {attachment_path}")
+    filename = attachment_filename or path.name
+    if not filename.lower().endswith(".pdf"):
+        filename = f"{filename}.pdf"
+    return path.read_bytes(), filename
+
+
 def _send_via_sendgrid(
     *,
     from_email: str,
     to_email: str,
     subject: str,
     body: str,
+    attachment_path: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     if not SENDGRID_AVAILABLE:
         return False, "SendGrid library not installed"
     api_key = _sendgrid_api_key()
     if not api_key:
         return False, "MAIL_SENDGRID_API_KEY not configured"
-    send_from = _default_from_email() or from_email
-    if from_email.lower() != send_from.lower():
-        logger.warning(
-            "from_email %s differs from MAIL_FROM %s; sending as %s",
-            from_email,
-            send_from,
-            send_from,
-        )
+    try:
+        send_from = _resolve_sender_email(from_email)
+        reply_to = _reply_to_email()
+    except ValueError as e:
+        return False, str(e)
     try:
         mail = Mail(
-            from_email=(send_from, "African Hub"),
+            from_email=(send_from, _from_display_name()),
             to_emails=[to_email],
             subject=subject,
             plain_text_content=body,
         )
+        mail.reply_to = (reply_to, _from_display_name())
+        attachment = _load_attachment(attachment_path, attachment_filename)
+        if attachment:
+            data, filename = attachment
+            encoded = base64.b64encode(data).decode("utf-8")
+            mail.add_attachment(
+                Attachment(
+                    FileContent(encoded),
+                    FileName(filename),
+                    FileType("application/pdf"),
+                    Disposition("attachment"),
+                )
+            )
         sg = SendGridAPIClient(api_key)
         response = sg.send(mail)
         if response.status_code in (200, 201, 202):
             return True, None
         error_body = response.body.decode("utf-8") if response.body else "No error body"
         return False, f"SendGrid API error {response.status_code}: {error_body}"
+    except FileNotFoundError as e:
+        return False, str(e)
     except Exception as e:
         status = getattr(e, "status_code", None)
         body = getattr(e, "body", None)
@@ -136,7 +199,38 @@ def _send_via_sendgrid(
         return False, f"SendGrid send failed: {e}"
 
 
-def _send_smtp_message(cfg: dict, msg: MIMEText) -> None:
+def _build_smtp_message(
+    *,
+    send_from: str,
+    reply_to: str,
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_path: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
+) -> MIMEMultipart:
+    attachment = _load_attachment(attachment_path, attachment_filename)
+    if attachment:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        data, filename = attachment
+        part = MIMEBase("application", "pdf")
+        part.set_payload(data)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+        msg.attach(part)
+    else:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    msg["From"] = send_from
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg["Reply-To"] = reply_to
+    return msg
+
+
+def _send_smtp_message(cfg: dict, msg: MIMEMultipart) -> None:
     if cfg["use_ssl"]:
         server = smtplib.SMTP_SSL(
             cfg["host"], cfg["port"], timeout=cfg["timeout"]
@@ -161,28 +255,41 @@ def _send_via_smtp(
     to_email: str,
     subject: str,
     body: str,
+    attachment_path: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     cfg = _smtp_config()
     if not cfg["user"] or not cfg["password"]:
         return False, "Mail SMTP credentials not configured"
 
-    send_from = cfg["user"]
-    if from_email.lower() != send_from.lower():
-        logger.warning(
-            "from_email %s does not match MAIL_SMTP_USER %s; sending as %s",
-            from_email,
+    try:
+        send_from = _resolve_sender_email(from_email)
+        reply_to = _reply_to_email()
+    except ValueError as e:
+        return False, str(e)
+
+    if send_from.lower() != cfg["user"].lower():
+        logger.info(
+            "SMTP login as %s, From: %s, Reply-To: %s",
+            cfg["user"],
             send_from,
-            send_from,
+            reply_to,
         )
 
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["From"] = send_from
-    msg["To"] = to_email
-    msg["Subject"] = subject
-
     try:
+        msg = _build_smtp_message(
+            send_from=send_from,
+            reply_to=reply_to,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path,
+            attachment_filename=attachment_filename,
+        )
         _send_smtp_message(cfg, msg)
         return True, None
+    except FileNotFoundError as e:
+        return False, str(e)
     except smtplib.SMTPAuthenticationError:
         logger.error("SMTP authentication failed for %s", cfg["user"])
         return False, "SMTP authentication failed"
@@ -203,9 +310,11 @@ def send_batch_email(
     to_email: str,
     subject: str,
     body: str,
+    attachment_path: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send a single plain-text email.
+    Send a single plain-text email with optional PDF attachment.
 
     Uses SendGrid API when MAIL_TRANSPORT=api (or auto + API key set),
     otherwise SMTP.
@@ -217,10 +326,14 @@ def send_batch_email(
             to_email=to_email,
             subject=subject,
             body=body,
+            attachment_path=attachment_path,
+            attachment_filename=attachment_filename,
         )
     return _send_via_smtp(
         from_email=from_email,
         to_email=to_email,
         subject=subject,
         body=body,
+        attachment_path=attachment_path,
+        attachment_filename=attachment_filename,
     )

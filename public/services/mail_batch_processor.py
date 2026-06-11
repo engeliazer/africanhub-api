@@ -78,6 +78,8 @@ def process_mail_batch(batch_id: int) -> None:
                     to_email=recipient.email,
                     subject=batch.subject,
                     body=body,
+                    attachment_path=batch.attachment_path,
+                    attachment_filename=batch.attachment_filename,
                 )
                 recipient.status = (
                     MailRecipientStatus.processed if ok else MailRecipientStatus.failed

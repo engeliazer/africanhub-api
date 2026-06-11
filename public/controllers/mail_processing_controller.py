@@ -2,12 +2,14 @@
 Mail batch processing: create campaigns, start rate-limited sending, view status.
 """
 
+import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from applications.models.models import (
@@ -17,6 +19,7 @@ from applications.models.models import (
     MailRecipientStatus,
 )
 from database.db_connector import get_db
+from public.services.mail_attachment_service import save_batch_pdf, validate_pdf_upload
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,8 @@ def _batch_to_dict(batch: MailBatch, include_recipients: bool = True) -> Dict[st
         "interval_seconds": batch.interval_seconds,
         "interval_limit": batch.interval_limit,
         "status": batch.status.value if batch.status else None,
+        "has_attachment": bool(batch.attachment_path),
+        "attachment_filename": batch.attachment_filename,
         "created_by": batch.created_by,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
         "updated_at": batch.updated_at.isoformat() if batch.updated_at else None,
@@ -66,6 +71,18 @@ def _recipient_counts(recipients: List[MailBatchRecipient]) -> Dict[str, int]:
     return counts
 
 
+def _parse_recipients(raw) -> Optional[List[dict]]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, list) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
 def _validate_create_payload(data: dict) -> Optional[str]:
     required = [
         "source_email",
@@ -79,7 +96,7 @@ def _validate_create_payload(data: dict) -> Optional[str]:
         if data.get(field) in (None, ""):
             return f"Missing required field: {field}"
 
-    if not EMAIL_RE.match(data["source_email"].strip()):
+    if not EMAIL_RE.match(str(data["source_email"]).strip()):
         return "Invalid source_email"
 
     try:
@@ -93,9 +110,9 @@ def _validate_create_payload(data: dict) -> Optional[str]:
     if interval_limit < 1:
         return "interval_limit must be >= 1"
 
-    recipients = data.get("recipients")
-    if not isinstance(recipients, list) or not recipients:
-        return "recipients must be a non-empty array"
+    recipients = _parse_recipients(data.get("recipients"))
+    if not recipients:
+        return "recipients must be a non-empty array (or JSON string array for multipart)"
 
     for i, item in enumerate(recipients):
         if not isinstance(item, dict):
@@ -107,7 +124,37 @@ def _validate_create_payload(data: dict) -> Optional[str]:
         if not EMAIL_RE.match(email):
             return f"recipients[{i}] has invalid email"
 
+    data["recipients"] = recipients
     return None
+
+
+def _parse_create_request() -> Tuple[Optional[dict], Optional[str], Union[str, Any, None]]:
+    """
+    Parse JSON or multipart batch create request.
+
+    Returns:
+        (data_dict, pdf_validation_error, request_format_error)
+    """
+    if request.content_type and "multipart/form-data" in request.content_type:
+        form = request.form
+        data = {
+            "source_email": form.get("source_email"),
+            "subject": form.get("subject"),
+            "message_body": form.get("message_body"),
+            "interval_seconds": form.get("interval_seconds"),
+            "interval_limit": form.get("interval_limit"),
+            "recipients": form.get("recipients"),
+        }
+        attachment = request.files.get("attachment")
+        pdf_error = validate_pdf_upload(attachment)
+        if pdf_error:
+            return None, pdf_error, None
+        return data, None, attachment
+
+    data = request.get_json(silent=True) or {}
+    if "attachment" in data:
+        return None, None, "JSON requests cannot include attachments; use multipart/form-data"
+    return data, None, None
 
 
 @mail_processing_bp.route("/api/mail/batches", methods=["POST"])
@@ -116,7 +163,8 @@ def create_mail_batch():
     """
     Create a mail batch with recipients (all default status PENDING).
 
-    Body: {
+    JSON body (no attachment):
+    {
       "source_email": "...",
       "subject": "...",
       "message_body": "Dear [NAME], ...",
@@ -124,8 +172,22 @@ def create_mail_batch():
       "interval_limit": 10,
       "recipients": [{"email": "...", "full_name": "..."}]
     }
+
+    Multipart form (optional PDF attachment):
+      - source_email, subject, message_body, interval_seconds, interval_limit
+      - recipients: JSON string array
+      - attachment: PDF file only (max 15MB by default)
     """
-    data = request.get_json() or {}
+    data, pdf_error, extra = _parse_create_request()
+    if extra and isinstance(extra, str):
+        return jsonify({"status": "error", "message": extra}), 400
+    if pdf_error:
+        return jsonify({"status": "error", "message": pdf_error}), 400
+    if not data:
+        return jsonify({"status": "error", "message": "Invalid request body"}), 400
+
+    attachment_file = extra if extra is not None and not isinstance(extra, str) else None
+
     error = _validate_create_payload(data)
     if error:
         return jsonify({"status": "error", "message": error}), 400
@@ -144,6 +206,11 @@ def create_mail_batch():
         )
         db.add(batch)
         db.flush()
+
+        if attachment_file and attachment_file.filename:
+            path, filename = save_batch_pdf(batch.id, attachment_file)
+            batch.attachment_path = path
+            batch.attachment_filename = filename
 
         for item in data["recipients"]:
             db.add(
@@ -165,6 +232,30 @@ def create_mail_batch():
     except Exception as e:
         db.rollback()
         logger.exception("create_mail_batch: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@mail_processing_bp.route("/api/mail/batches/<int:batch_id>/attachment", methods=["GET"])
+@jwt_required()
+def download_mail_batch_attachment(batch_id: int):
+    """Download the PDF attachment for a batch."""
+    db = get_db()
+    try:
+        batch = db.query(MailBatch).filter(MailBatch.id == batch_id).first()
+        if not batch:
+            return jsonify({"status": "error", "message": "Mail batch not found"}), 404
+        if not batch.attachment_path or not Path(batch.attachment_path).is_file():
+            return jsonify({"status": "error", "message": "No attachment for this batch"}), 404
+        return send_file(
+            batch.attachment_path,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=batch.attachment_filename or "attachment.pdf",
+        )
+    except Exception as e:
+        logger.exception("download_mail_batch_attachment: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()

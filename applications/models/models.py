@@ -404,6 +404,8 @@ class MailBatch(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    attachment_path = Column(String(500), nullable=True)
+    attachment_filename = Column(String(255), nullable=True)
 
     recipients = relationship(
         "MailBatchRecipient",
