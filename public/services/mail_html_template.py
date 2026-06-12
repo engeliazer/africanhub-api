@@ -38,7 +38,8 @@ def _brand_name() -> str:
 
 def _message_to_html_blocks(message: str) -> str:
     """Escape user content and preserve paragraphs / line breaks."""
-    text = html.escape(message or "")
+    raw = re.sub(r"<br\s*/?>", "\n", message or "", flags=re.IGNORECASE)
+    text = html.escape(raw)
     paragraphs = re.split(r"\n\s*\n", text)
     blocks = []
     for para in paragraphs:

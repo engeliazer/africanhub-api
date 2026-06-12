@@ -211,7 +211,7 @@
     <p>Reference is made to the heading above.</p>
 
     {% if invitation.email_message %}
-    <div>{{ invitation.email_message | nl2br }}</div>
+    <div>{{ invitation.email_message | richtext }}</div>
     {% else %}
     <p>
       We are delighted to invite you to an exclusive training programme organised by

@@ -4,13 +4,18 @@ Jinja2 HTML generation for full invitation campaigns (7 sections).
 
 import html
 import os
+import re
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
 
 from applications.models.models import Invitation, InvitationTrainer
+from public.services.mail_service import NAME_PLACEHOLDER
+
+BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 DEFAULT_TEMPLATE = "invitations/invitation_letter.html"
@@ -33,13 +38,34 @@ def _get_jinja_env() -> Environment:
             autoescape=select_autoescape(["html", "xml"]),
         )
 
-        def nl2br(value) -> str:
+        def _normalize_line_breaks(value) -> str:
             if value is None:
                 return ""
-            text = html.escape(str(value))
+            text = str(value)
+            text = BR_TAG_RE.sub("\n", text)
+            return text
+
+        def nl2br(value) -> str:
+            text = html.escape(_normalize_line_breaks(value))
             return text.replace("\n", "<br />")
 
+        def richtext(value) -> Markup:
+            """Paragraphs + line breaks; safe for invitee-personalized message HTML."""
+            text = html.escape(_normalize_line_breaks(value).strip())
+            if not text:
+                return Markup("")
+            paragraphs = re.split(r"\n\s*\n", text)
+            blocks = [
+                f'<p style="margin:0 0 12px 0;text-align:justify;">'
+                f'{para.replace(chr(10), "<br />")}'
+                f"</p>"
+                for para in paragraphs
+                if para.strip()
+            ]
+            return Markup("".join(blocks))
+
         env.filters["nl2br"] = nl2br
+        env.filters["richtext"] = richtext
         _jinja_env = env
     return _jinja_env
 
@@ -96,6 +122,10 @@ def _invitee_addressee_line(invitee: Dict[str, Any]) -> str:
         first_line = address.splitlines()[0].strip()
         return first_line if first_line.endswith(".") else f"{first_line}."
     return ""
+
+
+def _personalize_text(text: Optional[str], full_name: str) -> str:
+    return (text or "").replace(NAME_PLACEHOLDER, full_name or "")
 
 
 def _subject_heading(course_title: str) -> str:
@@ -200,6 +230,7 @@ def build_invitation_render_context(
     ])
 
     letter_date = _format_letter_date()
+    full_name = invitee.get("full_name") or ""
     return {
         "brand": _brand_context(invitation),
         "letter": {
@@ -209,11 +240,11 @@ def build_invitation_render_context(
         },
         "invitation": {
             "title": invitation.title,
-            "email_message": invitation.email_message,
-            "email_subject": invitation.email_subject,
+            "email_message": _personalize_text(invitation.email_message, full_name),
+            "email_subject": _personalize_text(invitation.email_subject, full_name),
         },
         "invitee": {
-            "full_name": invitee.get("full_name") or "",
+            "full_name": full_name,
             "email": invitee.get("email") or "",
             "address": invitee.get("address") or "",
             "organization": invitee.get("organization") or "",
