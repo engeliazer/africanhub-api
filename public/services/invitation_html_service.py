@@ -4,7 +4,7 @@ Jinja2 HTML generation for full invitation campaigns (7 sections).
 
 import html
 import os
-from datetime import date, time
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -62,13 +62,75 @@ def _format_money(amount) -> Optional[str]:
     return f"TZS {float(amount):,.2f}"
 
 
+def _ordinal_day(day: int) -> str:
+    if 11 <= (day % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
+def _format_letter_date(value: Optional[date] = None) -> str:
+    """e.g. 20th May 2026"""
+    d = value or datetime.utcnow().date()
+    return f"{_ordinal_day(d.day)} {d.strftime('%B %Y')}"
+
+
+def _letter_reference(invitation_id: int, ref_date: Optional[date] = None) -> str:
+    d = ref_date or datetime.utcnow().date()
+    return f"AHB&T/{d.strftime('%m/%y')}/{invitation_id:07d}"
+
+
+def _invitee_addressee_line(invitee: Dict[str, Any]) -> str:
+    """Formal line under salutation, e.g. 'Sub Treasury, Rukwa.'"""
+    organization = (invitee.get("organization") or "").strip()
+    address = (invitee.get("address") or "").strip()
+    if organization and address:
+        first_address_line = address.splitlines()[0].strip()
+        if first_address_line.lower() in organization.lower():
+            return f"{organization}."
+        return f"{organization}, {first_address_line}."
+    if organization:
+        return f"{organization}." if organization.endswith(".") else f"{organization}."
+    if address:
+        first_line = address.splitlines()[0].strip()
+        return first_line if first_line.endswith(".") else f"{first_line}."
+    return ""
+
+
+def _subject_heading(course_title: str) -> str:
+    title = (course_title or "").strip().upper()
+    if title.startswith("RE:"):
+        return title
+    return f"RE: AN INVITATION TO {title}"
+
+
 def _brand_context(invitation: Invitation) -> Dict[str, str]:
+    logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/logo.png").strip()
+    letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
     return {
         "name": (os.getenv("MAIL_FROM_NAME") or "The African Hub").strip().upper(),
+        "legal_name": (
+            os.getenv("MAIL_BRAND_LEGAL_NAME")
+            or "AFRICAN HUB OF BUSINESS & TECHNOLOGY"
+        ).strip().upper(),
         "tagline": (
             os.getenv("MAIL_BRAND_TAGLINE") or "Building Accounting Skills for the Real World"
         ).strip(),
-        "logo_url": (os.getenv("MAIL_LOGO_URL") or "").strip(),
+        "logo_url": logo,
+        "letterhead_logo_url": letterhead_logo,
+        "po_box": (
+            os.getenv("MAIL_BRAND_PO_BOX")
+            or "P. O. Box 36246, Dar es Salaam, Tanzania"
+        ).strip(),
+        "phone": (
+            os.getenv("MAIL_BRAND_PHONE")
+            or "+255 710 223 399 or +255 716 734 577"
+        ).strip(),
+        "info_email": (
+            os.getenv("MAIL_BRAND_INFO_EMAIL")
+            or "info@africanhub.ac.tz"
+        ).strip(),
         "website": (os.getenv("MAIL_WEBSITE_URL") or "https://africanhub.ac.tz").strip(),
         "contact_email": (
             os.getenv("MAIL_REPLY_TO")
@@ -137,8 +199,14 @@ def build_invitation_render_context(
         invitation.bank_account_number,
     ])
 
+    letter_date = _format_letter_date()
     return {
         "brand": _brand_context(invitation),
+        "letter": {
+            "reference": _letter_reference(invitation.id),
+            "date": letter_date,
+            "subject_heading": _subject_heading(invitation.course_title),
+        },
         "invitation": {
             "title": invitation.title,
             "email_message": invitation.email_message,
@@ -149,6 +217,7 @@ def build_invitation_render_context(
             "email": invitee.get("email") or "",
             "address": invitee.get("address") or "",
             "organization": invitee.get("organization") or "",
+            "addressee_line": _invitee_addressee_line(invitee),
         },
         "course": {
             "title": invitation.course_title,

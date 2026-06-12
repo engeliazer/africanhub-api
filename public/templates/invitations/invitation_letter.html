@@ -2,157 +2,253 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>{{ course.title }} — Invitation</title>
+  <title>{{ letter.subject_heading }}</title>
   <style>
-    @page { size: A4; margin: 2cm; }
+    @page {
+      size: A4;
+      margin: 1.6cm 1.8cm 2cm 1.8cm;
+    }
     body {
-      font-family: Helvetica, Arial, sans-serif;
-      color: #1F2937;
+      font-family: "Times New Roman", Times, Georgia, serif;
+      color: #000000;
       font-size: 11pt;
       line-height: 1.55;
-    }
-    .section { margin-bottom: 22px; }
-    .section-title {
-      font-size: 10pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #A8861E;
-      border-bottom: 2px solid #C9A227;
-      padding-bottom: 6px;
-      margin: 0 0 12px 0;
-    }
-    .header-bar {
-      height: 6px;
-      background-color: #C9A227;
-      margin-bottom: 18px;
-    }
-    .brand {
-      font-size: 18pt;
-      font-weight: bold;
-      letter-spacing: 0.05em;
-      color: #1F2937;
-      margin: 0 0 4px 0;
-    }
-    .tagline {
-      font-size: 10pt;
-      color: #6B7280;
-      margin: 0 0 20px 0;
-    }
-    .recipient-box {
-      border: 1px solid #E5E7EB;
-      border-left: 4px solid #C9A227;
-      padding: 14px 18px;
-      background: #FAFAFA;
-    }
-    .label {
-      font-size: 8pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #6B7280;
-      margin: 0 0 2px 0;
-    }
-    .value {
-      font-size: 11pt;
-      font-weight: bold;
-      margin: 0 0 10px 0;
-      color: #1F2937;
-    }
-    .course-meta { margin: 8px 0; }
-    .course-meta strong { color: #1F2937; }
-    ul.outcomes {
-      margin: 8px 0 0 18px;
+      margin: 0;
       padding: 0;
     }
-    ul.outcomes li { margin-bottom: 4px; }
-    .trainer-block {
-      border: 1px solid #E5E7EB;
-      padding: 12px 14px;
-      margin-bottom: 12px;
-      background: #FFFFFF;
+    table { border-collapse: collapse; }
+    .letter-body {
+      position: relative;
+      z-index: 1;
+    }
+    .watermark {
+      position: fixed;
+      top: 280px;
+      left: 80px;
+      width: 450px;
+      opacity: 0.06;
+      z-index: 0;
+    }
+    .watermark img {
+      width: 450px;
+    }
+    /* --- Letterhead --- */
+    .letterhead td {
+      vertical-align: top;
+      padding: 0;
+    }
+    .logo-cell {
+      width: 130px;
+      padding-right: 10px;
+    }
+    .logo-cell img {
+      width: 115px;
+      height: auto;
+    }
+    .company-name {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 15pt;
+      font-weight: bold;
+      letter-spacing: 0.02em;
+      color: #000000;
+      text-align: center;
+      line-height: 1.25;
+      margin: 0 0 8px 0;
+    }
+    .company-contact {
+      font-size: 10.5pt;
+      color: #1a4b8c;
+      text-align: center;
+      line-height: 1.45;
+      margin: 0;
+    }
+    .company-contact a {
+      color: #1a4b8c;
+      text-decoration: underline;
+    }
+    .corner-cell {
+      width: 70px;
+      text-align: right;
+      vertical-align: top;
+    }
+    .corner-navy {
+      display: block;
+      width: 55px;
+      height: 18px;
+      background-color: #1e3a5f;
+      margin-left: auto;
+      margin-bottom: 4px;
+    }
+    .corner-gold {
+      display: block;
+      width: 55px;
+      height: 18px;
+      background-color: #e8912d;
+      margin-left: auto;
+    }
+    .header-rule {
+      border: none;
+      border-top: 2px solid #000000;
+      margin: 12px 0 18px 0;
+    }
+    /* --- Ref / date --- */
+    .meta-table {
+      width: 100%;
+      margin-bottom: 22px;
+    }
+    .meta-table td {
+      font-size: 11pt;
+      vertical-align: top;
+    }
+    .meta-left { text-align: left; }
+    .meta-right { text-align: right; }
+    /* --- Addressee --- */
+    .addressee {
+      margin-bottom: 22px;
+    }
+    .salutation {
+      margin: 0 0 4px 0;
+    }
+    .addressee-line {
+      margin: 0;
+      padding-left: 0;
+    }
+    /* --- Subject --- */
+    .subject-line {
+      text-align: center;
+      font-weight: bold;
+      font-size: 11pt;
+      color: #8B4513;
+      text-transform: uppercase;
+      line-height: 1.45;
+      margin: 0 0 18px 0;
+      padding: 0 10px;
+    }
+    /* --- Body --- */
+    p {
+      margin: 0 0 12px 0;
+      text-align: justify;
+    }
+    .section-heading {
+      font-weight: bold;
+      text-decoration: underline;
+      margin: 18px 0 8px 0;
+      text-align: left;
+    }
+    ul.outcomes {
+      margin: 6px 0 12px 22px;
+      padding: 0;
+    }
+    ul.outcomes li {
+      margin-bottom: 4px;
+      text-align: justify;
+    }
+    .course-detail {
+      margin: 4px 0;
     }
     .trainer-name {
-      font-size: 12pt;
       font-weight: bold;
-      margin: 0 0 4px 0;
-      color: #1F2937;
+      margin: 10px 0 2px 0;
     }
-    .trainer-designation {
-      font-size: 10pt;
-      color: #A8861E;
-      margin: 0 0 8px 0;
+    .trainer-role {
+      font-style: italic;
+      color: #333333;
+      margin: 0 0 6px 0;
     }
     .payment-table {
       width: 100%;
-      border-collapse: collapse;
+      margin: 8px 0 14px 0;
     }
     .payment-table td {
-      padding: 6px 8px;
-      border-bottom: 1px solid #E5E7EB;
+      padding: 4px 8px 4px 0;
       vertical-align: top;
+      font-size: 11pt;
     }
     .payment-table td:first-child {
-      width: 38%;
-      color: #6B7280;
-      font-size: 10pt;
+      width: 40%;
+      font-weight: bold;
     }
-    .footer {
-      margin-top: 28px;
-      padding-top: 14px;
-      border-top: 1px solid #E5E7EB;
-      font-size: 9pt;
-      color: #6B7280;
+    .closing {
+      margin-top: 24px;
     }
-    .gold { color: #A8861E; }
+    .signature-name {
+      font-weight: bold;
+      margin: 20px 0 2px 0;
+    }
   </style>
 </head>
 <body>
 
-  {# 1. Header #}
-  <div class="section">
-    <div class="header-bar"></div>
-    <p class="brand">{{ brand.name }}</p>
-    <p class="tagline">{{ brand.tagline }}</p>
+  {% if brand.letterhead_logo_url %}
+  <div class="watermark">
+    <img src="{{ brand.letterhead_logo_url }}" alt="" />
   </div>
+  {% endif %}
 
-  {# 2. Recipient Information #}
-  <div class="section">
-    <p class="section-title">Recipient Information</p>
-    <div class="recipient-box">
-      <p class="label">Invitee</p>
-      <p class="value">{{ invitee.full_name }}</p>
-      {% if invitee.organization %}
-      <p class="label">Organization</p>
-      <p class="value">{{ invitee.organization }}</p>
-      {% endif %}
-      {% if invitee.address %}
-      <p class="label">Address</p>
-      <p class="value">{{ invitee.address | nl2br }}</p>
+  <div class="letter-body">
+
+    {# 1. Header — logo + letterhead (matches email branding) #}
+    <table class="letterhead" width="100%">
+      <tr>
+        <td class="logo-cell">
+          {% if brand.letterhead_logo_url %}
+          <img src="{{ brand.letterhead_logo_url }}" alt="{{ brand.legal_name }}" />
+          {% endif %}
+        </td>
+        <td>
+          <p class="company-name">{{ brand.legal_name }}</p>
+          <p class="company-contact">
+            {{ brand.po_box }}<br />
+            Tel: {{ brand.phone }}<br />
+            Email: <a href="mailto:{{ brand.info_email }}">{{ brand.info_email }}</a>
+          </p>
+        </td>
+        <td class="corner-cell">
+          <span class="corner-navy"></span>
+          <span class="corner-gold"></span>
+        </td>
+      </tr>
+    </table>
+    <hr class="header-rule" />
+
+    {# Ref & date #}
+    <table class="meta-table">
+      <tr>
+        <td class="meta-left"><strong>Ref:</strong> {{ letter.reference }}</td>
+        <td class="meta-right">{{ letter.date }}</td>
+      </tr>
+    </table>
+
+    {# 2. Recipient / addressee (formal letter style) #}
+    <div class="addressee">
+      <p class="salutation">Dear {{ invitee.full_name }},</p>
+      {% if invitee.addressee_line %}
+      <p class="addressee-line">{{ invitee.addressee_line }}</p>
       {% endif %}
     </div>
-  </div>
 
-  {# 3. Invitation Section #}
-  <div class="section">
-    <p class="section-title">Invitation</p>
-    <p>Dear <strong>{{ invitee.full_name }}</strong>,</p>
+    {# 3. Subject heading #}
+    <p class="subject-line">{{ letter.subject_heading }}</p>
+
+    {# 4. Invitation opening #}
+    <p>Reference is made to the heading above.</p>
+
     {% if invitation.email_message %}
     <div>{{ invitation.email_message | nl2br }}</div>
     {% else %}
     <p>
-      On behalf of <span class="gold">{{ brand.name }}</span>, we are pleased to invite you
-      {% if invitee.organization %}and <strong>{{ invitee.organization }}</strong>{% endif %}
-      to participate in our upcoming training programme.
+      We are delighted to invite you to an exclusive training programme organised by
+      {{ brand.legal_name }} (AHB&amp;T). We look forward to your participation in this
+      high-impact learning experience.
     </p>
     {% endif %}
-  </div>
 
-  {# 4. About the Course #}
-  <div class="section">
-    <p class="section-title">About the Course</p>
-    <p class="trainer-name">{{ course.title }}</p>
-    <p class="course-meta"><strong>Venue:</strong> {{ course.venue }}</p>
-    <p class="course-meta"><strong>Dates:</strong> {{ course.date_range }}</p>
-    <p class="course-meta"><strong>Time:</strong> {{ course.time_range }}</p>
+    {# 5. About the course #}
+    <p class="section-heading">About the Course</p>
+    <p class="course-detail"><strong>Course:</strong> {{ course.title }}</p>
+    <p class="course-detail"><strong>Venue:</strong> {{ course.venue }}</p>
+    <p class="course-detail"><strong>Date:</strong> {{ course.date_range }}</p>
+    <p class="course-detail"><strong>Time:</strong> {{ course.time_range }}</p>
     {% if course.description %}
     <p>{{ course.description | nl2br }}</p>
     {% endif %}
@@ -164,83 +260,60 @@
       {% endfor %}
     </ul>
     {% endif %}
-  </div>
 
-  {# 5. About the Trainer(s) #}
-  {% if trainers %}
-  <div class="section">
-    <p class="section-title">About the Trainer{% if trainers | length > 1 %}s{% endif %}</p>
+    {# 6. About the trainer(s) #}
+    {% if trainers %}
+    <p class="section-heading">About the Trainer{% if trainers | length > 1 %}s{% endif %}</p>
     {% for trainer in trainers %}
-    <div class="trainer-block">
-      <p class="trainer-name">{{ trainer.full_name }}</p>
-      {% if trainer.designation %}
-      <p class="trainer-designation">{{ trainer.designation }}</p>
-      {% endif %}
-      {% if trainer.bio %}
-      <p>{{ trainer.bio | nl2br }}</p>
-      {% endif %}
-      {% if trainer.qualifications %}
-      <p><strong>Qualifications:</strong> {{ trainer.qualifications | nl2br }}</p>
-      {% endif %}
-    </div>
+    <p class="trainer-name">{{ trainer.full_name }}</p>
+    {% if trainer.designation %}
+    <p class="trainer-role">{{ trainer.designation }}</p>
+    {% endif %}
+    {% if trainer.bio %}
+    <p>{{ trainer.bio | nl2br }}</p>
+    {% endif %}
+    {% if trainer.qualifications %}
+    <p><strong>Qualifications:</strong> {{ trainer.qualifications | nl2br }}</p>
+    {% endif %}
     {% endfor %}
-  </div>
-  {% endif %}
+    {% endif %}
 
-  {# 6. Payment Details #}
-  {% if payment.has_payment_info %}
-  <div class="section">
-    <p class="section-title">Payment Details</p>
+    {# 7. Payment details #}
+    {% if payment.has_payment_info %}
+    <p class="section-heading">Payment Details</p>
     <table class="payment-table">
       {% if payment.course_fee %}
-      <tr>
-        <td>Course Fee</td>
-        <td><strong>{{ payment.course_fee }}</strong></td>
-      </tr>
+      <tr><td>Course Fee</td><td>{{ payment.course_fee }}</td></tr>
       {% endif %}
       {% if payment.deposit_amount %}
-      <tr>
-        <td>Deposit Amount</td>
-        <td><strong>{{ payment.deposit_amount }}</strong></td>
-      </tr>
+      <tr><td>Deposit Amount</td><td>{{ payment.deposit_amount }}</td></tr>
       {% endif %}
       {% if payment.reservation_deadline %}
-      <tr>
-        <td>Reservation Deadline</td>
-        <td>{{ payment.reservation_deadline }}</td>
-      </tr>
+      <tr><td>Reservation Deadline</td><td>{{ payment.reservation_deadline }}</td></tr>
       {% endif %}
       {% if payment.bank_name %}
-      <tr>
-        <td>Bank</td>
-        <td>{{ payment.bank_name }}</td>
-      </tr>
+      <tr><td>Bank</td><td>{{ payment.bank_name }}</td></tr>
       {% endif %}
       {% if payment.bank_account_name %}
-      <tr>
-        <td>Account Name</td>
-        <td>{{ payment.bank_account_name }}</td>
-      </tr>
+      <tr><td>Account Name</td><td>{{ payment.bank_account_name }}</td></tr>
       {% endif %}
       {% if payment.bank_account_number %}
-      <tr>
-        <td>Account Number</td>
-        <td>{{ payment.bank_account_number }}</td>
-      </tr>
+      <tr><td>Account Number</td><td>{{ payment.bank_account_number }}</td></tr>
       {% endif %}
     </table>
-  </div>
-  {% endif %}
+    {% endif %}
 
-  {# 7. Footer #}
-  <div class="section footer">
-    <p>
-      <strong>{{ brand.name }}</strong><br />
-      {{ brand.contact_email }}<br />
-      {% if brand.website %}{{ brand.website }}{% endif %}
-    </p>
-    <p>We look forward to your participation.</p>
-  </div>
+    {# Closing #}
+    <div class="closing">
+      <p>We look forward to your favourable response and participation.</p>
+      <p>Yours sincerely,</p>
+      <p class="signature-name">For {{ brand.legal_name }}</p>
+      <p>
+        {{ brand.contact_email }}<br />
+        {{ brand.website }}
+      </p>
+    </div>
 
+  </div>
 </body>
 </html>
