@@ -47,7 +47,7 @@ def apply_logo_watermark(
     pdf_bytes: bytes,
     logo_url: Optional[str] = None,
     *,
-    opacity: float = 0.3,
+    opacity: float = 0.2,
     width_ratio: float = 0.52,
 ) -> bytes:
     """

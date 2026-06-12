@@ -142,10 +142,10 @@ def _subject_heading(course_title: str) -> str:
 
 def _watermark_opacity() -> float:
     try:
-        value = float((os.getenv("MAIL_WATERMARK_OPACITY") or "0.3").strip())
+        value = float((os.getenv("MAIL_WATERMARK_OPACITY") or "0.2").strip())
         return max(0.0, min(1.0, value))
     except (TypeError, ValueError):
-        return 0.3
+        return 0.2
 
 
 def _brand_context(invitation: Invitation) -> Dict[str, str]:
