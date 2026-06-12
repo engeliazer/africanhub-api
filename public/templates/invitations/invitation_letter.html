@@ -17,24 +17,6 @@
       padding: 0;
     }
     table { border-collapse: collapse; }
-    /* --- Background watermark (xhtml2pdf: no height:100% on tables) --- */
-    .page-watermark {
-      position: fixed;
-      top: 280pt;
-      left: 0;
-      width: 100%;
-      text-align: center;
-      z-index: 0;
-    }
-    .watermark-img {
-      width: 380px;
-      height: auto;
-      opacity: {{ brand.watermark_opacity }};
-    }
-    .letter-content {
-      position: relative;
-      z-index: 1;
-    }
     /* --- Letterhead --- */
     .letterhead td {
       vertical-align: top;
@@ -182,14 +164,6 @@
 </head>
 <body>
 
-  {% if brand.letterhead_logo_url %}
-  <div class="page-watermark">
-    <img src="{{ brand.letterhead_logo_url }}" alt="" class="watermark-img" />
-  </div>
-  {% endif %}
-
-  <div class="letter-content">
-
     {# 1. Header — logo + letterhead (matches email branding) #}
     <table class="letterhead" width="100%">
       <tr>
@@ -322,8 +296,6 @@
         {{ brand.website }}
       </p>
     </div>
-
-  </div>
 
 </body>
 </html>
