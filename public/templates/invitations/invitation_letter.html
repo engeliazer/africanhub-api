@@ -198,9 +198,15 @@
 
     {# 2. Recipient / addressee (formal letter style) #}
     <div class="addressee">
-      <p class="salutation">Dear {{ invitee.full_name }},</p>
-      {% if invitee.addressee_line %}
-      <p class="addressee-line">{{ invitee.addressee_line }}</p>
+      <p class="salutation">Dear <strong>{{ invitee.full_name }}</strong>,</p>
+      {% if invitee.organization or invitee.address_line %}
+      <p class="addressee-line">
+        {% if invitee.organization %}
+        <strong>{{ invitee.organization }}</strong>{% if invitee.address_line %}, {{ invitee.address_line }}{% endif %}.
+        {% else %}
+        {{ invitee.address_line }}.
+        {% endif %}
+      </p>
       {% endif %}
     </div>
 

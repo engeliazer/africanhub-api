@@ -107,20 +107,25 @@ def _letter_reference(invitation_id: int, ref_date: Optional[date] = None) -> st
     return f"AHB&T/{d.strftime('%m/%y')}/{invitation_id:07d}"
 
 
+def _invitee_addressee_parts(invitee: Dict[str, Any]) -> tuple:
+    """Organization and address suffix for formal addressee line."""
+    organization = (invitee.get("organization") or "").strip().rstrip(".")
+    address = (invitee.get("address") or "").strip()
+    address_line = address.splitlines()[0].strip().rstrip(".") if address else ""
+    if organization and address_line and address_line.lower() in organization.lower():
+        address_line = ""
+    return organization, address_line
+
+
 def _invitee_addressee_line(invitee: Dict[str, Any]) -> str:
     """Formal line under salutation, e.g. 'Sub Treasury, Rukwa.'"""
-    organization = (invitee.get("organization") or "").strip()
-    address = (invitee.get("address") or "").strip()
-    if organization and address:
-        first_address_line = address.splitlines()[0].strip()
-        if first_address_line.lower() in organization.lower():
-            return f"{organization}."
-        return f"{organization}, {first_address_line}."
+    organization, address_line = _invitee_addressee_parts(invitee)
+    if organization and address_line:
+        return f"{organization}, {address_line}."
     if organization:
-        return f"{organization}." if organization.endswith(".") else f"{organization}."
-    if address:
-        first_line = address.splitlines()[0].strip()
-        return first_line if first_line.endswith(".") else f"{first_line}."
+        return f"{organization}."
+    if address_line:
+        return f"{address_line}."
     return ""
 
 
@@ -231,6 +236,7 @@ def build_invitation_render_context(
 
     letter_date = _format_letter_date()
     full_name = invitee.get("full_name") or ""
+    organization, address_line = _invitee_addressee_parts(invitee)
     return {
         "brand": _brand_context(invitation),
         "letter": {
@@ -247,7 +253,8 @@ def build_invitation_render_context(
             "full_name": full_name,
             "email": invitee.get("email") or "",
             "address": invitee.get("address") or "",
-            "organization": invitee.get("organization") or "",
+            "organization": organization,
+            "address_line": address_line,
             "addressee_line": _invitee_addressee_line(invitee),
         },
         "course": {
