@@ -115,6 +115,16 @@
       margin: 0 0 12px 0;
       text-align: justify;
     }
+    .letter-message,
+    .letter-message p,
+    .letter-message-p {
+      text-align: justify;
+      text-justify: inter-word;
+    }
+    .letter-message p,
+    .letter-message-p {
+      margin: 0 0 12px 0;
+    }
     .section-heading {
       font-weight: bold;
       text-decoration: underline;
@@ -141,14 +151,19 @@
       color: #333333;
       margin: 0 0 6px 0;
     }
+    .payment-section .section-heading {
+      margin-bottom: 4px;
+    }
     .payment-table {
       width: 100%;
-      margin: 8px 0 14px 0;
+      margin: 2px 0 8px 0;
+      border-spacing: 0;
     }
     .payment-table td {
-      padding: 4px 8px 4px 0;
+      padding: 0 8px 0 0;
       vertical-align: top;
       font-size: 11pt;
+      line-height: 1.2;
     }
     .payment-table td:first-child {
       width: 40%;
@@ -264,7 +279,7 @@
     <p>Reference is made to the heading above.</p>
 
     {% if invitation.email_message %}
-    <div>{{ invitation.email_message | richtext }}</div>
+    <div class="letter-message">{{ invitation.email_message | richtext }}</div>
     {% else %}
     <p>
       We are delighted to invite you to an exclusive training programme organised by
@@ -310,6 +325,7 @@
 
     {# 7. Payment details #}
     {% if payment.has_payment_info %}
+    <div class="payment-section">
     <p class="section-heading">Payment Details</p>
     <table class="payment-table">
       {% if payment.course_fee %}
@@ -331,6 +347,7 @@
       <tr><td>Account Number</td><td>{{ payment.bank_account_number }}</td></tr>
       {% endif %}
     </table>
+    </div>
     {% endif %}
 
     {# Closing — signature and stamp appear at the end of the letter (last page) #}

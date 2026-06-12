@@ -58,7 +58,7 @@ def _get_jinja_env() -> Environment:
                 return Markup("")
             paragraphs = re.split(r"\n\s*\n", text)
             blocks = [
-                f'<p style="margin:0 0 12px 0;text-align:justify;">'
+                f'<p class="letter-message-p">'
                 f'{para.replace(chr(10), "<br />")}'
                 f"</p>"
                 for para in paragraphs
