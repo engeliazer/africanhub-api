@@ -17,27 +17,19 @@
       padding: 0;
     }
     table { border-collapse: collapse; }
-    /* --- Background watermark (centered, behind content) --- */
+    /* --- Background watermark (xhtml2pdf: no height:100% on tables) --- */
     .page-watermark {
       position: fixed;
-      top: 0;
+      top: 280pt;
       left: 0;
-      width: 17cm;
-      height: 26cm;
-      z-index: 0;
-    }
-    .page-watermark table {
       width: 100%;
-      height: 100%;
-    }
-    .watermark-cell {
       text-align: center;
-      vertical-align: middle;
-      opacity: {{ brand.watermark_opacity | default('0.5') }};
+      z-index: 0;
     }
     .watermark-img {
       width: 380px;
       height: auto;
+      opacity: {{ brand.watermark_opacity }};
     }
     .letter-content {
       position: relative;
@@ -192,13 +184,7 @@
 
   {% if brand.letterhead_logo_url %}
   <div class="page-watermark">
-    <table>
-      <tr>
-        <td class="watermark-cell">
-          <img src="{{ brand.letterhead_logo_url }}" alt="" class="watermark-img" />
-        </td>
-      </tr>
-    </table>
+    <img src="{{ brand.letterhead_logo_url }}" alt="" class="watermark-img" />
   </div>
   {% endif %}
 

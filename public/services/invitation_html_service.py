@@ -104,7 +104,7 @@ def _format_letter_date(value: Optional[date] = None) -> str:
 
 def _letter_reference(invitation_id: int, ref_date: Optional[date] = None) -> str:
     d = ref_date or datetime.utcnow().date()
-    return f"AHB&T/{d.strftime('%m/%y')}/{invitation_id:07d}"
+    return f"AHB&T/{d.strftime('%m/%y')}/{int(invitation_id):07d}"
 
 
 def _invitee_addressee_parts(invitee: Dict[str, Any]) -> tuple:
@@ -140,6 +140,14 @@ def _subject_heading(course_title: str) -> str:
     return f"RE: AN INVITATION TO {title}"
 
 
+def _watermark_opacity() -> float:
+    try:
+        value = float((os.getenv("MAIL_WATERMARK_OPACITY") or "0.5").strip())
+        return max(0.0, min(1.0, value))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 def _brand_context(invitation: Invitation) -> Dict[str, str]:
     logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/logo.png").strip()
     letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
@@ -154,9 +162,7 @@ def _brand_context(invitation: Invitation) -> Dict[str, str]:
         ).strip(),
         "logo_url": logo,
         "letterhead_logo_url": letterhead_logo,
-        "watermark_opacity": (
-            os.getenv("MAIL_WATERMARK_OPACITY") or "0.5"
-        ).strip(),
+        "watermark_opacity": _watermark_opacity(),
         "po_box": (
             os.getenv("MAIL_BRAND_PO_BOX")
             or "P. O. Box 36246, Dar es Salaam, Tanzania"
