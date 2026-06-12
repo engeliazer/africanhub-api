@@ -154,6 +154,9 @@ def _brand_context(invitation: Invitation) -> Dict[str, str]:
         ).strip(),
         "logo_url": logo,
         "letterhead_logo_url": letterhead_logo,
+        "watermark_opacity": (
+            os.getenv("MAIL_WATERMARK_OPACITY") or "0.5"
+        ).strip(),
         "po_box": (
             os.getenv("MAIL_BRAND_PO_BOX")
             or "P. O. Box 36246, Dar es Salaam, Tanzania"
