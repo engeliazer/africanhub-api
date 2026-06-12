@@ -16,7 +16,7 @@ from reportlab.pdfgen import canvas
 
 logger = logging.getLogger(__name__)
 
-FOOTER_HEIGHT_PT = 54
+FOOTER_HEIGHT_PT = 42
 FOOTER_MARGIN_X_PT = 38
 
 
@@ -137,20 +137,17 @@ def _build_footer_layer(
     pdf_canvas.setFont("Helvetica-Bold", 7.5)
     pdf_canvas.drawCentredString(page_w / 2, top - 12, brand.get("legal_name", ""))
 
-    pdf_canvas.setFont("Helvetica", 6.5)
-    contact_line = f"{brand.get('po_box', '')}  |  {brand.get('phone', '')}"
-    pdf_canvas.drawCentredString(page_w / 2, top - 22, contact_line)
-
     website = _display_website(brand.get("website", ""))
     email_line = f"{brand.get('info_email', '')}  |  {website}"
-    pdf_canvas.drawCentredString(page_w / 2, top - 31, email_line)
+    pdf_canvas.setFont("Helvetica", 6.5)
+    pdf_canvas.drawCentredString(page_w / 2, top - 22, email_line)
 
     if _footer_show_page_numbers():
         pdf_canvas.setFillColor(muted)
         pdf_canvas.setFont("Helvetica", 6)
         pdf_canvas.drawRightString(
             right,
-            top - 42,
+            top - 32,
             f"Page {page_num} of {page_count}",
         )
 

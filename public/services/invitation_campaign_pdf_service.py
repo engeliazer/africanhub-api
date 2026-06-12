@@ -64,8 +64,6 @@ def render_invitation_pdf_bytes(
         opacity=_watermark_opacity(),
         brand={
             "legal_name": brand["legal_name"],
-            "po_box": brand["po_box"],
-            "phone": brand["phone"],
             "info_email": brand["info_email"],
             "website": brand["website"],
         },
