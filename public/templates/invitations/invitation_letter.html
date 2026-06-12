@@ -17,21 +17,6 @@
       padding: 0;
     }
     table { border-collapse: collapse; }
-    .letter-body {
-      position: relative;
-      z-index: 1;
-    }
-    .watermark {
-      position: fixed;
-      top: 280px;
-      left: 80px;
-      width: 450px;
-      opacity: 0.06;
-      z-index: 0;
-    }
-    .watermark img {
-      width: 450px;
-    }
     /* --- Letterhead --- */
     .letterhead td {
       vertical-align: top;
@@ -179,14 +164,6 @@
 </head>
 <body>
 
-  {% if brand.letterhead_logo_url %}
-  <div class="watermark">
-    <img src="{{ brand.letterhead_logo_url }}" alt="" />
-  </div>
-  {% endif %}
-
-  <div class="letter-body">
-
     {# 1. Header — logo + letterhead (matches email branding) #}
     <table class="letterhead" width="100%">
       <tr>
@@ -314,6 +291,5 @@
       </p>
     </div>
 
-  </div>
 </body>
 </html>
