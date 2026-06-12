@@ -10,12 +10,13 @@ from typing import Tuple
 from applications.models.models import Invitation
 
 from public.services.invitation_html_service import (
+    _brand_context,
     _watermark_opacity,
     invitee_dict_from_model,
     render_invitation_html,
     sample_invitee_dict,
 )
-from public.services.invitation_pdf_watermark import apply_logo_watermark
+from public.services.invitation_pdf_overlay import apply_invitation_pdf_overlays
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,17 @@ def render_invitation_pdf_bytes(
     if status.err:
         raise RuntimeError("Failed to generate invitation PDF")
 
-    pdf_bytes = apply_logo_watermark(
+    brand = _brand_context(invitation)
+    pdf_bytes = apply_invitation_pdf_overlays(
         buffer.getvalue(),
         opacity=_watermark_opacity(),
+        brand={
+            "legal_name": brand["legal_name"],
+            "po_box": brand["po_box"],
+            "phone": brand["phone"],
+            "info_email": brand["info_email"],
+            "website": brand["website"],
+        },
     )
 
     filename = invitation_pdf_filename(invitee.get("full_name") or "")
