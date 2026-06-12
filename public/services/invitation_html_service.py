@@ -2,6 +2,7 @@
 Jinja2 HTML generation for full invitation campaigns (7 sections).
 """
 
+import base64
 import html
 import os
 import re
@@ -13,6 +14,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
 from applications.models.models import Invitation, InvitationTrainer
+from config import BASE_DIR
 from public.services.mail_service import NAME_PLACEHOLDER
 
 BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -148,6 +150,51 @@ def _watermark_opacity() -> float:
         return 0.2
 
 
+def _signatory_image_url(env_var: str, default_relative: str) -> str:
+    """Resolve a signatory image to a URL xhtml2pdf can load (data URI or http)."""
+    raw = (os.getenv(env_var) or default_relative).strip()
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://", "data:")):
+        return raw
+
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(BASE_DIR) / raw
+    if not path.is_file():
+        return ""
+
+    suffix = path.suffix.lower()
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }.get(suffix, "image/png")
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _signatory_context() -> Dict[str, str]:
+    return {
+        "name": (os.getenv("MAIL_SIGNATORY_NAME") or "Dr. CPA David D Kiwia").strip(),
+        "credentials": (
+            os.getenv("MAIL_SIGNATORY_CREDENTIALS")
+            or "PhD-Finance, ACPA-PP, MFA-OG, BAF, IPSAS"
+        ).strip(),
+        "title": (os.getenv("MAIL_SIGNATORY_TITLE") or "Managing Director").strip(),
+        "signature_url": _signatory_image_url(
+            "MAIL_SIGNATURE_IMAGE_PATH",
+            "storage/images/mdsignature.png",
+        ),
+        "stamp_url": _signatory_image_url(
+            "MAIL_STAMP_IMAGE_PATH",
+            "storage/images/stamp.png",
+        ),
+    }
+
+
 def _brand_context(invitation: Invitation) -> Dict[str, str]:
     logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/logo.png").strip()
     letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
@@ -248,6 +295,7 @@ def build_invitation_render_context(
     organization, address_line = _invitee_addressee_parts(invitee)
     return {
         "brand": _brand_context(invitation),
+        "signatory": _signatory_context(),
         "letter": {
             "reference": _letter_reference(invitation.id),
             "date": letter_date,

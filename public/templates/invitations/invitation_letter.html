@@ -157,9 +157,55 @@
     .closing {
       margin-top: 24px;
     }
-    .signature-name {
+    .signature-block {
+      width: 100%;
+      margin-top: 18px;
+      page-break-inside: avoid;
+    }
+    .signature-left {
+      width: 58%;
+      vertical-align: bottom;
+      padding: 0;
+    }
+    .signature-right {
+      width: 42%;
+      vertical-align: middle;
+      text-align: right;
+      padding: 0;
+    }
+    .signature-img {
+      width: 210px;
+      height: auto;
+      display: block;
+      margin: 6px 0 2px 0;
+    }
+    .stamp-img {
+      width: 135px;
+      height: auto;
+      display: inline-block;
+    }
+    .signatory-name {
+      color: #2e5a27;
       font-weight: bold;
-      margin: 20px 0 2px 0;
+      margin: 6px 0 2px 0;
+      text-align: left;
+    }
+    .signatory-credentials {
+      font-weight: normal;
+      font-size: 9pt;
+      color: #000000;
+    }
+    .signatory-title {
+      color: #1a4b8c;
+      font-weight: bold;
+      margin: 6px 0 0 0;
+      text-align: left;
+    }
+    .signatory-rule {
+      border: none;
+      border-top: 1px solid #1a4b8c;
+      margin: 10px 0 0 0;
+      width: 100%;
     }
   </style>
 </head>
@@ -287,15 +333,33 @@
     </table>
     {% endif %}
 
-    {# Closing #}
+    {# Closing — signature and stamp appear at the end of the letter (last page) #}
     <div class="closing">
       <p>We look forward to your favourable response and participation.</p>
-      <p>Yours sincerely,</p>
-      <p class="signature-name">For {{ brand.legal_name }}</p>
-      <p>
-        {{ brand.contact_email }}<br />
-        {{ brand.website }}
-      </p>
+      <p>Thank you, and kind regards,</p>
+
+      <table class="signature-block">
+        <tr>
+          <td class="signature-left">
+            {% if signatory.signature_url %}
+            <img src="{{ signatory.signature_url }}" alt="Signature" class="signature-img" />
+            {% endif %}
+            <p class="signatory-name">
+              {{ signatory.name }}
+              {% if signatory.credentials %}
+              <span class="signatory-credentials"> {{ signatory.credentials }}</span>
+              {% endif %}
+            </p>
+            <p class="signatory-title">{{ signatory.title }}</p>
+            <hr class="signatory-rule" />
+          </td>
+          <td class="signature-right">
+            {% if signatory.stamp_url %}
+            <img src="{{ signatory.stamp_url }}" alt="Official stamp" class="stamp-img" />
+            {% endif %}
+          </td>
+        </tr>
+      </table>
     </div>
 
 </body>
