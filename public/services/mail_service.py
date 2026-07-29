@@ -51,8 +51,14 @@ def _html_enabled() -> bool:
     return os.getenv("MAIL_HTML_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
-def _build_html_body(plain_body: str, subject: str) -> Optional[str]:
-    if not _html_enabled():
+def _build_html_body(
+    plain_body: str,
+    subject: str,
+    *,
+    use_html: Optional[bool] = None,
+) -> Optional[str]:
+    enabled = _html_enabled() if use_html is None else use_html
+    if not enabled:
         return None
     try:
         return render_batch_email_html(message_body=plain_body, subject=subject)
@@ -155,6 +161,7 @@ def _send_via_sendgrid(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     if not SENDGRID_AVAILABLE:
         return False, "SendGrid library not installed"
@@ -166,15 +173,17 @@ def _send_via_sendgrid(
         reply_to = _reply_to_email()
     except ValueError as e:
         return False, str(e)
-    html_body = _build_html_body(body, subject)
+    html_body = _build_html_body(body, subject, use_html=use_html)
     try:
-        mail = Mail(
-            from_email=(send_from, _from_display_name()),
-            to_emails=[to_email],
-            subject=subject,
-            plain_text_content=body,
-            html_content=html_body,
-        )
+        mail_kwargs = {
+            "from_email": (send_from, _from_display_name()),
+            "to_emails": [to_email],
+            "subject": subject,
+            "plain_text_content": body,
+        }
+        if html_body:
+            mail_kwargs["html_content"] = html_body
+        mail = Mail(**mail_kwargs)
         mail.reply_to = (reply_to, _from_display_name())
         attachment = _load_attachment(attachment_path, attachment_filename)
         if attachment:
@@ -217,9 +226,14 @@ def _send_via_sendgrid(
         return False, f"SendGrid send failed: {e}"
 
 
-def _build_body_multipart(plain_body: str, subject: str) -> MIMEMultipart:
-    """Plain + HTML alternative parts."""
-    html_body = _build_html_body(plain_body, subject)
+def _build_body_multipart(
+    plain_body: str,
+    subject: str,
+    *,
+    use_html: Optional[bool] = None,
+) -> MIMEMultipart:
+    """Plain text, optionally with HTML alternative parts."""
+    html_body = _build_html_body(plain_body, subject, use_html=use_html)
     if html_body:
         alternative = MIMEMultipart("alternative")
         alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
@@ -239,9 +253,10 @@ def _build_smtp_message(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    use_html: Optional[bool] = None,
 ) -> MIMEMultipart:
     attachment = _load_attachment(attachment_path, attachment_filename)
-    body_part = _build_body_multipart(body, subject)
+    body_part = _build_body_multipart(body, subject, use_html=use_html)
     if attachment:
         msg = MIMEMultipart("mixed")
         msg.attach(body_part)
@@ -288,6 +303,7 @@ def _send_via_smtp(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     cfg = _smtp_config()
     if not cfg["user"] or not cfg["password"]:
@@ -316,6 +332,7 @@ def _send_via_smtp(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            use_html=use_html,
         )
         _send_smtp_message(cfg, msg)
         return True, None
@@ -343,9 +360,13 @@ def send_batch_email(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send a branded HTML + plain-text email with optional PDF attachment.
+    Send email with optional PDF attachment.
+
+    By default wraps body in branded HTML when MAIL_HTML_ENABLED is true.
+    Pass use_html=False for plain-text-only (recommended for invitation campaigns).
 
     Uses SendGrid API when MAIL_TRANSPORT=api (or auto + API key set),
     otherwise SMTP.
@@ -359,6 +380,7 @@ def send_batch_email(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            use_html=use_html,
         )
     return _send_via_smtp(
         from_email=from_email,
@@ -367,4 +389,5 @@ def send_batch_email(
         body=body,
         attachment_path=attachment_path,
         attachment_filename=attachment_filename,
+        use_html=use_html,
     )

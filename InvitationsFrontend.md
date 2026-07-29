@@ -249,6 +249,8 @@ Returned by create/get/update/list item:
 
 `email_subject` and `email_message` support **`[NAME]`**, replaced per invitee with their `full_name` at send time.
 
+Outbound invitation emails are **plain text + PDF attachment** (no branded HTML wrapper). The formal letter lives in the attached PDF; `email_message` is the short inbox body.
+
 ---
 
 ## API reference
@@ -773,13 +775,15 @@ Reference file for users customizing templates (`invitation_letter_default.html`
 
 ### Sending
 
+Campaign sends (test + batch) use **plain text** for the email body and attach the personalized invitation **PDF**. They do not wrap the message in branded HTML (helps Primary / Inbox delivery vs Promotions).
+
 #### Send test email
 
 ```
 POST /api/invitations/{invitation_id}/send/test
 ```
 
-Sends one email with PDF to a **specified address**. Does **not** update invitee `send_status` or email logs.
+Sends one plain-text email with PDF to a **specified address**. Does **not** update invitee `send_status` or email logs.
 
 ```json
 {

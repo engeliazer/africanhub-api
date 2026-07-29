@@ -3,6 +3,7 @@ Send a single invitation campaign email with personalized PDF attachment.
 """
 
 import logging
+import re
 import tempfile
 import uuid
 from datetime import datetime
@@ -26,9 +27,37 @@ from public.services.mail_service import NAME_PLACEHOLDER, send_batch_email
 
 logger = logging.getLogger(__name__)
 
+_TAG_RE = re.compile(r"<[^>]+>")
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
 
 def personalize_text(text: str, full_name: str) -> str:
     return (text or "").replace(NAME_PLACEHOLDER, full_name or "")
+
+
+def _to_plain_text(text: str) -> str:
+    """Normalize invitation message body to plain text for email."""
+    raw = _BR_RE.sub("\n", text or "")
+    raw = _TAG_RE.sub("", raw)
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"[ \t]+\n", "\n", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    return raw.strip()
+
+
+def _build_plain_email_body(invitation: Invitation, full_name: str, pdf_filename: str) -> str:
+    message = _to_plain_text(personalize_text(invitation.email_message, full_name))
+    attachment_note = (
+        f"Please find the formal invitation letter attached "
+        f"({pdf_filename})."
+    )
+    if message:
+        return f"{message}\n\n{attachment_note}\n"
+    return (
+        f"Dear {full_name or 'Sir/Madam'},\n\n"
+        f"Please find attached your invitation letter.\n\n"
+        f"{attachment_note}\n"
+    )
 
 
 def _write_temp_pdf(invitation_id: int, pdf_bytes: bytes, filename: str) -> Path:
@@ -57,7 +86,8 @@ def send_invitation_email(
     session=None,
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Generate PDF and send invitation email.
+    Generate PDF and send invitation email as plain text + PDF attachment
+    (no branded HTML wrapper — reduces Promotions / spam folder placement).
 
     Returns (success, error_message, pdf_filename).
     """
@@ -75,7 +105,7 @@ def send_invitation_email(
         pdf_bytes, pdf_filename = render_invitation_pdf_bytes(invitation, invitee_data)
         pdf_path = _write_temp_pdf(invitation.id, pdf_bytes, pdf_filename)
 
-        body = personalize_text(invitation.email_message, full_name)
+        body = _build_plain_email_body(invitation, full_name, pdf_filename)
         subject = personalize_text(invitation.email_subject, full_name)
 
         if record_log and session is not None and update_invitee is not None:
@@ -100,6 +130,7 @@ def send_invitation_email(
             body=body,
             attachment_path=str(pdf_path),
             attachment_filename=pdf_filename,
+            use_html=False,
         )
 
         if record_log and session is not None and update_invitee is not None:
