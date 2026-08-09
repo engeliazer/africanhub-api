@@ -7,6 +7,13 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import db_session
 from subjects.models.models import Subject, Topic, SubTopic
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
+from video_tracking.controllers.tracking_controller import (
+    TrackingController,
+    collect_video_entries_from_subject_tree,
+    default_watch_progress,
+    derive_subject_summary,
+    is_video_material,
+)
 
 courses_bp = Blueprint('courses', __name__)
 
@@ -119,10 +126,19 @@ def get_approved_courses():
         """)
         
         result = db_session.execute(query, {"user_id": current_user_id})
-        
+        rows = list(result)
+
+        material_ids = [
+            row.material_id for row in rows if row.material_id is not None
+        ]
+        progress_map = TrackingController(db_session).get_progress_map(
+            int(current_user_id),
+            material_ids,
+        )
+
         # Process the results into a structured format
         subjects = {}
-        for row in result:
+        for row in rows:
             subject_id = row.subject_id
             if subject_id not in subjects:
                 subjects[subject_id] = {
@@ -168,15 +184,27 @@ def get_approved_courses():
                     }
                 
                 # Add file information
-                subjects[subject_id]["topics"][topic_id]["subtopics"][subtopic_id]["materials"][category_id]["files"].append({
+                file_entry = {
                     "id": row.material_id,
                     "name": row.material_name,
                     "path": row.material_path,
                     "extension_type": row.extension_type,
                     "video_duration": row.video_duration,
                     "file_size": row.file_size,
-                    "material_category_id": row.material_category_id
-                })
+                    "material_category_id": row.material_category_id,
+                }
+
+                if is_video_material(row.extension_type):
+                    file_entry["watch_progress"] = progress_map.get(
+                        row.material_id,
+                        default_watch_progress(),
+                    )
+                else:
+                    file_entry["watch_progress"] = None
+
+                subjects[subject_id]["topics"][topic_id]["subtopics"][subtopic_id]["materials"][category_id]["files"].append(
+                    file_entry
+                )
         
         # Convert dictionaries to lists for JSON serialization
         for subject_id in subjects:
@@ -185,7 +213,11 @@ def get_approved_courses():
                 topic["subtopics"] = list(topic["subtopics"].values())
                 for subtopic in topic["subtopics"]:
                     subtopic["materials"] = list(subtopic["materials"].values())
-        
+
+            subjects[subject_id]["summary"] = derive_subject_summary(
+                collect_video_entries_from_subject_tree(subjects[subject_id])
+            )
+
         return jsonify({
             "status": "success",
             "message": "Approved subjects retrieved successfully",

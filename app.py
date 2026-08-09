@@ -70,6 +70,8 @@ from public.controllers.invitations_controller import invitations_bp
 from api.routes.bank_reconciliation_routes import bank_reconciliation_bp
 from auth.middleware.token_middleware import token_refresh_middleware, add_refreshed_token_to_response
 from api.routes.vdocipher_routes import vdocipher_bp
+from api.routes.video_tracking_routes import video_tracking_bp
+from video_tracking.models.models import VideoWatchSession, VideoWatchProgress
 
 app = Flask(__name__)
 
@@ -201,6 +203,7 @@ app.register_blueprint(accounting_bp, url_prefix='/api/accounting', name='api_ac
 app.register_blueprint(bank_reconciliation_bp)
 app.register_blueprint(monitoring_bp, url_prefix='/api', name='api_monitoring')
 app.register_blueprint(vdocipher_bp, url_prefix='', name='api_vdocipher')  # VdoCipher routes already have /api prefix
+app.register_blueprint(video_tracking_bp, name='api_video_tracking')
 
 # Print all registered routes for debugging
 print("\nRegistered Routes:")
