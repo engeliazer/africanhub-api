@@ -6,6 +6,7 @@ from datetime import datetime
 class PartnerOrganizationBase(BaseModel):
     name: str
     logo: Optional[str] = None
+    website_link: Optional[str] = None
     is_active: bool = True
 
 
@@ -17,6 +18,7 @@ class PartnerOrganizationCreate(PartnerOrganizationBase):
 class PartnerOrganizationUpdate(BaseModel):
     name: Optional[str] = None
     logo: Optional[str] = None
+    website_link: Optional[str] = None
     is_active: Optional[bool] = None
     updated_by: int
 
@@ -43,5 +45,6 @@ class PartnerOrganizationPublic(BaseModel):
     id: int
     name: str
     logo: Optional[str] = None
+    website_link: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

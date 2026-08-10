@@ -10,6 +10,7 @@ class PartnerOrganization(Base):
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     logo = Column(String(500), nullable=True)
+    website_link = Column(String(500), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)

@@ -25,6 +25,7 @@ def _parse_create_payload(current_user_id):
     if request.form:
         data = {
             "name": request.form.get("name"),
+            "website_link": request.form.get("website_link"),
             "is_active": _parse_bool(request.form.get("is_active"), True),
         }
         logo_url = None
@@ -47,13 +48,15 @@ def _parse_create_payload(current_user_id):
 
     data["created_by"] = current_user_id
     data["updated_by"] = current_user_id
+    if not data.get("website_link"):
+        data["website_link"] = None
     return data, None
 
 
 def _parse_update_payload(organization_fallback_name: str, current_user_id):
     if request.form:
         data = {}
-        for field in ("name", "is_active", "logo"):
+        for field in ("name", "website_link", "is_active", "logo"):
             if field in request.form and request.form.get(field) is not None:
                 if field == "is_active":
                     data[field] = _parse_bool(request.form.get(field))
@@ -77,6 +80,8 @@ def _parse_update_payload(organization_fallback_name: str, current_user_id):
         data = request.get_json() or {}
 
     data["updated_by"] = current_user_id
+    if "website_link" in data and not data.get("website_link"):
+        data["website_link"] = None
     return data, None
 
 
@@ -117,7 +122,12 @@ def list_partner_organizations_public():
             .all()
         )
         data = [
-            {"id": row.id, "name": row.name, "logo": row.logo}
+            {
+                "id": row.id,
+                "name": row.name,
+                "logo": row.logo,
+                "website_link": row.website_link,
+            }
             for row in rows
         ]
         return jsonify({"status": "success", "data": data})
