@@ -1,7 +1,7 @@
 from pydantic import BaseModel, validator
 from typing import Optional, List
 from datetime import datetime, date
-from subjects.models.models import ApplicationStatus, SubjectBadge
+from subjects.models.models import ApplicationStatus
 
 # Subject schemas
 class SubjectBase(BaseModel):
@@ -11,8 +11,10 @@ class SubjectBase(BaseModel):
     current_price: Optional[int] = None
     duration_days: Optional[int] = None
     trial_duration_days: Optional[int] = None
-    rank_id: int = 0
-    badge: Optional[SubjectBadge] = None
+    display_rank: Optional[int] = None
+    is_most_popular: bool = False
+    is_best_price: bool = False
+    is_most_recent: bool = False
     is_active: bool = True
     created_by: int
     updated_by: int
@@ -27,8 +29,10 @@ class SubjectUpdate(BaseModel):
     current_price: Optional[int] = None
     duration_days: Optional[int] = None
     trial_duration_days: Optional[int] = None
-    rank_id: Optional[int] = None
-    badge: Optional[SubjectBadge] = None
+    display_rank: Optional[int] = None
+    is_most_popular: Optional[bool] = None
+    is_best_price: Optional[bool] = None
+    is_most_recent: Optional[bool] = None
     is_active: Optional[bool] = None
     updated_by: int
 

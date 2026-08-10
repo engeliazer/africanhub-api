@@ -32,7 +32,11 @@ def get_courses_public():
                 Subject.is_active == True,
                 Subject.deleted_at.is_(None),
             )
-            .order_by(Subject.rank_id.asc(), Subject.name.asc())
+            .order_by(
+                Subject.display_rank.is_(None),
+                Subject.display_rank.asc(),
+                Subject.name.asc(),
+            )
             .all()
         )
 
@@ -59,8 +63,10 @@ def get_courses_public():
                 "code": s.code,
                 "description": s.description,
                 "current_price": s.current_price,
-                "rank_id": s.rank_id,
-                "badge": s.badge.value if s.badge else None,
+                "display_rank": s.display_rank,
+                "is_most_popular": s.is_most_popular,
+                "is_best_price": s.is_best_price,
+                "is_most_recent": s.is_most_recent,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 "topics": topics_data,

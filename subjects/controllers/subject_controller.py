@@ -26,8 +26,10 @@ class SubjectsController:
                 current_price=subject.current_price,
                 duration_days=subject.duration_days,
                 trial_duration_days=subject.trial_duration_days,
-                rank_id=subject.rank_id,
-                badge=subject.badge,
+                display_rank=subject.display_rank,
+                is_most_popular=subject.is_most_popular,
+                is_best_price=subject.is_best_price,
+                is_most_recent=subject.is_most_recent,
                 is_active=subject.is_active,
                 created_by=subject.created_by,
                 updated_by=subject.updated_by,
@@ -56,7 +58,11 @@ class SubjectsController:
         """Get all subjects with pagination"""
         subjects = self.db.query(Subject).filter(
             Subject.deleted_at.is_(None)
-        ).order_by(Subject.rank_id.asc(), Subject.name.asc()).offset(skip).limit(limit).all()
+        ).order_by(
+            Subject.display_rank.is_(None),
+            Subject.display_rank.asc(),
+            Subject.name.asc(),
+        ).offset(skip).limit(limit).all()
         return [SubjectInDB.from_orm(subject) for subject in subjects]
 
     def update_subject(self, subject_id: int, subject_update: SubjectUpdate) -> SubjectInDB:

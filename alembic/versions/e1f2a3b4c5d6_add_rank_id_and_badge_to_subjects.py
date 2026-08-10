@@ -1,4 +1,4 @@
-"""add rank_id and badge to subjects
+"""add display_rank and badge flags to subjects
 
 Revision ID: e1f2a3b4c5d6
 Revises: d0e1f2a3b4c5
@@ -17,33 +17,33 @@ down_revision: Union[str, None] = "d0e1f2a3b4c5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-subject_badge_enum = sa.Enum(
-    "most_popular",
-    "best_price",
-    "most_recent",
-    name="subject_badge",
-)
-
 
 def upgrade() -> None:
     op.add_column(
         "subjects",
         sa.Column(
-            "rank_id",
+            "display_rank",
             sa.Integer(),
-            nullable=False,
-            server_default="0",
-            comment="Display priority; lower values appear first",
+            nullable=True,
+            comment="Lower = shown first",
         ),
     )
-    subject_badge_enum.create(op.get_bind(), checkfirst=True)
     op.add_column(
         "subjects",
-        sa.Column("badge", subject_badge_enum, nullable=True),
+        sa.Column("is_most_popular", sa.Boolean(), nullable=False, server_default="0"),
+    )
+    op.add_column(
+        "subjects",
+        sa.Column("is_best_price", sa.Boolean(), nullable=False, server_default="0"),
+    )
+    op.add_column(
+        "subjects",
+        sa.Column("is_most_recent", sa.Boolean(), nullable=False, server_default="0"),
     )
 
 
 def downgrade() -> None:
-    op.drop_column("subjects", "badge")
-    op.drop_column("subjects", "rank_id")
-    subject_badge_enum.drop(op.get_bind(), checkfirst=True)
+    op.drop_column("subjects", "is_most_recent")
+    op.drop_column("subjects", "is_best_price")
+    op.drop_column("subjects", "is_most_popular")
+    op.drop_column("subjects", "display_rank")
