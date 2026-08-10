@@ -45,7 +45,7 @@ location /storage/instructors/ {
 
 # Serve testimonial images from clean URL
 location /storage/testimonials/ {
-    alias /var/www/ocpac/api.ocpac.dcrc.ac.tz/storage/uploads/testimonials/;
+    alias /var/www/africanhub-api.africanhub.ac.tz/storage/uploads/testimonials/;
     
     # Security headers
     add_header X-Content-Type-Options nosniff;
@@ -71,6 +71,33 @@ location /storage/testimonials/ {
         image/svg+xml;
     
     # Handle missing files
+    try_files $uri $uri/ =404;
+}
+
+# Serve partner organization logos from clean URL
+location /storage/partner_organizations/ {
+    alias /var/www/africanhub-api.africanhub.ac.tz/storage/uploads/partner_organizations/;
+    
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options DENY;
+    add_header X-XSS-Protection "1; mode=block";
+    
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+    
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/javascript
+        application/xml+rss
+        application/json
+        image/svg+xml;
+    
     try_files $uri $uri/ =404;
 }
 ```

@@ -7,7 +7,6 @@ from flask_jwt_extended import JWTManager, jwt_required, create_access_token, ge
 from datetime import timedelta
 import secrets
 
-from database.db_connector import DBConnector, init_db, db_session
 from auth.models.models import User
 from auth.models.schemas import (
     UserCreate, UserUpdate, UserResponse,
@@ -211,6 +210,33 @@ app.register_blueprint(video_tracking_bp, name='api_video_tracking')
 print("\nRegistered Routes:")
 for rule in app.url_map.iter_rules():
     print(f"{rule.endpoint}: {rule.rule}")
+
+
+@app.route("/storage/<path:filepath>")
+def serve_storage_upload(filepath):
+    """
+    Serve uploaded files from storage/uploads via clean /storage/<type>/<file> URLs.
+    Maps e.g. /storage/partner_organizations/logo.png -> storage/uploads/partner_organizations/logo.png
+    """
+    if ".." in filepath:
+        return jsonify({"status": "error", "message": "Resource not found"}), 404
+
+    safe_path = os.path.normpath(filepath).lstrip(os.sep)
+    if not safe_path or safe_path.startswith(".."):
+        return jsonify({"status": "error", "message": "Resource not found"}), 404
+
+    directory = os.path.dirname(safe_path)
+    filename = os.path.basename(safe_path)
+    if not filename:
+        return jsonify({"status": "error", "message": "Resource not found"}), 404
+
+    base_dir = UPLOAD_FOLDER if not directory else os.path.join(UPLOAD_FOLDER, directory)
+    file_path = os.path.join(base_dir, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({"status": "error", "message": "Resource not found"}), 404
+
+    return send_from_directory(base_dir, filename)
+
 
 # Error handlers
 @app.errorhandler(404)
