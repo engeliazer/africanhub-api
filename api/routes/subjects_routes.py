@@ -143,11 +143,7 @@ def get_season_pending_subjects(season_id):
         total_count = query.count()
         
         # Apply pagination
-        subjects = query.order_by(
-            Subject.display_rank.is_(None),
-            Subject.display_rank.asc(),
-            Subject.name.asc(),
-        )\
+        subjects = query.order_by(Subject.code.asc())\
             .offset((page - 1) * per_page)\
             .limit(per_page)\
             .all()
@@ -244,11 +240,7 @@ def get_available_subjects():
                     Subject.is_active == True,
                     Subject.deleted_at.is_(None)
                 )
-            ).order_by(
-                Subject.display_rank.is_(None),
-                Subject.display_rank.asc(),
-                Subject.name.asc(),
-            ).all()
+            ).order_by(Subject.code.asc()).all()
 
         # Get all applications for this user (any status)
         # We check all applications to prevent duplicate applications
@@ -360,11 +352,7 @@ def get_user_available_subjects(season_id):
                     SeasonSubject.is_active == True,
                     Subject.is_active == True
                 )
-            ).order_by(
-                Subject.display_rank.is_(None),
-                Subject.display_rank.asc(),
-                Subject.name.asc(),
-            ).distinct().all()
+            ).order_by(Subject.code.asc()).distinct().all()
 
         # Get all subjects the user has already applied for in this season (excluding withdrawn applications)
         applied_subjects = db.query(ApplicationDetail.subject_id)\
@@ -426,8 +414,8 @@ def get_available_subjects(season_id):
         available_subjects = db.query(
             Subject.id,
             Subject.name,
+            Subject.code,
             Subject.current_price,
-            Subject.display_rank,
             func.count(ApplicationDetail.id).label('enrolled')
         ).join(
             SeasonSubject, Subject.id == SeasonSubject.subject_id
@@ -447,13 +435,9 @@ def get_available_subjects(season_id):
         ).group_by(
             Subject.id,
             Subject.name,
+            Subject.code,
             Subject.current_price,
-            Subject.display_rank,
-        ).order_by(
-            Subject.display_rank.is_(None),
-            Subject.display_rank.asc(),
-            Subject.name.asc(),
-        ).all()
+        ).order_by(Subject.code.asc()).all()
 
         # Get all subjects the user has already applied for in this season (excluding withdrawn applications)
         applied_subjects = db.query(ApplicationDetail.subject_id)\
@@ -535,11 +519,7 @@ def get_subjects():
         total_count = query.count()
 
         # Get paginated subjects with topics
-        subjects = query.order_by(
-            Subject.display_rank.is_(None),
-            Subject.display_rank.asc(),
-            Subject.name.asc(),
-        )\
+        subjects = query.order_by(Subject.code.asc())\
             .offset(offset)\
             .limit(per_page)\
             .all()
@@ -1637,11 +1617,7 @@ def get_season_applicants(season_id):
             .filter(SeasonSubject.season_id == season_id)\
             .filter(SeasonSubject.is_active == True)\
             .filter(Subject.is_active == True)\
-            .order_by(
-                Subject.display_rank.is_(None),
-                Subject.display_rank.asc(),
-                Subject.name.asc(),
-            )\
+            .order_by(Subject.code.asc())\
             .all()
 
         # Prepare response data
@@ -1871,13 +1847,7 @@ def get_schedules_public():
                     }
                     subjects_data.append(subject_dict)
 
-            subjects_data.sort(
-                key=lambda s: (
-                    s["display_rank"] is None,
-                    s["display_rank"] if s["display_rank"] is not None else 0,
-                    s["name"],
-                )
-            )
+            subjects_data.sort(key=lambda s: s["code"])
             
             season_dict = {
                 "id": season.id,

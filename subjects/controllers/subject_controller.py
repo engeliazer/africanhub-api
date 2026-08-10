@@ -58,11 +58,7 @@ class SubjectsController:
         """Get all subjects with pagination"""
         subjects = self.db.query(Subject).filter(
             Subject.deleted_at.is_(None)
-        ).order_by(
-            Subject.display_rank.is_(None),
-            Subject.display_rank.asc(),
-            Subject.name.asc(),
-        ).offset(skip).limit(limit).all()
+        ).order_by(Subject.code.asc()).offset(skip).limit(limit).all()
         return [SubjectInDB.from_orm(subject) for subject in subjects]
 
     def update_subject(self, subject_id: int, subject_update: SubjectUpdate) -> SubjectInDB:

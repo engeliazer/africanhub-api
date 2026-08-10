@@ -1,6 +1,6 @@
 # Subjects — Frontend Integration Guide (Create & Edit)
 
-This document describes how the React (or other) frontend should integrate with the **Subjects API** when **creating** or **editing** a subject, including the new **display rank** and **badge flags**.
+This document describes how the React (or other) frontend should integrate with the **Subjects API** when **creating** or **editing** a subject, including **badge flags** and **code-based list ordering**.
 
 ---
 
@@ -57,7 +57,6 @@ This document describes how the React (or other) frontend should integrate with 
   "current_price": 150000,
   "duration_days": 90,
   "trial_duration_days": 7,
-  "display_rank": 1,
   "is_most_popular": true,
   "is_best_price": false,
   "is_most_recent": false,
@@ -74,35 +73,23 @@ When fetched via `GET /api/subjects/{id}` or list endpoints, topics may also be 
 
 ---
 
-## New fields — display rank & badges
+## List ordering & badge flags
 
-These fields control **how subjects appear in catalog/list views**. They are optional at create time (defaults apply).
+### Sort order — use `code`
 
-### `display_rank`
+Subjects are ordered by **`code` ascending** (A→Z) on all list endpoints. There is **no separate rank field** in the UI.
 
-| Property | Value |
-|----------|--------|
-| Type | `number \| null` |
-| Required on create | No — omit or send `null` for unranked |
-| Sort rule | **Lower number = shown first** |
-| Unranked | `null` — listed **after** all ranked subjects |
-| Unique? | **No** — multiple subjects may share the same rank |
+**Admin guidance:** choose subject codes that sort in the desired display order, e.g.:
 
-**UI recommendation**
+| Code | Appears |
+|------|---------|
+| `CPA-01` | Before `CPA-02` |
+| `CPA-02` | Before `CPA-10` |
+| `FR-101` | Before `FR-102` |
 
-- Number input (integer only)
-- Label: **Display rank** or **Sort order**
-- Helper text: *“Lower numbers appear first. Leave empty to show at the end.”*
-- Allow empty → send `null` (not `0`, unless you intentionally want rank `0`)
+Use zero-padding or consistent prefixes so lexical sort matches intended order (`CPA-09` before `CPA-10`).
 
-**Examples**
-
-| `display_rank` | Position |
-|----------------|----------|
-| `1` | First |
-| `2` | After rank `1` |
-| `2` (another subject) | Same tier as other rank-2 subjects; tie-break by name |
-| `null` | After all ranked subjects |
+The `display_rank` column may still exist in the database/API response but is **ignored for sorting** — do not expose it in create/edit forms.
 
 ### Badge flags (independent checkboxes)
 
@@ -142,7 +129,6 @@ Each badge is a **separate boolean**. A subject can have **none, one, or several
   "current_price": 150000,
   "duration_days": 90,
   "trial_duration_days": 7,
-  "display_rank": 1,
   "is_most_popular": true,
   "is_best_price": false,
   "is_most_recent": false,
@@ -169,7 +155,6 @@ Each badge is a **separate boolean**. A subject can have **none, one, or several
 | `current_price` | `null` |
 | `duration_days` | `null` |
 | `trial_duration_days` | `null` |
-| `display_rank` | `null` |
 | `is_most_popular` | `false` |
 | `is_best_price` | `false` |
 | `is_most_recent` | `false` |
@@ -209,7 +194,6 @@ Use when the admin creates subject, first topic, and first subtopic in one step.
     "current_price": 150000,
     "duration_days": 90,
     "trial_duration_days": 7,
-    "display_rank": 1,
     "is_most_popular": true,
     "is_best_price": false,
     "is_most_recent": false,
@@ -241,9 +225,7 @@ Include the same display fields inside `subject` as in the plain create endpoint
 ### Load form — `GET /api/subjects/{id}`
 
 1. Fetch subject by id.
-2. Map response into form state, including:
-   - `display_rank` → number input (empty string in UI if `null`)
-   - `is_most_popular`, `is_best_price`, `is_most_recent` → checkboxes
+2. Map response into form state, including badge checkboxes.
 
 **Example form state (TypeScript)**
 
@@ -255,7 +237,6 @@ type SubjectFormState = {
   current_price: number | "";
   duration_days: number | "";
   trial_duration_days: number | "";
-  display_rank: number | "";       // "" when null
   is_most_popular: boolean;
   is_best_price: boolean;
   is_most_recent: boolean;
@@ -274,7 +255,6 @@ function subjectToForm(subject: Subject): SubjectFormState {
     current_price: subject.current_price ?? "",
     duration_days: subject.duration_days ?? "",
     trial_duration_days: subject.trial_duration_days ?? "",
-    display_rank: subject.display_rank ?? "",
     is_most_popular: subject.is_most_popular,
     is_best_price: subject.is_best_price,
     is_most_recent: subject.is_most_recent,
@@ -297,7 +277,6 @@ Send **only changed fields** plus **required** `updated_by`, or send the full fo
   "current_price": 160000,
   "duration_days": 90,
   "trial_duration_days": 7,
-  "display_rank": 2,
   "is_most_popular": true,
   "is_best_price": true,
   "is_most_recent": false,
@@ -305,10 +284,6 @@ Send **only changed fields** plus **required** `updated_by`, or send the full fo
   "updated_by": 5
 }
 ```
-
-**Clear display rank**
-
-Send `"display_rank": null` to move the subject to the unranked group (shown last).
 
 **Partial update example (badges only)**
 
@@ -347,7 +322,6 @@ function formToPayload(form: SubjectFormState, userId: number): Record<string, u
     current_price: form.current_price === "" ? null : Number(form.current_price),
     duration_days: form.duration_days === "" ? null : Number(form.duration_days),
     trial_duration_days: form.trial_duration_days === "" ? null : Number(form.trial_duration_days),
-    display_rank: form.display_rank === "" ? null : Number(form.display_rank),
     is_most_popular: form.is_most_popular,
     is_best_price: form.is_best_price,
     is_most_recent: form.is_most_recent,
@@ -372,9 +346,6 @@ function formToPayload(form: SubjectFormState, userId: number): Record<string, u
 │  Duration (days) [____]  Trial (days) [____]   │
 │  Active          [x] Active                     │
 ├─────────────────────────────────────────────────┤
-│  Catalog display                                │
-│  Display rank    [____]  (lower = shown first)  │
-│                                                  │
 │  Badges                                          │
 │  [ ] Most Popular   [ ] Best Price              │
 │  [ ] Most Recent                                 │
@@ -392,8 +363,7 @@ Place **Catalog display** below core fields so admins set name/code/price first,
 | Field | Rule |
 |-------|------|
 | `name` | Required, non-empty |
-| `code` | Required, non-empty, unique (check against list or handle 400 from API) |
-| `display_rank` | If provided: integer ≥ 0 (or ≥ 1 if you prefer 1-based UX) |
+| `code` | Required, non-empty, unique — **also controls list order** (ascending) |
 | `current_price` | If provided: integer ≥ 0 |
 | `duration_days` | If provided: integer > 0 |
 | `trial_duration_days` | If provided: integer ≥ 0 |
@@ -405,8 +375,7 @@ Place **Catalog display** below core fields so admins set name/code/price first,
 
 After save, subjects appear in list endpoints sorted by:
 
-1. `display_rank` ascending (non-null first)
-2. `name` ascending (tiebreaker)
+1. `code` ascending (A→Z)
 
 Applies to:
 
@@ -414,8 +383,9 @@ Applies to:
 - `GET /api/available-subjects`
 - `GET /api/courses/public` (public catalog, no auth)
 - `GET /api/schedules/public`
+- `GET /api/subject-structure`
 
-**Frontend:** rely on API order for admin tables and public catalogs — do not re-sort unless adding a user-controlled column sort in the admin table only.
+**Frontend:** rely on API order — do not re-sort unless the admin table adds its own column sort. To change display order, update the subject **`code`** (or create subjects with codes that sort correctly).
 
 ---
 
@@ -430,7 +400,6 @@ export type Subject = {
   current_price: number | null;
   duration_days: number | null;
   trial_duration_days: number | null;
-  display_rank: number | null;
   is_most_popular: boolean;
   is_best_price: boolean;
   is_most_recent: boolean;
@@ -450,7 +419,6 @@ export type SubjectCreatePayload = {
   current_price?: number | null;
   duration_days?: number | null;
   trial_duration_days?: number | null;
-  display_rank?: number | null;
   is_most_popular?: boolean;
   is_best_price?: boolean;
   is_most_recent?: boolean;
@@ -547,9 +515,8 @@ function SubjectBadges({ subject }: { subject: Subject }) {
 
 ## Checklist for frontend team
 
-- [ ] Add **Display rank** number input (optional) to create & edit forms
 - [ ] Add three **badge checkboxes** to create & edit forms
-- [ ] Send `display_rank: null` when rank field is empty (edit: to clear rank)
+- [ ] Use **`code`** to control catalog order (no display-rank field)
 - [ ] Set `created_by` / `updated_by` from authenticated user id
 - [ ] Prefill edit form from `GET /api/subjects/{id}`
 - [ ] Show badge chips on catalog cards when flags are `true`

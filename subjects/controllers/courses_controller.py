@@ -32,11 +32,7 @@ def get_courses_public():
                 Subject.is_active == True,
                 Subject.deleted_at.is_(None),
             )
-            .order_by(
-                Subject.display_rank.is_(None),
-                Subject.display_rank.asc(),
-                Subject.name.asc(),
-            )
+            .order_by(Subject.code.asc())
             .all()
         )
 
@@ -267,11 +263,7 @@ def get_subject_structure():
             subtopics_query = subtopics_query.filter(SubTopic.topic_id == topic_id)
         
         # Execute queries
-        subjects = subjects_query.order_by(
-            Subject.display_rank.is_(None),
-            Subject.display_rank.asc(),
-            Subject.name.asc(),
-        ).all()
+        subjects = subjects_query.order_by(Subject.code.asc()).all()
         topics = topics_query.all()
         subtopics = subtopics_query.all()
         
