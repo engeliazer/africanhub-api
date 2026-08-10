@@ -83,6 +83,16 @@ class ApplicationStatus(str, enum.Enum):
     def __str__(self):
         return self.value
 
+
+class SubjectBadge(str, enum.Enum):
+    MOST_POPULAR = "most_popular"
+    BEST_PRICE = "best_price"
+    MOST_RECENT = "most_recent"
+
+    def __str__(self):
+        return self.value
+
+
 class Subject(Base):
     __tablename__ = "subjects"
 
@@ -93,6 +103,8 @@ class Subject(Base):
     current_price = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
     duration_days = Column(Integer, nullable=True, comment="Standard access duration in days")
     trial_duration_days = Column(Integer, nullable=True, comment="Trial period duration in days")
+    rank_id = Column(Integer, nullable=False, default=0, comment="Display priority; lower values appear first")
+    badge = Column(Enum(SubjectBadge), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
