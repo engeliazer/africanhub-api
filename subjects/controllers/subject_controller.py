@@ -7,7 +7,7 @@ from datetime import datetime
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from subjects.models.models import Subject
-from subjects.models.schemas import SubjectCreate, SubjectUpdate, SubjectInDB
+from subjects.models.schemas import SubjectCreate, SubjectUpdate, SubjectInDB, subject_to_dict
 from database.db_connector import db_session
 
 subject_bp = Blueprint('subject', __name__)
@@ -39,7 +39,7 @@ class SubjectsController:
             self.db.add(db_subject)
             self.db.commit()
             self.db.refresh(db_subject)
-            return SubjectInDB.from_orm(db_subject)
+            return subject_to_dict(db_subject)
         except IntegrityError:
             self.db.rollback()
             raise BadRequest("Subject code already exists")
@@ -52,14 +52,14 @@ class SubjectsController:
         ).first()
         if not subject:
             raise NotFound("Subject not found")
-        return SubjectInDB.from_orm(subject)
+        return subject_to_dict(subject)
 
-    def get_subjects(self, skip: int = 0, limit: int = 100) -> List[SubjectInDB]:
+    def get_subjects(self, skip: int = 0, limit: int = 100) -> List[dict]:
         """Get all subjects with pagination"""
         subjects = self.db.query(Subject).filter(
             Subject.deleted_at.is_(None)
         ).order_by(Subject.code.asc()).offset(skip).limit(limit).all()
-        return [SubjectInDB.from_orm(subject) for subject in subjects]
+        return [subject_to_dict(subject) for subject in subjects]
 
     def update_subject(self, subject_id: int, subject_update: SubjectUpdate) -> SubjectInDB:
         """Update a subject"""
@@ -80,7 +80,7 @@ class SubjectsController:
         try:
             self.db.commit()
             self.db.refresh(db_subject)
-            return SubjectInDB.from_orm(db_subject)
+            return subject_to_dict(db_subject)
         except IntegrityError:
             self.db.rollback()
             raise BadRequest("Subject code already exists")
@@ -115,7 +115,7 @@ def create_subject():
         return jsonify({
             "status": "success",
             "message": "Subject created successfully",
-            "data": subject.dict()
+            "data": subject
         }), 201
     except Exception as e:
         return jsonify({
@@ -136,7 +136,7 @@ def get_subjects():
             "status": "success",
             "message": "Subjects retrieved successfully",
             "data": {
-                "subjects": [subject.dict() for subject in subjects]
+                "subjects": subjects
             }
         })
     except Exception as e:
@@ -155,7 +155,7 @@ def get_subject(subject_id):
         return jsonify({
             "status": "success",
             "message": "Subject retrieved successfully",
-            "data": subject.dict()
+            "data": subject
         })
     except Exception as e:
         return jsonify({
@@ -175,7 +175,7 @@ def update_subject(subject_id):
         return jsonify({
             "status": "success",
             "message": "Subject updated successfully",
-            "data": subject.dict()
+            "data": subject
         })
     except Exception as e:
         return jsonify({

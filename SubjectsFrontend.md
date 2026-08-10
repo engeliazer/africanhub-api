@@ -60,6 +60,7 @@ This document describes how the React (or other) frontend should integrate with 
   "is_most_popular": true,
   "is_best_price": false,
   "is_most_recent": false,
+  "flags": ["most_popular"],
   "is_active": true,
   "created_by": 5,
   "updated_by": 5,
@@ -106,6 +107,8 @@ Each badge is a **separate boolean**. A subject can have **none, one, or several
 | Type | `boolean` |
 | Default | `false` |
 | Required on create | No |
+
+Responses also include a derived **`flags`** array — active badge keys only, e.g. `["most_popular", "best_price"]`. Use `flags` for simple chip rendering, or the booleans when you need individual toggles.
 
 **UI recommendation**
 
@@ -382,7 +385,7 @@ These endpoints power the marketing/catalog site. Subjects are always returned *
 
 **Frontend:** render subjects in API response order; do not re-sort client-side.
 
-Badge fields (`is_most_popular`, `is_best_price`, `is_most_recent`) are included on public responses for catalog chips.
+Badge fields (`is_most_popular`, `is_best_price`, `is_most_recent`) and a derived **`flags`** array are included on public responses for catalog chips.
 
 ---
 
@@ -418,6 +421,7 @@ export type Subject = {
   is_most_popular: boolean;
   is_best_price: boolean;
   is_most_recent: boolean;
+  flags: string[];
   is_active: boolean;
   created_by: number;
   updated_by: number;
@@ -509,17 +513,19 @@ When consuming `GET /api/courses/public` or subject list data on the marketing s
 
 ```tsx
 function SubjectBadges({ subject }: { subject: Subject }) {
-  const badges: { key: string; label: string }[] = [];
-  if (subject.is_most_popular) badges.push({ key: "popular", label: "Most Popular" });
-  if (subject.is_best_price) badges.push({ key: "price", label: "Best Price" });
-  if (subject.is_most_recent) badges.push({ key: "recent", label: "Most Recent" });
-
+  const badges = subject.flags ?? [];
   if (!badges.length) return null;
+
+  const labels: Record<string, string> = {
+    most_popular: "Most Popular",
+    best_price: "Best Price",
+    most_recent: "Most Recent",
+  };
 
   return (
     <div className="flex gap-2">
-      {badges.map((b) => (
-        <span key={b.key} className="badge">{b.label}</span>
+      {badges.map((key) => (
+        <span key={key} className="badge">{labels[key] ?? key}</span>
       ))}
     </div>
   );

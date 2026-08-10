@@ -6,6 +6,7 @@ from functools import wraps
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import db_session
 from subjects.models.models import Subject, Topic, SubTopic
+from subjects.models.schemas import subject_badge_fields
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 from video_tracking.controllers.tracking_controller import (
     TrackingController,
@@ -59,13 +60,10 @@ def get_courses_public():
                 "code": s.code,
                 "description": s.description,
                 "current_price": s.current_price,
-                "display_rank": s.display_rank,
-                "is_most_popular": s.is_most_popular,
-                "is_best_price": s.is_best_price,
-                "is_most_recent": s.is_most_recent,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 "topics": topics_data,
+                **subject_badge_fields(s),
             })
 
         return jsonify({
@@ -316,7 +314,8 @@ def get_subject_structure():
                     "status": "active" if subject.is_active else "inactive",
                     "created_at": subject.created_at.isoformat() if subject.created_at else None,
                     "updated_at": subject.updated_at.isoformat() if subject.updated_at else None,
-                    "topics": []
+                    "topics": [],
+                    **subject_badge_fields(subject),
                 }
                 
                 # Add topics with subtopics
@@ -341,7 +340,8 @@ def get_subject_structure():
                         "credits": None,  # Not present in current model
                         "status": "active" if subject.is_active else "inactive",
                         "created_at": subject.created_at.isoformat() if subject.created_at else None,
-                        "updated_at": subject.updated_at.isoformat() if subject.updated_at else None
+                        "updated_at": subject.updated_at.isoformat() if subject.updated_at else None,
+                        **subject_badge_fields(subject),
                     }
                     for subject in subjects
                 ],

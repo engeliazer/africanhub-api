@@ -10,6 +10,8 @@ from subjects.models.schemas import (
     TopicCreate, TopicUpdate, TopicInDB,
     SubTopicCreate, SubTopicUpdate, SubTopicInDB,
     SeasonCreate, SeasonInDB, SeasonSubjectCreate,
+    subject_to_dict,
+    subject_badge_fields,
 )
 from studies.models.models import SubtopicMaterial
 from sqlalchemy import and_, func
@@ -152,7 +154,7 @@ def get_season_pending_subjects(season_id):
             "status": "success",
             "message": "Pending subjects retrieved successfully",
             "data": {
-                "subjects": [SubjectInDB.from_orm(subject).dict() for subject in subjects],
+                "subjects": [subject_to_dict(subject) for subject in subjects],
                 "pagination": {
                     "total": total_count,
                     "page": page,
@@ -273,7 +275,7 @@ def get_available_subjects():
             # Check if user has applied for this subject
             if subject_id not in applied_subjects_map:
                 # User hasn't applied - available
-                subject_dict = SubjectInDB.from_orm(subject).dict()
+                subject_dict = subject_to_dict(subject)
                 subject_dict['availability_reason'] = "not_applied"
                 available_subjects.append(subject_dict)
             else:
@@ -283,7 +285,7 @@ def get_available_subjects():
                 # Get the application
                 application = db.query(Application).filter(Application.id == app_detail.application_id).first()
 
-                subject_dict = SubjectInDB.from_orm(subject).dict()
+                subject_dict = subject_to_dict(subject)
                 subject_dict['application_status'] = application.status if application else "unknown"
                 subject_dict['application_date'] = app_detail.created_at.isoformat() if app_detail.created_at else None
                 subject_dict['fee'] = app_detail.fee
@@ -370,7 +372,7 @@ def get_user_available_subjects(season_id):
 
         # Filter out subjects the user has already applied for
         available_subjects = [
-            SubjectInDB.from_orm(subject).dict() 
+            subject_to_dict(subject)
             for subject in subjects_in_season 
             if subject.id not in applied_subject_ids
         ]
@@ -416,6 +418,9 @@ def get_available_subjects(season_id):
             Subject.name,
             Subject.code,
             Subject.current_price,
+            Subject.is_most_popular,
+            Subject.is_best_price,
+            Subject.is_most_recent,
             func.count(ApplicationDetail.id).label('enrolled')
         ).join(
             SeasonSubject, Subject.id == SeasonSubject.subject_id
@@ -437,6 +442,9 @@ def get_available_subjects(season_id):
             Subject.name,
             Subject.code,
             Subject.current_price,
+            Subject.is_most_popular,
+            Subject.is_best_price,
+            Subject.is_most_recent,
         ).order_by(Subject.code.asc()).all()
 
         # Get all subjects the user has already applied for in this season (excluding withdrawn applications)
@@ -475,9 +483,11 @@ def get_available_subjects(season_id):
                     "id": subject.id,
                     "subject_id": subject.id,
                     "name": subject.name,
+                    "code": subject.code,
                     "price": subject.current_price,
                     "capacity": 0,  # Default to 0 since capacity is not tracked
-                    "enrolled": subject.enrolled
+                    "enrolled": subject.enrolled,
+                    **subject_badge_fields(subject),
                 })
 
         return jsonify({
@@ -527,7 +537,7 @@ def get_subjects():
         # Prepare response data with topics included
         subjects_data = []
         for subject in subjects:
-            subject_dict = SubjectInDB.from_orm(subject).dict()
+            subject_dict = subject_to_dict(subject)
             # Add topics to the subject
             subject_dict['topics'] = [
                 TopicInDB.from_orm(topic).dict()
@@ -579,7 +589,7 @@ def get_subject(subject_id):
                 "message": "Subject not found"
             }), 404
 
-        subject_dict = SubjectInDB.from_orm(subject).dict()
+        subject_dict = subject_to_dict(subject)
         # Add topics to the subject
         subject_dict['topics'] = [
             TopicInDB.from_orm(topic).dict()
@@ -612,7 +622,7 @@ def create_subject():
         db.refresh(subject)
         return jsonify({
             "status": "success",
-            "data": SubjectInDB.from_orm(subject).dict()
+            "data": subject_to_dict(subject)
         }), 201
     except Exception as e:
         db.rollback()
@@ -704,7 +714,7 @@ def create_subject_with_topic_subtopic():
                 "status": "success",
                 "message": "Subject with topic and subtopic created successfully",
                 "data": {
-                    "subject": SubjectInDB.from_orm(db_subject).dict(),
+                    "subject": subject_to_dict(db_subject),
                     "topic": TopicInDB.from_orm(db_topic).dict(),
                     "subtopic": SubTopicInDB.from_orm(db_subtopic).dict()
                 }
@@ -768,7 +778,7 @@ def update_subject(subject_id):
         return jsonify({
             "status": "success",
             "message": "Subject updated successfully",
-            "data": SubjectInDB.from_orm(subject).dict()
+            "data": subject_to_dict(subject)
         }), 200
         
     except IntegrityError:
@@ -1839,11 +1849,8 @@ def get_schedules_public():
                         "code": subject.code,
                         "description": subject.description,
                         "current_price": subject.current_price,
-                        "display_rank": subject.display_rank,
-                        "is_most_popular": subject.is_most_popular,
-                        "is_best_price": subject.is_best_price,
-                        "is_most_recent": subject.is_most_recent,
                         "course": {"id": course.id, "code": course.code, "name": course.name} if course else None,
+                        **subject_badge_fields(subject),
                     })
             
             season_dict = {

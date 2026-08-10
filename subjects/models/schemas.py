@@ -1,7 +1,35 @@
-from pydantic import BaseModel, validator
-from typing import Optional, List
+from pydantic import BaseModel, validator, ConfigDict
+from typing import Optional, List, Any
 from datetime import datetime, date
 from subjects.models.models import ApplicationStatus
+
+
+def subject_badge_fields(subject: Any) -> dict:
+    """Badge booleans and active flag keys for catalog UI."""
+    is_most_popular = bool(getattr(subject, "is_most_popular", False))
+    is_best_price = bool(getattr(subject, "is_best_price", False))
+    is_most_recent = bool(getattr(subject, "is_most_recent", False))
+    flags: List[str] = []
+    if is_most_popular:
+        flags.append("most_popular")
+    if is_best_price:
+        flags.append("best_price")
+    if is_most_recent:
+        flags.append("most_recent")
+    return {
+        "is_most_popular": is_most_popular,
+        "is_best_price": is_best_price,
+        "is_most_recent": is_most_recent,
+        "flags": flags,
+    }
+
+
+def subject_to_dict(subject: Any, **extra) -> dict:
+    """Serialize a Subject ORM row including badge flags."""
+    payload = SubjectInDB.model_validate(subject).model_dump()
+    payload.update(subject_badge_fields(subject))
+    payload.update(extra)
+    return payload
 
 # Subject schemas
 class SubjectBase(BaseModel):
@@ -43,8 +71,15 @@ class SubjectInDB(SubjectBase):
     deleted_by: Optional[int] = None
     deleted_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+    # Backward-compatible helpers for existing callers
+    @classmethod
+    def from_orm(cls, obj: Any):
+        return cls.model_validate(obj)
+
+    def dict(self, **kwargs):
+        return self.model_dump(**kwargs)
 
 # Topic schemas
 class TopicBase(BaseModel):
