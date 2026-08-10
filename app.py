@@ -19,7 +19,7 @@ from auth.controllers.roles_controller import RolesController
 from security.jwt_handler import JWTHandler
 from public.controllers.self_registration_controller import public
 from auth.controllers.auth_controller import auth
-from database.db_connector import db_session
+from database.db_connector import db_session, init_db
 from subjects.models.models import Subject, Topic, SubTopic, ApplicationStatus
 from subjects.models.schemas import (
     SubjectCreate, SubjectUpdate, SubjectInDB,
