@@ -1,0 +1,51 @@
+from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Integer, Text, Date, Time, ForeignKey
+from sqlalchemy.sql import func
+from database.base import Base
+
+
+class Event(Base):
+    """Public-facing training event / invitation for website display and letter downloads."""
+
+    __tablename__ = "events"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    course_title = Column(String(500), nullable=False)
+    course_description = Column(Text, nullable=True)
+    venue = Column(String(500), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    start_time = Column(Time, nullable=True)
+    end_time = Column(Time, nullable=True)
+    learning_outcomes = Column(Text, nullable=True)
+    is_published = Column(Boolean, nullable=False, default=False)
+    invitation_template_path = Column(String(500), nullable=True)
+    invitation_template_filename = Column(String(255), nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+
+class EventLetterRequest(Base):
+    """Audit log when a visitor downloads a personalized invitation letter."""
+
+    __tablename__ = "event_letter_requests"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    full_name = Column(String(255), nullable=False)
+    organization = Column(String(255), nullable=False)
+    address = Column(Text, nullable=False)
+    email = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
