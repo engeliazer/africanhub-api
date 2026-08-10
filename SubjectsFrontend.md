@@ -371,6 +371,21 @@ Place **Catalog display** below core fields so admins set name/code/price first,
 
 ---
 
+## Public website endpoints (no login)
+
+These endpoints power the marketing/catalog site. Subjects are always returned **`code` ascending** — same rule as authenticated lists.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/courses/public` | Full subject catalog with topics/subtopics |
+| `GET /api/schedules/public` | Active seasons, each with nested subjects |
+
+**Frontend:** render subjects in API response order; do not re-sort client-side.
+
+Badge fields (`is_most_popular`, `is_best_price`, `is_most_recent`) are included on public responses for catalog chips.
+
+---
+
 ## How lists are sorted (read-only / catalog)
 
 After save, subjects appear in list endpoints sorted by:

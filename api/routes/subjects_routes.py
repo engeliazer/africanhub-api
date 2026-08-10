@@ -1817,23 +1817,23 @@ def get_schedules_public():
                 SeasonSubject.season_id == season.id,
                 SeasonSubject.is_active == True
             ).all()
-            
-            # Get the actual subject details
+
+            subject_ids = [ss.subject_id for ss in season_subjects]
             subjects_data = []
-            for season_subject in season_subjects:
-                subject = db.query(Subject).filter(
-                    Subject.id == season_subject.subject_id,
+            if subject_ids:
+                subjects = db.query(Subject).filter(
+                    Subject.id.in_(subject_ids),
                     Subject.deleted_at.is_(None),
-                    Subject.is_active == True
-                ).first()
-                
-                if subject:
+                    Subject.is_active == True,
+                ).order_by(Subject.code.asc()).all()
+
+                for subject in subjects:
                     cs = db.query(CourseSubject).filter(
                         CourseSubject.subject_id == subject.id,
                         CourseSubject.is_active == True,
                     ).first()
                     course = db.query(Course).filter(Course.id == cs.course_id).first() if cs else None
-                    subject_dict = {
+                    subjects_data.append({
                         "id": subject.id,
                         "name": subject.name,
                         "code": subject.code,
@@ -1844,10 +1844,7 @@ def get_schedules_public():
                         "is_best_price": subject.is_best_price,
                         "is_most_recent": subject.is_most_recent,
                         "course": {"id": course.id, "code": course.code, "name": course.name} if course else None,
-                    }
-                    subjects_data.append(subject_dict)
-
-            subjects_data.sort(key=lambda s: s["code"])
+                    })
             
             season_dict = {
                 "id": season.id,
