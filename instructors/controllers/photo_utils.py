@@ -1,7 +1,7 @@
 import os
 import uuid
 import re
-from config import UPLOAD_FOLDER
+from config import UPLOAD_FOLDER, public_storage_url
 
 def handle_instructor_photo_upload(photo_file, instructor_name):
     """
@@ -31,7 +31,7 @@ def handle_instructor_photo_upload(photo_file, instructor_name):
         photo_file.save(file_path)
         
         # Return URL
-        return f"https://api.ocpac.dcrc.ac.tz/storage/instructors/{filename}"
+        return public_storage_url("instructors", filename)
         
     except Exception as e:
         print(f"Error uploading instructor photo: {str(e)}")

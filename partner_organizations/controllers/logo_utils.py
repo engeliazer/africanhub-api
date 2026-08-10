@@ -1,13 +1,9 @@
 import os
 import uuid
 import re
-from config import UPLOAD_FOLDER
+from config import UPLOAD_FOLDER, public_storage_url
 
 ALLOWED_LOGO_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "svg"}
-PUBLIC_STORAGE_BASE = os.getenv(
-    "PUBLIC_STORAGE_BASE_URL",
-    "https://api.ocpac.dcrc.ac.tz/storage",
-)
 
 
 def handle_partner_logo_upload(logo_file, organization_name: str):
@@ -30,7 +26,7 @@ def handle_partner_logo_upload(logo_file, organization_name: str):
         file_path = os.path.join(logos_dir, filename)
         logo_file.save(file_path)
 
-        return f"{PUBLIC_STORAGE_BASE}/partner_organizations/{filename}"
+        return public_storage_url("partner_organizations", filename)
     except Exception as e:
         print(f"Error uploading partner organization logo: {str(e)}")
         return None

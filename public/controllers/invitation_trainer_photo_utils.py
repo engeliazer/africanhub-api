@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 
-from config import UPLOAD_FOLDER
+from config import UPLOAD_FOLDER, public_storage_url
 
 
 def handle_invitation_trainer_photo_upload(photo_file, trainer_name: str):
@@ -18,7 +18,4 @@ def handle_invitation_trainer_photo_upload(photo_file, trainer_name: str):
     filename = f"{safe_name}-{uuid.uuid4().hex[:8]}.{ext}"
     path = os.path.join(directory, filename)
     photo_file.save(path)
-    base_url = os.getenv("PUBLIC_STORAGE_BASE_URL", "").rstrip("/")
-    if base_url:
-        return f"{base_url}/storage/invitation_trainers/{filename}"
-    return f"/storage/invitation_trainers/{filename}"
+    return public_storage_url("invitation_trainers", filename)

@@ -1,7 +1,7 @@
 import os
 import uuid
 import re
-from config import UPLOAD_FOLDER
+from config import UPLOAD_FOLDER, public_storage_url
 
 def handle_testimonial_photo_upload(photo_file, user_id):
     """
@@ -30,7 +30,7 @@ def handle_testimonial_photo_upload(photo_file, user_id):
         photo_file.save(file_path)
         
         # Return URL
-        return f"https://api.ocpac.dcrc.ac.tz/storage/testimonials/{filename}"
+        return public_storage_url("testimonials", filename)
         
     except Exception as e:
         print(f"Error uploading testimonial photo: {str(e)}")
