@@ -102,6 +102,31 @@ def list_partner_organizations():
         db.close()
 
 
+@partner_organizations_bp.route("/partner-organizations/public", methods=["GET"])
+def list_partner_organizations_public():
+    """Public list of active partner organizations for the website (no auth)."""
+    try:
+        db = get_db()
+        rows = (
+            db.query(PartnerOrganization)
+            .filter(
+                PartnerOrganization.deleted_at.is_(None),
+                PartnerOrganization.is_active == True,
+            )
+            .order_by(PartnerOrganization.name.asc())
+            .all()
+        )
+        data = [
+            {"id": row.id, "name": row.name, "logo": row.logo}
+            for row in rows
+        ]
+        return jsonify({"status": "success", "data": data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @partner_organizations_bp.route("/partner-organizations/<int:org_id>", methods=["GET"])
 @jwt_required()
 def get_partner_organization(org_id):
@@ -225,30 +250,5 @@ def delete_partner_organization(org_id):
     except Exception as e:
         db.rollback()
         return jsonify({"status": "error", "message": str(e)}), 400
-    finally:
-        db.close()
-
-
-@partner_organizations_bp.route("/partner-organizations/public", methods=["GET"])
-def list_partner_organizations_public():
-    """Public list of active partner organizations for the website (no auth)."""
-    try:
-        db = get_db()
-        rows = (
-            db.query(PartnerOrganization)
-            .filter(
-                PartnerOrganization.deleted_at.is_(None),
-                PartnerOrganization.is_active == True,
-            )
-            .order_by(PartnerOrganization.name.asc())
-            .all()
-        )
-        data = [
-            {"id": row.id, "name": row.name, "logo": row.logo}
-            for row in rows
-        ]
-        return jsonify({"status": "success", "data": data})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
