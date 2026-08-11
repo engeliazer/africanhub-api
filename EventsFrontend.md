@@ -46,6 +46,13 @@ Simple API for listing training events on the website and letting visitors downl
   "start_time": "08:30",
   "end_time": "16:30",
   "learning_outcomes": "Understand IFRS recognition…",
+  "course_fee": 150000,
+  "deposit_amount": 50000,
+  "reservation_deadline": "2026-06-01",
+  "bank_account_name": "The African Hub",
+  "bank_account_number": "0123456789",
+  "bank_name": "NMB Bank",
+  "trainer_ids": [1, 2],
   "is_published": false
 }
 ```
@@ -60,6 +67,13 @@ Simple API for listing training events on the website and letting visitors downl
 | course_description | No |
 | start_time / end_time | No (HH:MM or HH:MM:SS) |
 | learning_outcomes | No |
+| course_fee | No (TZS amount) |
+| deposit_amount | No (TZS amount) |
+| reservation_deadline | No (YYYY-MM-DD) |
+| bank_account_name | No |
+| bank_account_number | No |
+| bank_name | No |
+| trainer_ids | No — array of IDs from `GET /api/invitations/trainers` |
 | is_published | No (default `false`) |
 
 **Alternative:** `multipart/form-data` with the same fields plus optional `template` (HTML file).
@@ -83,6 +97,25 @@ Template placeholders (if uploading custom HTML): `[NAME]`, `[ADDRESS]`, `[ORGAN
     "start_time": "08:30:00",
     "end_time": "16:30:00",
     "learning_outcomes": "…",
+    "payment": {
+      "course_fee": 150000.0,
+      "deposit_amount": 50000.0,
+      "reservation_deadline": "2026-06-01",
+      "bank_account_name": "The African Hub",
+      "bank_account_number": "0123456789",
+      "bank_name": "NMB Bank"
+    },
+    "trainers": [
+      {
+        "id": 1,
+        "full_name": "Dr. Jane Mwangi",
+        "designation": "Lead Facilitator",
+        "bio": "20 years in public sector accounting…",
+        "qualifications": "CPA, PhD",
+        "photo": "https://…/jane.jpg",
+        "display_order": 0
+      }
+    ],
     "is_published": false,
     "has_template": false,
     "invitation_template_filename": null,
@@ -130,7 +163,10 @@ Same as admin list, but:
 
 - Only `is_published === true` events
 - Only events not yet ended
+- Response includes `payment` and `trainers` (with bios)
 - Response omits admin fields (`is_published`, `created_by`, template paths, etc.)
+
+**Trainers:** Reuse profiles from `GET /api/invitations/trainers`. Create trainers there first, then pass their IDs in `trainer_ids` when creating/updating an event.
 
 **Response `200`:**
 
@@ -148,7 +184,26 @@ Same as admin list, but:
       "end_date": "2026-06-17",
       "start_time": "08:30:00",
       "end_time": "16:30:00",
-      "learning_outcomes": "…"
+      "learning_outcomes": "…",
+      "payment": {
+        "course_fee": 150000.0,
+        "deposit_amount": 50000.0,
+        "reservation_deadline": "2026-06-01",
+        "bank_account_name": "The African Hub",
+        "bank_account_number": "0123456789",
+        "bank_name": "NMB Bank"
+      },
+      "trainers": [
+        {
+          "id": 1,
+          "full_name": "Dr. Jane Mwangi",
+          "designation": "Lead Facilitator",
+          "bio": "20 years in public sector accounting…",
+          "qualifications": "CPA, PhD",
+          "photo": "https://…/jane.jpg",
+          "display_order": 0
+        }
+      ]
     }
   ]
 }

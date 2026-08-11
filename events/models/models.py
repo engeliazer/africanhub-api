@@ -1,4 +1,5 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Integer, Text, Date, Time, ForeignKey
+from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Integer, Text, Date, Time, ForeignKey, Numeric
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.base import Base
 
@@ -18,6 +19,12 @@ class Event(Base):
     start_time = Column(Time, nullable=True)
     end_time = Column(Time, nullable=True)
     learning_outcomes = Column(Text, nullable=True)
+    course_fee = Column(Numeric(12, 2), nullable=True)
+    deposit_amount = Column(Numeric(12, 2), nullable=True)
+    reservation_deadline = Column(Date, nullable=True)
+    bank_account_name = Column(String(255), nullable=True)
+    bank_account_number = Column(String(100), nullable=True)
+    bank_name = Column(String(255), nullable=True)
     is_published = Column(Boolean, nullable=False, default=False)
     invitation_template_path = Column(String(500), nullable=True)
     invitation_template_filename = Column(String(255), nullable=True)
@@ -30,6 +37,37 @@ class Event(Base):
         server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
+
+    trainer_assignments = relationship(
+        "EventTrainerAssignment",
+        back_populates="event",
+        cascade="all, delete-orphan",
+        order_by="EventTrainerAssignment.display_order",
+    )
+
+
+class EventTrainerAssignment(Base):
+    """Links reusable invitation trainers to a public event."""
+
+    __tablename__ = "event_trainer_assignments"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    trainer_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("invitation_trainers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    display_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+
+    event = relationship("Event", back_populates="trainer_assignments")
 
 
 class EventLetterRequest(Base):

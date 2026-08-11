@@ -8,13 +8,16 @@ Public: list published events and download personalized invitation letters (PDF)
 import logging
 import re
 from datetime import date, datetime, time as time_type
-from typing import Any, Dict, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy.orm import joinedload
 
+from applications.models.models import InvitationTrainer
 from database.db_connector import get_db
-from events.models.models import Event, EventLetterRequest
+from events.models.models import Event, EventLetterRequest, EventTrainerAssignment
 from public.services.invitation_pdf_service import delete_temp_pdf, generate_invitation_pdf
 from public.services.invitation_template_service import (
     delete_invitation_template_file,
@@ -57,6 +60,12 @@ def _parse_bool(value, default=False) -> bool:
     return str(value).lower() in {"1", "true", "yes", "on"}
 
 
+def _decimal_optional(value) -> Optional[Decimal]:
+    if value in (None, ""):
+        return None
+    return Decimal(str(value))
+
+
 def _format_date(value: Optional[date]) -> Optional[str]:
     return value.isoformat() if value else None
 
@@ -65,7 +74,60 @@ def _format_time(value: Optional[time_type]) -> Optional[str]:
     return value.strftime("%H:%M:%S") if value else None
 
 
-def _event_to_dict(event: Event, *, public: bool = False) -> Dict[str, Any]:
+def _payment_dict(event: Event) -> Dict[str, Any]:
+    return {
+        "course_fee": float(event.course_fee) if event.course_fee is not None else None,
+        "deposit_amount": float(event.deposit_amount) if event.deposit_amount is not None else None,
+        "reservation_deadline": _format_date(event.reservation_deadline),
+        "bank_account_name": event.bank_account_name,
+        "bank_account_number": event.bank_account_number,
+        "bank_name": event.bank_name,
+    }
+
+
+def _trainer_to_dict(trainer: InvitationTrainer, *, public: bool = False, display_order: int = 0) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "id": trainer.id,
+        "full_name": trainer.full_name,
+        "designation": trainer.designation,
+        "bio": trainer.bio,
+        "qualifications": trainer.qualifications,
+        "photo": trainer.photo,
+        "display_order": display_order,
+    }
+    if not public:
+        data.update({
+            "is_active": trainer.is_active,
+            "created_by": trainer.created_by,
+            "updated_by": trainer.updated_by,
+            "created_at": trainer.created_at.isoformat() if trainer.created_at else None,
+            "updated_at": trainer.updated_at.isoformat() if trainer.updated_at else None,
+        })
+    return data
+
+
+def _trainers_for_event(event: Event, db, *, public: bool = False) -> List[Dict[str, Any]]:
+    assignments = sorted(event.trainer_assignments, key=lambda a: (a.display_order, a.id))
+    if not assignments:
+        return []
+
+    trainer_ids = [a.trainer_id for a in assignments]
+    trainers = (
+        db.query(InvitationTrainer)
+        .filter(InvitationTrainer.id.in_(trainer_ids))
+        .all()
+    )
+    trainer_map = {t.id: t for t in trainers}
+
+    result = []
+    for assignment in assignments:
+        trainer = trainer_map.get(assignment.trainer_id)
+        if trainer and (not public or trainer.is_active):
+            result.append(_trainer_to_dict(trainer, public=public, display_order=assignment.display_order))
+    return result
+
+
+def _event_to_dict(event: Event, db, *, public: bool = False) -> Dict[str, Any]:
     data: Dict[str, Any] = {
         "id": event.id,
         "title": event.title,
@@ -77,6 +139,8 @@ def _event_to_dict(event: Event, *, public: bool = False) -> Dict[str, Any]:
         "start_time": _format_time(event.start_time),
         "end_time": _format_time(event.end_time),
         "learning_outcomes": event.learning_outcomes,
+        "payment": _payment_dict(event),
+        "trainers": _trainers_for_event(event, db, public=public),
     }
     if not public:
         data.update({
@@ -92,15 +156,78 @@ def _event_to_dict(event: Event, *, public: bool = False) -> Dict[str, Any]:
     return data
 
 
+def _events_query(db):
+    return db.query(Event).options(joinedload(Event.trainer_assignments))
+
+
 def _upcoming_filter(query, today: date):
     return query.filter(Event.end_date >= today)
 
 
 def _get_event_or_404(db, event_id: int):
-    event = db.query(Event).filter(Event.id == event_id).first()
+    event = (
+        _events_query(db)
+        .filter(Event.id == event_id)
+        .first()
+    )
     if not event:
         return None, (jsonify({"status": "error", "message": "Event not found"}), 404)
     return event, None
+
+
+def _apply_payment_fields(event: Event, data: dict) -> None:
+    if "course_fee" in data:
+        event.course_fee = _decimal_optional(data.get("course_fee"))
+    if "deposit_amount" in data:
+        event.deposit_amount = _decimal_optional(data.get("deposit_amount"))
+    if "reservation_deadline" in data:
+        value = data.get("reservation_deadline")
+        event.reservation_deadline = _parse_date(value, "reservation_deadline") if value else None
+    if "bank_account_name" in data:
+        event.bank_account_name = (data.get("bank_account_name") or "").strip() or None
+    if "bank_account_number" in data:
+        event.bank_account_number = (data.get("bank_account_number") or "").strip() or None
+    if "bank_name" in data:
+        event.bank_name = (data.get("bank_name") or "").strip() or None
+
+
+def _assign_trainers(db, event: Event, trainer_ids: List[int]) -> None:
+    trainers = (
+        db.query(InvitationTrainer)
+        .filter(InvitationTrainer.id.in_(trainer_ids))
+        .filter(InvitationTrainer.is_active == True)
+        .all()
+    )
+    found_ids = {t.id for t in trainers}
+    missing = [tid for tid in trainer_ids if tid not in found_ids]
+    if missing:
+        raise ValueError(f"Trainer(s) not found or inactive: {missing}")
+
+    event.trainer_assignments.clear()
+    db.flush()
+    for order, trainer_id in enumerate(trainer_ids):
+        db.add(
+            EventTrainerAssignment(
+                event_id=event.id,
+                trainer_id=trainer_id,
+                display_order=order,
+            )
+        )
+
+
+def _flatten_event_input(data: dict) -> dict:
+    """Merge nested payment object into top-level fields for create/update helpers."""
+    flat = dict(data)
+    payment = flat.pop("payment", None)
+    if isinstance(payment, dict):
+        for key in (
+            "course_fee", "deposit_amount", "reservation_deadline",
+            "bank_account_name", "bank_account_number", "bank_name",
+        ):
+            if key in payment and key not in flat:
+                flat[key] = payment[key]
+    flat.pop("trainers", None)
+    return flat
 
 
 def _apply_create_fields(event: Event, data: dict) -> Optional[str]:
@@ -139,11 +266,19 @@ def _apply_create_fields(event: Event, data: dict) -> Optional[str]:
     event.end_time = end_time
     event.learning_outcomes = (data.get("learning_outcomes") or "").strip() or None
     event.is_published = _parse_bool(data.get("is_published"), default=False)
+    _apply_payment_fields(event, data)
     return None
 
 
 def _parse_create_payload():
     if request.content_type and "multipart/form-data" in request.content_type:
+        trainer_ids_raw = request.form.get("trainer_ids")
+        trainer_ids = None
+        if trainer_ids_raw:
+            import json
+            trainer_ids = json.loads(trainer_ids_raw) if trainer_ids_raw.startswith("[") else [
+                int(x.strip()) for x in trainer_ids_raw.split(",") if x.strip()
+            ]
         return {
             "title": request.form.get("title"),
             "course_title": request.form.get("course_title"),
@@ -154,7 +289,14 @@ def _parse_create_payload():
             "start_time": request.form.get("start_time"),
             "end_time": request.form.get("end_time"),
             "learning_outcomes": request.form.get("learning_outcomes"),
+            "course_fee": request.form.get("course_fee"),
+            "deposit_amount": request.form.get("deposit_amount"),
+            "reservation_deadline": request.form.get("reservation_deadline"),
+            "bank_account_name": request.form.get("bank_account_name"),
+            "bank_account_number": request.form.get("bank_account_number"),
+            "bank_name": request.form.get("bank_name"),
             "is_published": request.form.get("is_published"),
+            "trainer_ids": trainer_ids,
         }, request.files.get("template")
     return request.get_json(silent=True) or {}, None
 
@@ -167,8 +309,10 @@ def create_event():
 
     JSON or multipart/form-data. Optional field `template` (HTML file with
     [NAME], [ADDRESS], [ORGANIZATION]) for personalized PDF letters.
+    Optional `trainer_ids`: array of invitation_trainer IDs.
     """
     data, template_file = _parse_create_payload()
+    data = _flatten_event_input(data)
     user_id = int(get_jwt_identity())
     db = get_db()
     try:
@@ -179,6 +323,10 @@ def create_event():
 
         db.add(event)
         db.flush()
+
+        trainer_ids = data.get("trainer_ids") or []
+        if trainer_ids:
+            _assign_trainers(db, event, trainer_ids)
 
         if template_file and template_file.filename:
             template_error = validate_html_template_upload(template_file)
@@ -194,8 +342,11 @@ def create_event():
         return jsonify({
             "status": "success",
             "message": "Event created",
-            "data": _event_to_dict(event),
+            "data": _event_to_dict(event, db),
         }), 201
+    except ValueError as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         db.rollback()
         logger.exception("create_event: %s", e)
@@ -212,13 +363,13 @@ def list_events():
     try:
         today = date.today()
         rows = (
-            _upcoming_filter(db.query(Event), today)
+            _upcoming_filter(_events_query(db), today)
             .order_by(Event.start_date.asc(), Event.id.asc())
             .all()
         )
         return jsonify({
             "status": "success",
-            "data": [_event_to_dict(row) for row in rows],
+            "data": [_event_to_dict(row, db) for row in rows],
         })
     except Exception as e:
         logger.exception("list_events: %s", e)
@@ -234,14 +385,14 @@ def list_events_public():
     try:
         today = date.today()
         rows = (
-            _upcoming_filter(db.query(Event), today)
+            _upcoming_filter(_events_query(db), today)
             .filter(Event.is_published == True)
             .order_by(Event.start_date.asc(), Event.id.asc())
             .all()
         )
         return jsonify({
             "status": "success",
-            "data": [_event_to_dict(row, public=True) for row in rows],
+            "data": [_event_to_dict(row, db, public=True) for row in rows],
         })
     except Exception as e:
         logger.exception("list_events_public: %s", e)
@@ -331,8 +482,8 @@ def request_event_letter(event_id: int):
 @events_bp.route("/api/events/<int:event_id>", methods=["PUT"])
 @jwt_required()
 def update_event(event_id: int):
-    """Update an event (admin). Supports partial updates including is_published."""
-    data = request.get_json(silent=True) or {}
+    """Update an event (admin). Supports partial updates including is_published and trainer_ids."""
+    data = _flatten_event_input(request.get_json(silent=True) or {})
     user_id = int(get_jwt_identity())
     db = get_db()
     try:
@@ -341,7 +492,10 @@ def update_event(event_id: int):
             return err
 
         if any(k in data for k in ("title", "course_title", "venue", "start_date", "end_date")):
-            error = _apply_create_fields(event, {**_event_to_dict(event), **data})
+            base = _event_to_dict(event, db)
+            base_flat = _flatten_event_input(base)
+            merged = {**base_flat, **data}
+            error = _apply_create_fields(event, merged)
             if error:
                 return jsonify({"status": "error", "message": error}), 400
         else:
@@ -360,8 +514,13 @@ def update_event(event_id: int):
             if event.end_date < event.start_date:
                 return jsonify({"status": "error", "message": "end_date must be on or after start_date"}), 400
 
+        _apply_payment_fields(event, data)
+
         if "is_published" in data:
             event.is_published = _parse_bool(data["is_published"])
+
+        if "trainer_ids" in data:
+            _assign_trainers(db, event, data.get("trainer_ids") or [])
 
         event.updated_by = user_id
         event.updated_at = datetime.utcnow()
@@ -370,7 +529,7 @@ def update_event(event_id: int):
         return jsonify({
             "status": "success",
             "message": "Event updated",
-            "data": _event_to_dict(event),
+            "data": _event_to_dict(event, db),
         })
     except ValueError as e:
         db.rollback()
@@ -410,7 +569,7 @@ def upload_event_template(event_id: int):
         return jsonify({
             "status": "success",
             "message": "Event template uploaded",
-            "data": _event_to_dict(event),
+            "data": _event_to_dict(event, db),
         })
     except Exception as e:
         db.rollback()
