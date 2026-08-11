@@ -561,6 +561,8 @@ These endpoints power the marketing/catalog site. Subjects are always returned *
 
 Badge fields (`is_most_popular`, `is_best_price`, `is_most_recent`) and a derived **`flags`** array are included on public responses for catalog chips.
 
+Each subject also includes **`details_document_url`** (`string | null`) — link to the uploaded syllabus/details PDF or document when one exists.
+
 ---
 
 ## How lists are sorted (read-only / catalog)
@@ -597,6 +599,7 @@ export type Subject = {
   is_most_recent: boolean;
   flags: string[];
   is_active: boolean;
+  details_document_url: string | null;
   created_by: number;
   updated_by: number;
   created_at: string;

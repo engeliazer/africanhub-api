@@ -60,6 +60,7 @@ def get_courses_public():
                 "code": s.code,
                 "description": s.description,
                 "current_price": s.current_price,
+                "details_document_url": s.details_document_url,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 "topics": topics_data,

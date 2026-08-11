@@ -2038,6 +2038,7 @@ def get_schedules_public():
                         "code": subject.code,
                         "description": subject.description,
                         "current_price": subject.current_price,
+                        "details_document_url": subject.details_document_url,
                         "course": {"id": course.id, "code": course.code, "name": course.name} if course else None,
                         **subject_badge_fields(subject),
                     })
