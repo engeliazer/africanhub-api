@@ -60,7 +60,6 @@ class EventTrainerAssignment(Base):
     )
     trainer_id = Column(
         BigInteger().with_variant(Integer, "sqlite"),
-        ForeignKey("invitation_trainers.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
