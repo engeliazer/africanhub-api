@@ -4,11 +4,120 @@ Simple API for listing training events on the website and letting visitors downl
 
 ---
 
+## Recommended setup workflow (steps)
+
+Guide the admin through these steps in order. Each admin event response includes a `setup` object showing progress and **what is still missing**.
+
+```mermaid
+flowchart LR
+  A[1. Event details] --> B[2. Payment & bank]
+  B --> C[3. Assign trainers]
+  C --> D[4. Invitation template]
+  D --> E[5. Publish]
+  E --> F[Live on website]
+```
+
+| Step | Key | Screen | API |
+|------|-----|--------|-----|
+| 1 | `event_info` | Course info, venue, dates, times, outcomes | `POST/PUT /api/events` |
+| 2 | `payment` | Fee, deposit, deadline, bank details | `PUT /api/events/{id}` (payment fields) |
+| 3 | `trainers` | Pick/create trainers | `GET/POST /api/events/trainers`, `PUT /api/events/{id}` with `trainer_ids` |
+| 4 | `invitation_letter` | Custom HTML template *(optional)* | `POST /api/events/{id}/template` |
+| 5 | `publish` | Go live on website | `PUT /api/events/{id}` `{ "is_published": true }` |
+
+**Poll progress:** `GET /api/events/{id}/setup` or `GET /api/events/{id}` (includes full `setup.steps`).
+
+Publishing is **blocked** until steps 1–3 are complete. Step 4 is optional (built-in default letter is used if skipped).
+
+### Setup object (admin)
+
+```json
+{
+  "setup": {
+    "ready_to_publish": false,
+    "is_published": false,
+    "current_step": "payment",
+    "current_step_label": "Payment & bank details",
+    "completed_steps": 1,
+    "total_steps": 5,
+    "required_steps_complete": false,
+    "blocking_publish": ["payment", "course_fee", "bank_account_name"],
+    "steps": [
+      {
+        "key": "event_info",
+        "label": "Event details",
+        "order": 1,
+        "required": true,
+        "completed": true,
+        "missing": [],
+        "hint": "Add course description, learning outcomes, and session times."
+      },
+      {
+        "key": "payment",
+        "label": "Payment & bank details",
+        "order": 2,
+        "required": true,
+        "completed": false,
+        "missing": ["course_fee", "deposit_amount", "reservation_deadline", "bank_account_name", "bank_account_number", "bank_name"],
+        "hint": "Set course fee, deposit, reservation deadline, and bank account details."
+      },
+      {
+        "key": "trainers",
+        "label": "Assign trainers",
+        "order": 3,
+        "required": true,
+        "completed": false,
+        "missing": ["trainer_ids"],
+        "trainer_count": 0,
+        "hint": "Assign at least one active trainer via trainer_ids."
+      },
+      {
+        "key": "invitation_letter",
+        "label": "Invitation letter template",
+        "order": 4,
+        "required": false,
+        "completed": false,
+        "skipped": true,
+        "missing": ["template"],
+        "uses_default_template": true,
+        "hint": "Optional — upload a custom HTML template or use the built-in default."
+      },
+      {
+        "key": "publish",
+        "label": "Publish to website",
+        "order": 5,
+        "required": true,
+        "completed": false,
+        "missing": ["is_published"],
+        "hint": "Set is_published to true when all required steps above are complete."
+      }
+    ]
+  }
+}
+```
+
+**List view** (`GET /api/events`) returns a compact `setup` summary (`current_step`, `ready_to_publish`, etc.) without the full `steps` array.
+
+**Publish blocked (`400`):**
+```json
+{
+  "status": "error",
+  "message": "Cannot publish yet — complete step: Payment & bank details.",
+  "data": {
+    "setup": { "...": "..." }
+  }
+}
+```
+
+---
+
 ## Base URL & authentication
 
 | Endpoint group | Auth |
 |----------------|------|
 | `POST/GET /api/events` | JWT required |
+| `GET /api/events/{id}` | JWT required |
+| `GET /api/events/{id}/setup` | JWT required |
 | `GET/POST/PUT/DELETE /api/events/trainers` | JWT required |
 | `GET /api/events/public` | **No auth** |
 | `POST /api/events/public/{id}/letter` | **No auth** |
@@ -325,10 +434,12 @@ flowchart LR
 
 ## Admin flow
 
-1. `POST /api/events/trainers` — create trainer profiles
-2. `POST /api/events` — create event with `trainer_ids`
-3. `PUT /api/events/{id}` — set `is_published: true` when ready
-4. `GET /api/events` — dashboard of upcoming events
+1. `POST /api/events` — step 1 (basic info; leave `is_published: false`)
+2. `GET /api/events/{id}/setup` — show wizard / highlight missing fields
+3. `PUT /api/events/{id}` — complete payment, assign `trainer_ids`
+4. `POST /api/events/{id}/template` — optional custom letter
+5. `PUT /api/events/{id}` `{ "is_published": true }` — publish when `ready_to_publish` is true
+6. `GET /api/events/public` — verify on website
 
 ---
 

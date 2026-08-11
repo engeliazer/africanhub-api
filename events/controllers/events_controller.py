@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 from applications.models.models import InvitationTrainer
 from database.db_connector import get_db
 from events.models.models import Event, EventLetterRequest, EventTrainerAssignment
+from events.services.event_setup_service import build_event_setup
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_pdf_service import delete_temp_pdf, generate_invitation_pdf
 from public.services.invitation_template_service import (
@@ -128,7 +129,16 @@ def _trainers_for_event(event: Event, db, *, public: bool = False) -> List[Dict[
     return result
 
 
-def _event_to_dict(event: Event, db, *, public: bool = False) -> Dict[str, Any]:
+def _event_to_dict(
+    event: Event,
+    db,
+    *,
+    public: bool = False,
+    setup_detail: str = "full",
+) -> Dict[str, Any]:
+    """
+    setup_detail: 'full' | 'summary' | 'none' (admin only; ignored for public)
+    """
     data: Dict[str, Any] = {
         "id": event.id,
         "title": event.title,
@@ -154,6 +164,10 @@ def _event_to_dict(event: Event, db, *, public: bool = False) -> Dict[str, Any]:
             "created_at": event.created_at.isoformat() if event.created_at else None,
             "updated_at": event.updated_at.isoformat() if event.updated_at else None,
         })
+        if setup_detail == "full":
+            data["setup"] = build_event_setup(event, db, detailed=True)
+        elif setup_detail == "summary":
+            data["setup"] = build_event_setup(event, db, detailed=False)
     return data
 
 
@@ -302,6 +316,16 @@ def _parse_create_payload():
     return request.get_json(silent=True) or {}, None
 
 
+def _validate_publish_allowed(event: Event, db) -> Optional[str]:
+    if not event.is_published:
+        return None
+    setup = build_event_setup(event, db, detailed=True)
+    if setup.get("required_steps_complete"):
+        return None
+    step = setup.get("current_step_label") or "required setup"
+    return f"Cannot publish yet — complete step: {step}."
+
+
 @events_bp.route("/api/events", methods=["POST"])
 @jwt_required()
 def create_event():
@@ -338,6 +362,16 @@ def create_event():
             event.invitation_template_path = path
             event.invitation_template_filename = filename
 
+        publish_error = _validate_publish_allowed(event, db)
+        if publish_error:
+            db.rollback()
+            setup = build_event_setup(event, db, detailed=True)
+            return jsonify({
+                "status": "error",
+                "message": publish_error,
+                "data": {"setup": setup},
+            }), 400
+
         db.commit()
         db.refresh(event)
         return jsonify({
@@ -370,10 +404,54 @@ def list_events():
         )
         return jsonify({
             "status": "success",
-            "data": [_event_to_dict(row, db) for row in rows],
+            "data": [_event_to_dict(row, db, setup_detail="summary") for row in rows],
         })
     except Exception as e:
         logger.exception("list_events: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/<int:event_id>", methods=["GET"])
+@jwt_required()
+def get_event(event_id: int):
+    """Get a single event with full setup step progress."""
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+        return jsonify({
+            "status": "success",
+            "data": _event_to_dict(event, db, setup_detail="full"),
+        })
+    except Exception as e:
+        logger.exception("get_event: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/<int:event_id>/setup", methods=["GET"])
+@jwt_required()
+def get_event_setup(event_id: int):
+    """Setup wizard progress — what is done and what is still missing."""
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+        return jsonify({
+            "status": "success",
+            "data": {
+                "event_id": event.id,
+                "title": event.title,
+                **build_event_setup(event, db, detailed=True),
+            },
+        })
+    except Exception as e:
+        logger.exception("get_event_setup: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
@@ -522,6 +600,16 @@ def update_event(event_id: int):
 
         if "trainer_ids" in data:
             _assign_trainers(db, event, data.get("trainer_ids") or [])
+
+        publish_error = _validate_publish_allowed(event, db)
+        if publish_error:
+            db.rollback()
+            setup = build_event_setup(event, db, detailed=True)
+            return jsonify({
+                "status": "error",
+                "message": publish_error,
+                "data": {"setup": setup},
+            }), 400
 
         event.updated_by = user_id
         event.updated_at = datetime.utcnow()
