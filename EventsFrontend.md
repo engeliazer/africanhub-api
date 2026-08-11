@@ -9,6 +9,7 @@ Simple API for listing training events on the website and letting visitors downl
 | Endpoint group | Auth |
 |----------------|------|
 | `POST/GET /api/events` | JWT required |
+| `GET/POST/PUT/DELETE /api/events/trainers` | JWT required |
 | `GET /api/events/public` | **No auth** |
 | `POST /api/events/public/{id}/letter` | **No auth** |
 | `POST /api/events/{id}/template` | JWT required |
@@ -73,7 +74,7 @@ Simple API for listing training events on the website and letting visitors downl
 | bank_account_name | No |
 | bank_account_number | No |
 | bank_name | No |
-| trainer_ids | No — array of IDs from `GET /api/invitations/trainers` |
+| trainer_ids | No — array of IDs from `GET /api/events/trainers` |
 | is_published | No (default `false`) |
 
 **Alternative:** `multipart/form-data` with the same fields plus optional `template` (HTML file).
@@ -166,7 +167,7 @@ Same as admin list, but:
 - Response includes `payment` and `trainers` (with bios)
 - Response omits admin fields (`is_published`, `created_by`, template paths, etc.)
 
-**Trainers:** Reuse profiles from `GET /api/invitations/trainers`. Create trainers there first, then pass their IDs in `trainer_ids` when creating/updating an event.
+**Trainers:** Manage via `/api/events/trainers` (see section 7 below).
 
 **Response `200`:**
 
@@ -273,6 +274,42 @@ Use after create if you did not attach a template in step 1.
 
 ---
 
+## 7. Trainers (admin)
+
+Profiles are stored in `invitation_trainers` (shared with full invitation campaigns).
+
+### List trainers
+
+`GET /api/events/trainers?active_only=true`
+
+### Create trainer
+
+`POST /api/events/trainers`
+
+**JSON:**
+```json
+{
+  "full_name": "Dr. Jane Mwangi",
+  "designation": "Lead Facilitator",
+  "bio": "20 years in public sector accounting…",
+  "qualifications": "CPA, PhD"
+}
+```
+
+**Or** `multipart/form-data` with the fields above plus optional `photo` file (jpg, png, gif, webp).
+
+**Response `201`:** returns trainer object including `id` — use in `trainer_ids` when creating/updating events.
+
+### Get / update / deactivate
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/events/trainers/{id}` | Single trainer |
+| `PUT` | `/api/events/trainers/{id}` | Partial update; supports photo upload |
+| `DELETE` | `/api/events/trainers/{id}` | Soft delete (`is_active = false`) |
+
+---
+
 ## Suggested website flow
 
 ```mermaid
@@ -288,9 +325,10 @@ flowchart LR
 
 ## Admin flow
 
-1. `POST /api/events` — create event (optionally upload template)
-2. `PUT /api/events/{id}` — set `is_published: true` when ready
-3. `GET /api/events` — dashboard of upcoming events
+1. `POST /api/events/trainers` — create trainer profiles
+2. `POST /api/events` — create event with `trainer_ids`
+3. `PUT /api/events/{id}` — set `is_published: true` when ready
+4. `GET /api/events` — dashboard of upcoming events
 
 ---
 

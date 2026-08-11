@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 from applications.models.models import InvitationTrainer
 from database.db_connector import get_db
 from events.models.models import Event, EventLetterRequest, EventTrainerAssignment
+from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_pdf_service import delete_temp_pdf, generate_invitation_pdf
 from public.services.invitation_template_service import (
     delete_invitation_template_file,
@@ -537,6 +538,177 @@ def update_event(event_id: int):
     except Exception as e:
         db.rollback()
         logger.exception("update_event: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Trainers (shared invitation_trainers table)
+# ---------------------------------------------------------------------------
+
+
+def _parse_trainer_payload():
+    if request.content_type and "multipart/form-data" in request.content_type:
+        return {
+            "full_name": request.form.get("full_name"),
+            "designation": request.form.get("designation"),
+            "bio": request.form.get("bio"),
+            "qualifications": request.form.get("qualifications"),
+            "is_active": request.form.get("is_active"),
+        }, request.files.get("photo")
+    data = request.get_json(silent=True) or {}
+    return data, None
+
+
+@events_bp.route("/api/events/trainers", methods=["GET"])
+@jwt_required()
+def list_event_trainers():
+    """List trainers available for events."""
+    db = get_db()
+    try:
+        active_only = request.args.get("active_only", "true").lower() != "false"
+        q = db.query(InvitationTrainer)
+        if active_only:
+            q = q.filter(InvitationTrainer.is_active == True)
+        trainers = q.order_by(InvitationTrainer.full_name.asc()).all()
+        return jsonify({
+            "status": "success",
+            "data": [_trainer_to_dict(t) for t in trainers],
+        })
+    except Exception as e:
+        logger.exception("list_event_trainers: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/trainers/<int:trainer_id>", methods=["GET"])
+@jwt_required()
+def get_event_trainer(trainer_id: int):
+    db = get_db()
+    try:
+        trainer = db.query(InvitationTrainer).filter(InvitationTrainer.id == trainer_id).first()
+        if not trainer:
+            return jsonify({"status": "error", "message": "Trainer not found"}), 404
+        return jsonify({"status": "success", "data": _trainer_to_dict(trainer)})
+    except Exception as e:
+        logger.exception("get_event_trainer: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/trainers", methods=["POST"])
+@jwt_required()
+def create_event_trainer():
+    """Create a trainer profile for use on events."""
+    data, photo_file = _parse_trainer_payload()
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        if not (data.get("full_name") or "").strip():
+            return jsonify({"status": "error", "message": "full_name is required"}), 400
+
+        photo_url = None
+        if photo_file and photo_file.filename:
+            photo_url = handle_invitation_trainer_photo_upload(
+                photo_file, data.get("full_name") or ""
+            )
+        elif data.get("photo"):
+            photo_url = data.get("photo")
+
+        trainer = InvitationTrainer(
+            full_name=data["full_name"].strip(),
+            designation=(data.get("designation") or "").strip() or None,
+            bio=(data.get("bio") or "").strip() or None,
+            qualifications=(data.get("qualifications") or "").strip() or None,
+            photo=photo_url,
+            is_active=True,
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        db.add(trainer)
+        db.commit()
+        db.refresh(trainer)
+        return jsonify({
+            "status": "success",
+            "message": "Trainer created",
+            "data": _trainer_to_dict(trainer),
+        }), 201
+    except Exception as e:
+        db.rollback()
+        logger.exception("create_event_trainer: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/trainers/<int:trainer_id>", methods=["PUT"])
+@jwt_required()
+def update_event_trainer(trainer_id: int):
+    db = get_db()
+    try:
+        user_id = int(get_jwt_identity())
+        trainer = db.query(InvitationTrainer).filter(InvitationTrainer.id == trainer_id).first()
+        if not trainer:
+            return jsonify({"status": "error", "message": "Trainer not found"}), 404
+
+        data, photo_file = _parse_trainer_payload()
+        if photo_file and photo_file.filename:
+            photo_url = handle_invitation_trainer_photo_upload(
+                photo_file, data.get("full_name") or trainer.full_name
+            )
+            if photo_url:
+                trainer.photo = photo_url
+
+        for field in ("full_name", "designation", "bio", "qualifications", "photo"):
+            if field in data and data[field] is not None:
+                value = data[field]
+                if field != "photo":
+                    value = str(value).strip() or None
+                if field == "full_name" and value:
+                    trainer.full_name = value
+                elif field != "full_name":
+                    setattr(trainer, field, value)
+        if "is_active" in data:
+            trainer.is_active = _parse_bool(data["is_active"])
+
+        trainer.updated_by = user_id
+        trainer.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(trainer)
+        return jsonify({
+            "status": "success",
+            "message": "Trainer updated",
+            "data": _trainer_to_dict(trainer),
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("update_event_trainer: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/trainers/<int:trainer_id>", methods=["DELETE"])
+@jwt_required()
+def delete_event_trainer(trainer_id: int):
+    """Soft-deactivate a trainer (sets is_active = false)."""
+    db = get_db()
+    try:
+        user_id = int(get_jwt_identity())
+        trainer = db.query(InvitationTrainer).filter(InvitationTrainer.id == trainer_id).first()
+        if not trainer:
+            return jsonify({"status": "error", "message": "Trainer not found"}), 404
+        trainer.is_active = False
+        trainer.updated_by = user_id
+        trainer.updated_at = datetime.utcnow()
+        db.commit()
+        return jsonify({"status": "success", "message": "Trainer deactivated"})
+    except Exception as e:
+        db.rollback()
+        logger.exception("delete_event_trainer: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
