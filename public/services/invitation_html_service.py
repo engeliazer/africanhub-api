@@ -47,9 +47,10 @@ def _get_jinja_env() -> Environment:
             text = BR_TAG_RE.sub("\n", text)
             return text
 
-        def nl2br(value) -> str:
+        def nl2br(value) -> Markup:
+            """Newlines and <br> tags → HTML line breaks (safe for PDF rendering)."""
             text = html.escape(_normalize_line_breaks(value))
-            return text.replace("\n", "<br />")
+            return Markup(text.replace("\n", "<br />"))
 
         def richtext(value) -> Markup:
             """Paragraphs + line breaks; safe for invitee-personalized message HTML."""

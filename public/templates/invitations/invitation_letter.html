@@ -295,7 +295,7 @@
     <p class="course-detail"><strong>Date:</strong> {{ course.date_range }}</p>
     <p class="course-detail"><strong>Time:</strong> {{ course.time_range }}</p>
     {% if course.description %}
-    <p>{{ course.description | nl2br }}</p>
+    <div class="letter-message">{{ course.description | richtext }}</div>
     {% endif %}
     {% if course.learning_outcomes %}
     <p><strong>Learning Outcomes</strong></p>
@@ -315,7 +315,7 @@
     <p class="trainer-role">{{ trainer.designation }}</p>
     {% endif %}
     {% if trainer.bio %}
-    <p>{{ trainer.bio | nl2br }}</p>
+    <div class="letter-message">{{ trainer.bio | richtext }}</div>
     {% endif %}
     {% if trainer.qualifications %}
     <p><strong>Qualifications:</strong> {{ trainer.qualifications | nl2br }}</p>
