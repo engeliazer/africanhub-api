@@ -29,6 +29,17 @@ flowchart LR
 
 Publishing is **blocked** until steps 1–3 are complete. Step 4 is optional (built-in default letter is used if skipped).
 
+If the client sends `is_published: true` before requirements are met, the API **still saves** all other fields (payment, trainers, etc.) but keeps `is_published: false` and returns `200` with:
+
+```json
+{
+  "status": "success",
+  "message": "Event saved but not published — Complete step: Payment & bank details.",
+  "published": false,
+  "data": { "...": "...", "setup": { "...": "..." } }
+}
+```
+
 ### Setup object (admin)
 
 ```json

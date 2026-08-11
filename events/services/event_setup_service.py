@@ -25,10 +25,6 @@ def _missing_payment_fields(event: Event) -> List[str]:
     missing = []
     if event.course_fee is None:
         missing.append("course_fee")
-    if event.deposit_amount is None:
-        missing.append("deposit_amount")
-    if not event.reservation_deadline:
-        missing.append("reservation_deadline")
     if not (event.bank_account_name or "").strip():
         missing.append("bank_account_name")
     if not (event.bank_account_number or "").strip():
@@ -72,7 +68,7 @@ def _step_payment(event: Event) -> Dict[str, Any]:
         "required": True,
         "completed": len(missing) == 0,
         "missing": missing,
-        "hint": "Set course fee, deposit, reservation deadline, and bank account details.",
+        "hint": "Set course fee and bank account details (deposit and deadline are optional).",
     }
 
 
