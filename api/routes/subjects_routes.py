@@ -13,11 +13,21 @@ from subjects.models.schemas import (
     subject_to_dict,
     subject_badge_fields,
 )
+from subjects.controllers.document_utils import (
+    parse_subject_create_payload,
+    parse_subject_update_payload,
+    get_details_document_file,
+    handle_subject_details_document_upload,
+    delete_subject_details_document,
+    should_remove_details_document,
+    request_has_form,
+)
 from studies.models.models import SubtopicMaterial
 from sqlalchemy import and_, func
 from auth.middleware.token_middleware import token_refresh_middleware
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+import json
 import os
 import re
 import shutil
@@ -614,9 +624,30 @@ def get_subject(subject_id):
 def create_subject():
     try:
         db = get_db()
-        data = request.get_json()
+        data, parse_error, status = parse_subject_create_payload()
+        if parse_error:
+            return jsonify({
+                "status": "error",
+                "message": parse_error
+            }), int(status or 400)
+
+        details_document_url = None
+        doc_file = get_details_document_file()
+        if doc_file and doc_file.filename:
+            details_document_url, upload_error = handle_subject_details_document_upload(
+                doc_file,
+                data.get("code", "subject"),
+            )
+            if upload_error:
+                return jsonify({
+                    "status": "error",
+                    "message": upload_error
+                }), 400
+
         subject_data = SubjectCreate(**data)
         subject = Subject(**subject_data.dict())
+        if details_document_url:
+            subject.details_document_url = details_document_url
         db.add(subject)
         db.commit()
         db.refresh(subject)
@@ -639,7 +670,33 @@ def create_subject_with_topic_subtopic():
     """Create a new subject with associated topic and subtopic"""
     try:
         db = get_db()
-        data = request.get_json()
+        details_document_url = None
+
+        if request_has_form():
+            for field in ("subject", "topic", "subtopic"):
+                if not request.form.get(field):
+                    return jsonify({
+                        "status": "error",
+                        "message": f"{field} is required as JSON when uploading a details document"
+                    }), 400
+            data = {
+                "subject": json.loads(request.form.get("subject")),
+                "topic": json.loads(request.form.get("topic")),
+                "subtopic": json.loads(request.form.get("subtopic")),
+            }
+            doc_file = get_details_document_file()
+            if doc_file and doc_file.filename:
+                details_document_url, upload_error = handle_subject_details_document_upload(
+                    doc_file,
+                    data["subject"].get("code", "subject"),
+                )
+                if upload_error:
+                    return jsonify({
+                        "status": "error",
+                        "message": upload_error
+                    }), 400
+        else:
+            data = request.get_json()
         
         # Validate subject data
         subject_data = SubjectCreate(**data['subject'])
@@ -659,6 +716,7 @@ def create_subject_with_topic_subtopic():
                 is_best_price=subject_data.is_best_price,
                 is_most_recent=subject_data.is_most_recent,
                 is_active=subject_data.is_active,
+                details_document_url=details_document_url,
                 created_by=subject_data.created_by,
                 updated_by=subject_data.updated_by
             )
@@ -765,7 +823,31 @@ def update_subject(subject_id):
                 "status": "error",
                 "message": "Subject not found"
             }), 404
-        data = request.get_json()
+
+        data, parse_error, status = parse_subject_update_payload()
+        if parse_error:
+            return jsonify({
+                "status": "error",
+                "message": parse_error
+            }), int(status or 400)
+
+        doc_file = get_details_document_file()
+        if doc_file and doc_file.filename:
+            details_document_url, upload_error = handle_subject_details_document_upload(
+                doc_file,
+                data.get("code") or subject.code,
+            )
+            if upload_error:
+                return jsonify({
+                    "status": "error",
+                    "message": upload_error
+                }), 400
+            delete_subject_details_document(subject.details_document_url)
+            subject.details_document_url = details_document_url
+        elif should_remove_details_document():
+            delete_subject_details_document(subject.details_document_url)
+            subject.details_document_url = None
+
         subject_data = SubjectUpdate(**data)
         
         update_data = subject_data.dict(exclude_unset=True)

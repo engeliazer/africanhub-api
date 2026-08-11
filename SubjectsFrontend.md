@@ -10,7 +10,7 @@ This document describes how the React (or other) frontend should integrate with 
 |------|--------|
 | Base path | `/api/subjects` |
 | Auth | **JWT required** (`Authorization: Bearer <token>`) |
-| Content-Type | `application/json` |
+| Content-Type | `application/json` **or** `multipart/form-data` when uploading a details document |
 
 ### Standard JSON envelope
 
@@ -62,6 +62,7 @@ This document describes how the React (or other) frontend should integrate with 
   "is_most_recent": false,
   "flags": ["most_popular"],
   "is_active": true,
+  "details_document_url": "https://africanhub-api.africanhub.ac.tz/storage/subject_documents/fr-101-a1b2c3d4.pdf",
   "created_by": 5,
   "updated_by": 5,
   "created_at": "2026-08-10T08:00:00",
@@ -71,6 +72,12 @@ This document describes how the React (or other) frontend should integrate with 
 ```
 
 When fetched via `GET /api/subjects/{id}` or list endpoints, topics may also be nested under `topics`.
+
+### Details document
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `details_document_url` | `string \| null` | Public URL to an uploaded syllabus/details file (PDF, DOC, DOCX, or TXT). Set by the API on upload; not sent as JSON on create/update. |
 
 ---
 
@@ -122,6 +129,10 @@ Responses also include a derived **`flags`** array — active badge keys only, e
 
 ### `POST /api/subjects`
 
+Supports **JSON** (no file) or **multipart/form-data** (with optional details document).
+
+#### Option A — JSON only (no document)
+
 **Request body**
 
 ```json
@@ -140,6 +151,46 @@ Responses also include a derived **`flags`** array — active badge keys only, e
   "updated_by": 5
 }
 ```
+
+#### Option B — multipart with details document
+
+Use `Content-Type: multipart/form-data`.
+
+| Form field | Type | Required | Notes |
+|------------|------|----------|-------|
+| `name` | text | yes | |
+| `code` | text | yes | Must be unique |
+| `description` | text | no | |
+| `current_price` | text/number | no | |
+| `duration_days` | text/number | no | |
+| `trial_duration_days` | text/number | no | |
+| `is_most_popular` | text | no | `"true"` / `"false"` (default `false`) |
+| `is_best_price` | text | no | |
+| `is_most_recent` | text | no | |
+| `is_active` | text | no | default `true` |
+| `created_by` | text/number | yes | Current user id |
+| `updated_by` | text/number | yes | Same as `created_by` on create |
+| `details_document` | file | no | PDF, DOC, DOCX, or TXT — max 15 MB |
+
+**Example (fetch)**
+
+```typescript
+const form = new FormData();
+form.append("name", "Financial Reporting");
+form.append("code", "FR-101");
+form.append("current_price", "150000");
+form.append("created_by", String(userId));
+form.append("updated_by", String(userId));
+if (file) form.append("details_document", file);
+
+await fetch("/api/subjects", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}` },
+  body: form,
+});
+```
+
+Do **not** set `Content-Type: application/json` when sending `FormData` — the browser sets the multipart boundary automatically.
 
 **Required fields**
 
@@ -163,7 +214,7 @@ Responses also include a derived **`flags`** array — active badge keys only, e
 | `is_most_recent` | `false` |
 | `is_active` | `true` |
 
-**Success response (`201`)**
+**Success response (`201`)** includes `details_document_url` when a file was uploaded.
 
 ```json
 {
@@ -177,6 +228,8 @@ Responses also include a derived **`flags`** array — active badge keys only, e
 | Condition | HTTP | Message |
 |-----------|------|---------|
 | Duplicate `code` | `500` / `400` | Subject code already exists |
+| Invalid document type | `400` | Invalid document type. Allowed: PDF, DOC, DOCX, TXT |
+| File too large | `400` | Document must be 15MB or smaller |
 
 ---
 
@@ -186,7 +239,9 @@ Responses also include a derived **`flags`** array — active badge keys only, e
 
 Use when the admin creates subject, first topic, and first subtopic in one step.
 
-**Request body**
+Supports **JSON** or **multipart/form-data** (when including a details document).
+
+#### JSON body
 
 ```json
 {
@@ -219,6 +274,23 @@ Use when the admin creates subject, first topic, and first subtopic in one step.
 }
 ```
 
+#### Multipart (with details document)
+
+| Form field | Type | Required |
+|------------|------|----------|
+| `subject` | text (JSON string) | yes |
+| `topic` | text (JSON string) | yes |
+| `subtopic` | text (JSON string) | yes |
+| `details_document` | file | no |
+
+```typescript
+const form = new FormData();
+form.append("subject", JSON.stringify(subjectPayload));
+form.append("topic", JSON.stringify(topicPayload));
+form.append("subtopic", JSON.stringify(subtopicPayload));
+if (file) form.append("details_document", file);
+```
+
 Include the same display fields inside `subject` as in the plain create endpoint.
 
 ---
@@ -244,6 +316,8 @@ type SubjectFormState = {
   is_best_price: boolean;
   is_most_recent: boolean;
   is_active: boolean;
+  detailsDocumentUrl: string | null;
+  detailsDocumentFile: File | null;
 };
 ```
 
@@ -262,11 +336,19 @@ function subjectToForm(subject: Subject): SubjectFormState {
     is_best_price: subject.is_best_price,
     is_most_recent: subject.is_most_recent,
     is_active: subject.is_active,
+    detailsDocumentUrl: subject.details_document_url ?? null,
+    detailsDocumentFile: null,
   };
 }
 ```
 
+Show a **Details document** file input on create/edit. If `detailsDocumentUrl` is set, show a link to open/download the current file and a “Remove document” control.
+
 ### Save — `PUT /api/subjects/{id}`
+
+Send **JSON** for field-only updates, or **multipart** when uploading or replacing the details document.
+
+#### JSON (no file change)
 
 Send **only changed fields** plus **required** `updated_by`, or send the full form — both work because the API uses partial update (`exclude_unset`).
 
@@ -285,6 +367,26 @@ Send **only changed fields** plus **required** `updated_by`, or send the full fo
   "is_most_recent": false,
   "is_active": true,
   "updated_by": 5
+}
+```
+
+#### Multipart — replace details document
+
+Same form fields as create (only fields you want to change), plus:
+
+| Form field | Notes |
+|------------|-------|
+| `details_document` | New file replaces the existing one |
+| `remove_details_document` | `"true"` to delete the current file without uploading a new one |
+
+```typescript
+const form = new FormData();
+form.append("name", formState.name);
+form.append("updated_by", String(userId));
+if (formState.detailsDocumentFile) {
+  form.append("details_document", formState.detailsDocumentFile);
+} else if (removeDocument) {
+  form.append("remove_details_document", "true");
 }
 ```
 

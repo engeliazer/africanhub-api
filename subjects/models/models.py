@@ -99,6 +99,7 @@ class Subject(Base):
     is_best_price = Column(Boolean, nullable=False, default=False)
     is_most_recent = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    details_document_url = Column(String(512), nullable=True, comment="Public URL to subject details document (PDF/DOC/etc.)")
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())

@@ -66,6 +66,7 @@ class SubjectUpdate(BaseModel):
 
 class SubjectInDB(SubjectBase):
     id: int
+    details_document_url: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     deleted_by: Optional[int] = None
