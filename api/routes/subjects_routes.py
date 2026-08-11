@@ -19,6 +19,7 @@ from subjects.controllers.document_utils import (
     get_details_document_file,
     handle_subject_details_document_upload,
     delete_subject_details_document,
+    replace_subject_details_document,
     should_remove_details_document,
     request_has_form,
 )
@@ -869,6 +870,112 @@ def update_subject(subject_id):
             "status": "error",
             "message": "Subject code already exists"
         }), 400
+    except Exception as e:
+        db.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+@subjects_bp.route('/subjects/<int:subject_id>/details-document', methods=['POST'])
+@jwt_required()
+def upload_subject_details_document(subject_id):
+    """Upload or replace the details document for an existing subject."""
+    try:
+        db = get_db()
+        subject = db.query(Subject).filter(
+            Subject.id == subject_id,
+            Subject.deleted_at.is_(None),
+        ).first()
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+
+        doc_file = get_details_document_file()
+        if not doc_file or not doc_file.filename:
+            return jsonify({
+                "status": "error",
+                "message": "details_document file is required"
+            }), 400
+
+        details_document_url, upload_error = replace_subject_details_document(subject, doc_file)
+        if upload_error:
+            return jsonify({
+                "status": "error",
+                "message": upload_error
+            }), 400
+
+        updated_by = request.form.get("updated_by") or get_jwt_identity()
+        subject.details_document_url = details_document_url
+        subject.updated_by = int(updated_by)
+
+        db.commit()
+        db.refresh(subject)
+
+        return jsonify({
+            "status": "success",
+            "message": "Subject details document uploaded successfully",
+            "data": {
+                "id": subject.id,
+                "details_document_url": subject.details_document_url,
+                "subject": subject_to_dict(subject),
+            }
+        }), 200
+    except Exception as e:
+        db.rollback()
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    finally:
+        db.close()
+
+
+@subjects_bp.route('/subjects/<int:subject_id>/details-document', methods=['DELETE'])
+@jwt_required()
+def delete_subject_details_document_endpoint(subject_id):
+    """Remove the details document from an existing subject."""
+    try:
+        db = get_db()
+        subject = db.query(Subject).filter(
+            Subject.id == subject_id,
+            Subject.deleted_at.is_(None),
+        ).first()
+        if not subject:
+            return jsonify({
+                "status": "error",
+                "message": "Subject not found"
+            }), 404
+
+        if not subject.details_document_url:
+            return jsonify({
+                "status": "error",
+                "message": "Subject has no details document"
+            }), 404
+
+        delete_subject_details_document(subject.details_document_url)
+        subject.details_document_url = None
+
+        payload = request.get_json(silent=True) or {}
+        updated_by = (
+            payload.get("updated_by")
+            or request.form.get("updated_by")
+            or get_jwt_identity()
+        )
+        subject.updated_by = int(updated_by)
+
+        db.commit()
+        db.refresh(subject)
+
+        return jsonify({
+            "status": "success",
+            "message": "Subject details document removed successfully",
+            "data": subject_to_dict(subject)
+        }), 200
     except Exception as e:
         db.rollback()
         return jsonify({

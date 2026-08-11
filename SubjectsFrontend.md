@@ -40,6 +40,8 @@ This document describes how the React (or other) frontend should integrate with 
 | Load one subject (edit form) | `GET` | `/api/subjects/{id}` |
 | Create subject | `POST` | `/api/subjects` |
 | Create subject + topic + subtopic (wizard) | `POST` | `/api/subjects/with-topic-subtopic` |
+| Upload subject details document | `POST` | `/api/subjects/{id}/details-document` |
+| Remove subject details document | `DELETE` | `/api/subjects/{id}/details-document` |
 | Update subject | `PUT` | `/api/subjects/{id}` |
 
 ---
@@ -292,6 +294,76 @@ if (file) form.append("details_document", file);
 ```
 
 Include the same display fields inside `subject` as in the plain create endpoint.
+
+---
+
+## Upload details document independently
+
+Use when the subject already exists and you only want to upload or replace its details document — without sending the full create/update payload.
+
+### Upload / replace — `POST /api/subjects/{id}/details-document`
+
+| Item | Value |
+|------|--------|
+| Auth | JWT required |
+| Content-Type | `multipart/form-data` |
+
+| Form field | Required | Notes |
+|------------|----------|-------|
+| `details_document` | yes | PDF, DOC, DOCX, or TXT — max 15 MB |
+| `updated_by` | no | Defaults to JWT user id if omitted |
+
+**Example**
+
+```typescript
+const form = new FormData();
+form.append("details_document", file);
+form.append("updated_by", String(userId));
+
+await fetch(`/api/subjects/${subjectId}/details-document`, {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}` },
+  body: form,
+});
+```
+
+**Success response (`200`)**
+
+```json
+{
+  "status": "success",
+  "message": "Subject details document uploaded successfully",
+  "data": {
+    "id": 12,
+    "details_document_url": "https://africanhub-api.africanhub.ac.tz/storage/subject_documents/fr-101-a1b2c3d4.pdf",
+    "subject": { /* full SubjectInDB */ }
+  }
+}
+```
+
+Uploading again **replaces** the previous file.
+
+### Remove — `DELETE /api/subjects/{id}/details-document`
+
+No file required. Optional JSON body:
+
+```json
+{
+  "updated_by": 5
+}
+```
+
+If `updated_by` is omitted, the JWT user id is used.
+
+**Success response (`200`)**
+
+```json
+{
+  "status": "success",
+  "message": "Subject details document removed successfully",
+  "data": { /* SubjectInDB with details_document_url: null */ }
+}
+```
 
 ---
 

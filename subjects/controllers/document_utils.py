@@ -151,3 +151,21 @@ def get_details_document_file():
 
 def should_remove_details_document() -> bool:
     return _parse_bool(request.form.get("remove_details_document"))
+
+
+def replace_subject_details_document(
+    subject,
+    doc_file: FileStorage,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Upload a new details document for a subject, replacing any existing file."""
+    details_document_url, upload_error = handle_subject_details_document_upload(
+        doc_file,
+        getattr(subject, "code", None) or "subject",
+    )
+    if upload_error:
+        return None, upload_error
+    if not details_document_url:
+        return None, "Details document file is required"
+
+    delete_subject_details_document(getattr(subject, "details_document_url", None))
+    return details_document_url, None
