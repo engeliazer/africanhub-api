@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.orm import joinedload
+from sqlalchemy import true
 
 from applications.models.models import InvitationTrainer
 from database.db_connector import get_db
@@ -280,7 +281,6 @@ def _apply_create_fields(event: Event, data: dict) -> Optional[str]:
     event.start_time = start_time
     event.end_time = end_time
     event.learning_outcomes = (data.get("learning_outcomes") or "").strip() or None
-    event.is_published = _parse_bool(data.get("is_published"), default=False)
     _apply_payment_fields(event, data)
     return None
 
@@ -324,11 +324,15 @@ def _validate_publish_allowed(event: Event, db) -> Optional[str]:
     return f"Complete step: {step}."
 
 
-def _apply_publish_request(event: Event, db, *, requested: bool) -> Optional[str]:
-    """Return error message if publish was requested but requirements are not met."""
-    if not requested:
-        return None
-    return _validate_publish_allowed(event, db)
+def _try_publish_event(event: Event, db) -> Optional[str]:
+    """Validate and set is_published. Returns error message or None on success."""
+    db.flush()
+    error = _validate_publish_allowed(event, db)
+    if error:
+        event.is_published = False
+        return error
+    event.is_published = True
+    return None
 
 
 @events_bp.route("/api/events", methods=["POST"])
@@ -368,10 +372,11 @@ def create_event():
             event.invitation_template_filename = filename
 
         wants_publish = _parse_bool(data.get("is_published"), default=False)
-        event.is_published = False
-        publish_error = _apply_publish_request(event, db, requested=wants_publish)
-        if wants_publish and not publish_error:
-            event.is_published = True
+        publish_error = None
+        if wants_publish:
+            publish_error = _try_publish_event(event, db)
+        else:
+            event.is_published = False
 
         db.commit()
         db.refresh(event)
@@ -384,7 +389,7 @@ def create_event():
             "status": "success",
             "message": response_message,
             "data": _event_to_dict(event, db),
-            "published": event.is_published,
+            "published": bool(event.is_published),
         }), 201
     except ValueError as e:
         db.rollback()
@@ -464,6 +469,74 @@ def get_event_setup(event_id: int):
         db.close()
 
 
+@events_bp.route("/api/events/<int:event_id>/publish", methods=["POST"])
+@jwt_required()
+def publish_event(event_id: int):
+    """Publish event to the public website (requires setup steps 1–3 complete)."""
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+
+        user_id = int(get_jwt_identity())
+        publish_error = _try_publish_event(event, db)
+        event.updated_by = user_id
+        event.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(event)
+
+        if publish_error:
+            return jsonify({
+                "status": "success",
+                "message": f"Not published — {publish_error}",
+                "published": False,
+                "data": _event_to_dict(event, db),
+            }), 200
+
+        return jsonify({
+            "status": "success",
+            "message": "Event published",
+            "published": True,
+            "data": _event_to_dict(event, db),
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("publish_event: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/<int:event_id>/unpublish", methods=["POST"])
+@jwt_required()
+def unpublish_event(event_id: int):
+    """Remove event from the public website."""
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+
+        event.is_published = False
+        event.updated_by = int(get_jwt_identity())
+        event.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(event)
+        return jsonify({
+            "status": "success",
+            "message": "Event unpublished",
+            "published": False,
+            "data": _event_to_dict(event, db),
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("unpublish_event: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @events_bp.route("/api/events/public", methods=["GET"])
 def list_events_public():
     """Public list of published events that have not ended (no authentication)."""
@@ -472,7 +545,7 @@ def list_events_public():
         today = date.today()
         rows = (
             _upcoming_filter(_events_query(db), today)
-            .filter(Event.is_published == True)
+            .filter(Event.is_published.is_(True))
             .order_by(Event.start_date.asc(), Event.id.asc())
             .all()
         )
@@ -605,31 +678,28 @@ def update_event(event_id: int):
         if "trainer_ids" in data:
             _assign_trainers(db, event, data.get("trainer_ids") or [])
 
-        wants_publish = "is_published" in data and _parse_bool(data["is_published"])
-        if "is_published" in data and not wants_publish:
-            event.is_published = False
+        publish_error = None
+        if "is_published" in data:
+            if _parse_bool(data["is_published"]):
+                publish_error = _try_publish_event(event, db)
+            else:
+                event.is_published = False
 
         event.updated_by = user_id
         event.updated_at = datetime.utcnow()
-
-        publish_error = _apply_publish_request(event, db, requested=wants_publish)
-        if wants_publish and not publish_error:
-            event.is_published = True
-        elif wants_publish:
-            event.is_published = False
 
         db.commit()
         db.refresh(event)
 
         response_message = "Event updated"
-        if wants_publish and publish_error:
+        if "is_published" in data and _parse_bool(data["is_published"]) and publish_error:
             response_message = f"Event saved but not published — {publish_error}"
 
         return jsonify({
             "status": "success",
             "message": response_message,
             "data": _event_to_dict(event, db),
-            "published": event.is_published,
+            "published": bool(event.is_published),
         })
     except ValueError as e:
         db.rollback()
