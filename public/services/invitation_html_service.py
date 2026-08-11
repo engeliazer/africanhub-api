@@ -195,9 +195,10 @@ def _signatory_context() -> Dict[str, str]:
     }
 
 
-def _brand_context(invitation: Invitation) -> Dict[str, str]:
+def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, str]:
     logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/logo.png").strip()
     letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
+    source_email = getattr(invitation, "source_email", None) if invitation else None
     return {
         "name": (os.getenv("MAIL_FROM_NAME") or "The African Hub").strip().upper(),
         "legal_name": (
@@ -225,9 +226,77 @@ def _brand_context(invitation: Invitation) -> Dict[str, str]:
         "website": (os.getenv("MAIL_WEBSITE_URL") or "https://africanhub.ac.tz").strip(),
         "contact_email": (
             os.getenv("MAIL_REPLY_TO")
-            or invitation.source_email
+            or source_email
             or "trainings@africanhub.ac.tz"
         ).strip(),
+    }
+
+
+def _course_render_fields(
+    *,
+    start_date,
+    end_date,
+    start_time,
+    end_time,
+    course_title,
+    course_description,
+    venue,
+    learning_outcomes,
+    course_fee,
+    deposit_amount,
+    reservation_deadline,
+    bank_account_name,
+    bank_account_number,
+    bank_name,
+) -> Dict[str, Any]:
+    """Shared course/payment block for invitation and event letters."""
+    start_date_fmt = _format_date(start_date)
+    end_date_fmt = _format_date(end_date)
+    if start_date_fmt and end_date_fmt and start_date_fmt != end_date_fmt:
+        date_range = f"{start_date_fmt} – {end_date_fmt}"
+    else:
+        date_range = start_date_fmt or end_date_fmt or ""
+
+    start_time_fmt = _format_time(start_time)
+    end_time_fmt = _format_time(end_time)
+    if start_time_fmt and end_time_fmt:
+        time_range = f"{start_time_fmt} – {end_time_fmt}"
+    else:
+        time_range = start_time_fmt or end_time_fmt or ""
+
+    course_fee_fmt = _format_money(course_fee)
+    deposit_amount_fmt = _format_money(deposit_amount)
+    has_payment = any([
+        course_fee_fmt,
+        deposit_amount_fmt,
+        reservation_deadline,
+        bank_name,
+        bank_account_name,
+        bank_account_number,
+    ])
+
+    return {
+        "course": {
+            "title": course_title,
+            "description": course_description,
+            "venue": venue,
+            "start_date": start_date_fmt,
+            "end_date": end_date_fmt,
+            "date_range": date_range,
+            "start_time": start_time_fmt,
+            "end_time": end_time_fmt,
+            "time_range": time_range,
+            "learning_outcomes": _learning_outcomes_list(learning_outcomes),
+        },
+        "payment": {
+            "course_fee": course_fee_fmt,
+            "deposit_amount": deposit_amount_fmt,
+            "reservation_deadline": _format_date(reservation_deadline),
+            "bank_account_name": bank_account_name,
+            "bank_account_number": bank_account_number,
+            "bank_name": bank_name,
+            "has_payment_info": has_payment,
+        },
     }
 
 
@@ -265,30 +334,22 @@ def build_invitation_render_context(
     trainers: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build Jinja2 context for invitation letter rendering."""
-    start_date = _format_date(invitation.start_date)
-    end_date = _format_date(invitation.end_date)
-    if start_date and end_date and start_date != end_date:
-        date_range = f"{start_date} – {end_date}"
-    else:
-        date_range = start_date or end_date or ""
-
-    start_time = _format_time(invitation.start_time)
-    end_time = _format_time(invitation.end_time)
-    if start_time and end_time:
-        time_range = f"{start_time} – {end_time}"
-    else:
-        time_range = start_time or end_time or ""
-
-    course_fee = _format_money(invitation.course_fee)
-    deposit_amount = _format_money(invitation.deposit_amount)
-    has_payment = any([
-        course_fee,
-        deposit_amount,
-        invitation.reservation_deadline,
-        invitation.bank_name,
-        invitation.bank_account_name,
-        invitation.bank_account_number,
-    ])
+    shared = _course_render_fields(
+        start_date=invitation.start_date,
+        end_date=invitation.end_date,
+        start_time=invitation.start_time,
+        end_time=invitation.end_time,
+        course_title=invitation.course_title,
+        course_description=invitation.course_description,
+        venue=invitation.venue,
+        learning_outcomes=invitation.learning_outcomes,
+        course_fee=invitation.course_fee,
+        deposit_amount=invitation.deposit_amount,
+        reservation_deadline=invitation.reservation_deadline,
+        bank_account_name=invitation.bank_account_name,
+        bank_account_number=invitation.bank_account_number,
+        bank_name=invitation.bank_name,
+    )
 
     letter_date = _format_letter_date()
     full_name = invitee.get("full_name") or ""
@@ -314,29 +375,76 @@ def build_invitation_render_context(
             "address_line": address_line,
             "addressee_line": _invitee_addressee_line(invitee),
         },
-        "course": {
-            "title": invitation.course_title,
-            "description": invitation.course_description,
-            "venue": invitation.venue,
-            "start_date": start_date,
-            "end_date": end_date,
-            "date_range": date_range,
-            "start_time": start_time,
-            "end_time": end_time,
-            "time_range": time_range,
-            "learning_outcomes": _learning_outcomes_list(invitation.learning_outcomes),
-        },
+        **shared,
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
-        "payment": {
-            "course_fee": course_fee,
-            "deposit_amount": deposit_amount,
-            "reservation_deadline": _format_date(invitation.reservation_deadline),
-            "bank_account_name": invitation.bank_account_name,
-            "bank_account_number": invitation.bank_account_number,
-            "bank_name": invitation.bank_name,
-            "has_payment_info": has_payment,
-        },
     }
+
+
+def build_event_render_context(
+    event,
+    invitee: Dict[str, Any],
+    *,
+    trainers: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build Jinja2 context for public event invitation letters."""
+    shared = _course_render_fields(
+        start_date=event.start_date,
+        end_date=event.end_date,
+        start_time=event.start_time,
+        end_time=event.end_time,
+        course_title=event.course_title,
+        course_description=event.course_description,
+        venue=event.venue,
+        learning_outcomes=event.learning_outcomes,
+        course_fee=event.course_fee,
+        deposit_amount=event.deposit_amount,
+        reservation_deadline=event.reservation_deadline,
+        bank_account_name=event.bank_account_name,
+        bank_account_number=event.bank_account_number,
+        bank_name=event.bank_name,
+    )
+
+    letter_date = _format_letter_date()
+    full_name = invitee.get("full_name") or ""
+    organization, address_line = _invitee_addressee_parts(invitee)
+    return {
+        "brand": _brand_context(),
+        "signatory": _signatory_context(),
+        "letter": {
+            "reference": _letter_reference(event.id),
+            "date": letter_date,
+            "subject_heading": _subject_heading(event.course_title),
+        },
+        "invitation": {
+            "title": event.title,
+            "email_message": "",
+            "email_subject": "",
+        },
+        "invitee": {
+            "full_name": full_name,
+            "email": invitee.get("email") or "",
+            "address": invitee.get("address") or "",
+            "organization": organization,
+            "address_line": address_line,
+            "addressee_line": _invitee_addressee_line(invitee),
+        },
+        **shared,
+        "trainers": [
+            {
+                "full_name": t.get("full_name"),
+                "designation": t.get("designation"),
+                "bio": t.get("bio"),
+                "qualifications": t.get("qualifications"),
+                "photo": t.get("photo"),
+            }
+            for t in trainers
+        ],
+    }
+
+
+def _is_jinja_template_file(template_path: str) -> bool:
+    text = Path(template_path).read_text(encoding="utf-8", errors="ignore")
+    return "{{" in text or "{%" in text
 
 
 def render_invitation_html(
@@ -350,6 +458,30 @@ def render_invitation_html(
     env = _get_jinja_env()
 
     if template_path and Path(template_path).is_file():
+        source = Path(template_path).read_text(encoding="utf-8")
+        template = env.from_string(source)
+    else:
+        template = env.get_template(DEFAULT_TEMPLATE)
+
+    return template.render(**context)
+
+
+def render_event_invitation_html(
+    event,
+    invitee: Dict[str, Any],
+    trainers: List[Dict[str, Any]],
+    *,
+    template_path: Optional[str] = None,
+) -> str:
+    """Full formal invitation letter for a website event (same design as campaigns)."""
+    context = build_event_render_context(event, invitee, trainers=trainers)
+    env = _get_jinja_env()
+
+    if (
+        template_path
+        and Path(template_path).is_file()
+        and _is_jinja_template_file(template_path)
+    ):
         source = Path(template_path).read_text(encoding="utf-8")
         template = env.from_string(source)
     else:

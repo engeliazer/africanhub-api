@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import date, datetime, time as time_type
 from decimal import Decimal
+from io import BytesIO
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, send_file
@@ -21,7 +22,7 @@ from database.db_connector import get_db
 from events.models.models import Event, EventLetterRequest, EventTrainerAssignment
 from events.services.event_setup_service import build_event_setup
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
-from public.services.invitation_pdf_service import delete_temp_pdf, generate_invitation_pdf
+from public.services.invitation_campaign_pdf_service import render_event_invitation_pdf_bytes
 from public.services.invitation_template_service import (
     delete_invitation_template_file,
     save_invitation_template,
@@ -588,7 +589,6 @@ def request_event_letter(event_id: int):
         return jsonify({"status": "error", "message": "Invalid email address"}), 400
 
     db = get_db()
-    pdf_path = None
     try:
         event, err = _get_event_or_404(db, event_id)
         if err:
@@ -611,16 +611,16 @@ def request_event_letter(event_id: int):
         )
         db.commit()
 
-        pdf_path, filename = generate_invitation_pdf(
-            template_path=event.invitation_template_path,
-            full_name=full_name,
-            address=address,
-            organization=organization,
-            batch_id=event.id,
-            recipient_id=0,
-        )
+        invitee = {
+            "full_name": full_name,
+            "organization": organization,
+            "address": address,
+            "email": email or "",
+        }
+        trainers = _trainers_for_event(event, db, public=True)
+        pdf_bytes, filename = render_event_invitation_pdf_bytes(event, invitee, trainers)
         return send_file(
-            pdf_path,
+            BytesIO(pdf_bytes),
             mimetype="application/pdf",
             as_attachment=True,
             download_name=filename,
@@ -634,7 +634,6 @@ def request_event_letter(event_id: int):
         logger.exception("request_event_letter: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
-        delete_temp_pdf(pdf_path)
         db.close()
 
 

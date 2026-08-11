@@ -13,6 +13,7 @@ from public.services.invitation_html_service import (
     _brand_context,
     _watermark_opacity,
     invitee_dict_from_model,
+    render_event_invitation_html,
     render_invitation_html,
     sample_invitee_dict,
 )
@@ -84,3 +85,54 @@ def render_invitation_pdf_for_invitee(invitation: Invitation, invitee_model) -> 
 
 def render_sample_invitation_pdf(invitation: Invitation) -> Tuple[bytes, str]:
     return render_invitation_pdf_bytes(invitation, sample_invitee_dict())
+
+
+def render_event_invitation_pdf_bytes(
+    event,
+    invitee: dict,
+    trainers: list,
+) -> Tuple[bytes, str]:
+    """
+    Render full formal invitation PDF for a public event (letterhead, course, trainers, payment).
+    Uses the same template and overlays as invitation campaigns.
+    """
+    html_content = render_event_invitation_html(
+        event,
+        invitee,
+        trainers,
+        template_path=event.invitation_template_path,
+    )
+
+    try:
+        from xhtml2pdf import pisa
+    except ImportError as e:
+        raise RuntimeError(
+            "xhtml2pdf is not installed in this Python environment. "
+            "On the server run: source venv/bin/activate && pip install -r requirements.txt "
+            "then restart Gunicorn and Celery. "
+            "Verify with: python scripts/check_invitation_pdf_deps.py"
+        ) from e
+
+    buffer = BytesIO()
+    status = pisa.CreatePDF(html_content, dest=buffer, encoding="utf-8")
+    if status.err:
+        raise RuntimeError("Failed to generate invitation PDF")
+
+    brand = _brand_context()
+    pdf_bytes = apply_invitation_pdf_overlays(
+        buffer.getvalue(),
+        opacity=_watermark_opacity(),
+        brand={
+            "legal_name": brand["legal_name"],
+            "info_email": brand["info_email"],
+            "website": brand["website"],
+        },
+    )
+
+    filename = invitation_pdf_filename(invitee.get("full_name") or "")
+    logger.info(
+        "Generated event invitation PDF %s for event %s",
+        filename,
+        event.id,
+    )
+    return pdf_bytes, filename
