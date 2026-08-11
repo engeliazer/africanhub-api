@@ -561,6 +561,94 @@ def list_events_public():
         db.close()
 
 
+def _letter_request_to_dict(row: EventLetterRequest, event: Optional[Event] = None) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "id": row.id,
+        "event_id": row.event_id,
+        "full_name": row.full_name,
+        "organization": row.organization,
+        "address": row.address,
+        "email": row.email,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+    if event:
+        data["event_title"] = event.title
+        data["course_title"] = event.course_title
+    return data
+
+
+@events_bp.route("/api/events/letter-requests", methods=["GET"])
+@jwt_required()
+def list_all_letter_requests():
+    """List all public invitation letter requests (newest first)."""
+    db = get_db()
+    try:
+        page = max(1, request.args.get("page", 1, type=int))
+        per_page = min(100, max(1, request.args.get("per_page", 20, type=int)))
+        event_id = request.args.get("event_id", type=int)
+        offset = (page - 1) * per_page
+
+        q = db.query(EventLetterRequest, Event).join(Event, EventLetterRequest.event_id == Event.id)
+        if event_id:
+            q = q.filter(EventLetterRequest.event_id == event_id)
+        total = q.count()
+        rows = (
+            q.order_by(EventLetterRequest.created_at.desc())
+            .offset(offset)
+            .limit(per_page)
+            .all()
+        )
+        return jsonify({
+            "status": "success",
+            "data": {
+                "requests": [_letter_request_to_dict(req, event) for req, event in rows],
+                "pagination": {
+                    "total": total,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": (total + per_page - 1) // per_page if total else 0,
+                },
+            },
+        })
+    except Exception as e:
+        logger.exception("list_all_letter_requests: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/<int:event_id>/letter-requests", methods=["GET"])
+@jwt_required()
+def list_event_letter_requests(event_id: int):
+    """List invitation letter requests for one event."""
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+
+        rows = (
+            db.query(EventLetterRequest)
+            .filter(EventLetterRequest.event_id == event_id)
+            .order_by(EventLetterRequest.created_at.desc())
+            .all()
+        )
+        return jsonify({
+            "status": "success",
+            "data": {
+                "event_id": event.id,
+                "event_title": event.title,
+                "total": len(rows),
+                "requests": [_letter_request_to_dict(r) for r in rows],
+            },
+        })
+    except Exception as e:
+        logger.exception("list_event_letter_requests: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @events_bp.route("/api/events/public/<int:event_id>/letter", methods=["POST"])
 def request_event_letter(event_id: int):
     """
