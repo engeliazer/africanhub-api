@@ -66,8 +66,12 @@ def roster_user_ids(db: Session, training_context_id: int) -> Set[int]:
     return {row[0] for row in rows}
 
 
-def roster_user_ids_for_subject(db: Session, subject_id: int) -> Set[int]:
-    """Users already on any certificate roster for this subject."""
+def roster_user_ids_for_training(
+    db: Session,
+    training_type: str,
+    training_id: int,
+) -> Set[int]:
+    """Users already on any certificate roster for this training source."""
     rows = (
         db.query(CertificateParticipant.user_id)
         .join(
@@ -75,8 +79,8 @@ def roster_user_ids_for_subject(db: Session, subject_id: int) -> Set[int]:
             CertificateParticipant.training_context_id == CertificateTrainingContext.id,
         )
         .filter(
-            CertificateTrainingContext.training_type == "subject",
-            CertificateTrainingContext.training_id == subject_id,
+            CertificateTrainingContext.training_type == training_type,
+            CertificateTrainingContext.training_id == training_id,
             CertificateTrainingContext.deleted_at.is_(None),
             CertificateParticipant.deleted_at.is_(None),
         )
@@ -87,12 +91,13 @@ def roster_user_ids_for_subject(db: Session, subject_id: int) -> Set[int]:
 
 def resolve_assigned_user_ids(
     db: Session,
-    subject_id: int,
+    training_type: str,
+    training_id: int,
     training_context_id: Optional[int] = None,
 ) -> Set[int]:
     if training_context_id:
         return roster_user_ids(db, training_context_id)
-    return roster_user_ids_for_subject(db, subject_id)
+    return roster_user_ids_for_training(db, training_type, training_id)
 
 
 def parse_optional_bool(value: Optional[str]) -> Optional[bool]:
@@ -135,6 +140,8 @@ def build_applicants_response(
     subject: Subject,
     rows: List[Tuple[ApplicationDetail, Application, User]],
     *,
+    training_type: str = "subject",
+    training_id: Optional[int] = None,
     training_context_id: Optional[int] = None,
     pending_certificate_assignment: Optional[bool] = None,
     missing_salutation: Optional[bool] = None,
@@ -151,8 +158,14 @@ def build_applicants_response(
     }
     salutations = _salutation_map(db, salutation_ids)
 
-    on_roster = resolve_assigned_user_ids(db, subject.id, training_context_id)
-    assignment_scope = "training_context" if training_context_id else "subject"
+    resolved_training_id = training_id if training_id is not None else subject.id
+    on_roster = resolve_assigned_user_ids(
+        db,
+        training_type,
+        resolved_training_id,
+        training_context_id,
+    )
+    assignment_scope = "training_context" if training_context_id else training_type
 
     for detail, application, user in rows:
         if user.id in seen_user_ids:
@@ -194,6 +207,8 @@ def build_applicants_response(
         "subject_id": subject.id,
         "subject_name": subject.name,
         "subject_code": subject.code,
+        "training_type": training_type,
+        "training_id": resolved_training_id,
         "training_context_id": training_context_id,
         "assignment_scope": assignment_scope,
         "filters": {

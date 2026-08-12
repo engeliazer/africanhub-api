@@ -11,8 +11,8 @@ SET @sql := IF(
     @table_exists = 0,
     'CREATE TABLE certificate_training_contexts (
         id BIGINT NOT NULL AUTO_INCREMENT,
-        training_type VARCHAR(20) NOT NULL COMMENT ''course or subject'',
-        training_id BIGINT NOT NULL COMMENT ''courses.id or subjects.id'',
+        training_type VARCHAR(20) NOT NULL COMMENT ''course, subject, or event'',
+        training_id BIGINT NOT NULL COMMENT ''courses.id, subjects.id, or events.id'',
         certificate_template_id BIGINT NOT NULL,
         host_mode VARCHAR(20) NOT NULL DEFAULT ''single'' COMMENT ''single or collaboration'',
         host_organization_name VARCHAR(255) NOT NULL,

@@ -91,13 +91,17 @@ class CertificateTemplateSignatory(Base):
 
 
 class CertificateTrainingContext(Base):
-    """Certificate run configuration for an existing course or subject (Group 2)."""
+    """Certificate run configuration for a course, subject, or event (Group 2)."""
 
     __tablename__ = "certificate_training_contexts"
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
-    training_type = Column(String(20), nullable=False, comment="course or subject")
-    training_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    training_type = Column(String(20), nullable=False, comment="course, subject, or event")
+    training_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=False,
+        comment="courses.id, subjects.id, or events.id",
+    )
     certificate_template_id = Column(
         BigInteger().with_variant(Integer, "sqlite"),
         ForeignKey("certificate_templates.id"),

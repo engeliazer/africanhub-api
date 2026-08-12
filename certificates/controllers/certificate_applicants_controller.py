@@ -127,7 +127,10 @@ def import_approved_applicants(context_id: int):
             if context.training_type != "subject":
                 return jsonify({
                     "status": "error",
-                    "message": "subject_id is required when training context is not linked to a subject",
+                    "message": (
+                        "subject_id is required when training context is not linked to a subject. "
+                        "Import from approved applicants is only supported for subject training contexts."
+                    ),
                 }), 400
             subject_id = context.training_id
         else:

@@ -1,17 +1,29 @@
 from datetime import date
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from sqlalchemy.orm import Session
 
 from certificates.models.models import CertificateTemplate, CertificateTrainingContext
+from events.models.models import Event
 from subjects.models.models import Course, Subject
 
+VALID_TRAINING_TYPES: Set[str] = {"course", "subject", "event"}
 
-def _training_record(
+
+def normalize_training_type(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized not in VALID_TRAINING_TYPES:
+        raise ValueError("training_type must be 'course', 'subject', or 'event'")
+    return normalized
+
+
+def training_record(
     db: Session,
     training_type: str,
     training_id: int,
 ) -> Tuple[Optional[Any], Optional[str]]:
+    training_type = normalize_training_type(training_type)
+
     if training_type == "course":
         row = (
             db.query(Course)
@@ -22,14 +34,26 @@ def _training_record(
             return None, "Course not found"
         return row, None
 
-    row = (
-        db.query(Subject)
-        .filter(Subject.id == training_id, Subject.deleted_at.is_(None))
-        .first()
-    )
+    if training_type == "subject":
+        row = (
+            db.query(Subject)
+            .filter(Subject.id == training_id, Subject.deleted_at.is_(None))
+            .first()
+        )
+        if not row:
+            return None, "Subject not found"
+        return row, None
+
+    row = db.query(Event).filter(Event.id == training_id).first()
     if not row:
-        return None, "Subject not found"
+        return None, "Event not found"
     return row, None
+
+
+def default_training_title(record: Any, training_type: str) -> str:
+    if training_type == "event":
+        return record.course_title or record.title
+    return record.name
 
 
 def resolve_subject_title(
@@ -41,10 +65,21 @@ def resolve_subject_title(
     if override and override.strip():
         return override.strip(), None
 
-    record, error = _training_record(db, training_type, training_id)
+    record, error = training_record(db, training_type, training_id)
     if error:
         return "", error
-    return record.name, None
+    return default_training_title(record, normalize_training_type(training_type)), None
+
+
+def training_context_matches(
+    context: CertificateTrainingContext,
+    training_type: str,
+    training_id: int,
+) -> bool:
+    return (
+        context.training_type == normalize_training_type(training_type)
+        and context.training_id == training_id
+    )
 
 
 def get_active_template(db: Session, template_id: int) -> Tuple[Optional[CertificateTemplate], Optional[str]]:
@@ -67,10 +102,11 @@ def find_training_context(
     training_type: str,
     training_id: int,
 ) -> Optional[CertificateTrainingContext]:
+    normalized = normalize_training_type(training_type)
     return (
         db.query(CertificateTrainingContext)
         .filter(
-            CertificateTrainingContext.training_type == training_type,
+            CertificateTrainingContext.training_type == normalized,
             CertificateTrainingContext.training_id == training_id,
             CertificateTrainingContext.deleted_at.is_(None),
         )
@@ -79,6 +115,11 @@ def find_training_context(
 
 
 def validate_training_context_data(data: Dict[str, Any]) -> Optional[str]:
+    try:
+        data["training_type"] = normalize_training_type(data.get("training_type", ""))
+    except ValueError as exc:
+        return str(exc)
+
     host_mode = data.get("host_mode", "single")
     if host_mode == "collaboration":
         if not data.get("invited_organization_name"):

@@ -91,7 +91,7 @@ def template_payload(template: Any, signatories: Optional[List[Any]] = None) -> 
     }
 
 
-VALID_TRAINING_TYPES = {"course", "subject"}
+VALID_TRAINING_TYPES = {"course", "subject", "event"}
 VALID_HOST_MODES = {"single", "collaboration"}
 
 
@@ -117,7 +117,7 @@ class TrainingContextInput(BaseModel):
     def validate_training_type(cls, value: str) -> str:
         normalized = (value or "").strip().lower()
         if normalized not in VALID_TRAINING_TYPES:
-            raise ValueError("training_type must be 'course' or 'subject'")
+            raise ValueError("training_type must be 'course', 'subject', or 'event'")
         return normalized
 
     @field_validator("host_mode")

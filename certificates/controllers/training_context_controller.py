@@ -13,6 +13,7 @@ from certificates.services.training_context_service import (
     apply_training_context_fields,
     find_training_context,
     get_active_template,
+    normalize_training_type,
     resolve_subject_title,
     validate_training_context_data,
 )
@@ -166,7 +167,7 @@ def _apply_override_signatures(data: Dict[str, Any]) -> Optional[str]:
 def get_training_context_by_training():
     """
     Lookup Group 2 context by training_type + training_id.
-    ?training_type=course|subject&training_id=501
+    ?training_type=course|subject|event&training_id=501
     """
     training_type = (request.args.get("training_type") or "").strip().lower()
     training_id_raw = request.args.get("training_id")
@@ -178,6 +179,11 @@ def get_training_context_by_training():
 
     db = get_db()
     try:
+        try:
+            training_type = normalize_training_type(training_type)
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+
         row = find_training_context(db, training_type, int(training_id_raw))
         if not row:
             return jsonify({"status": "error", "message": "Training context not found"}), 404
@@ -214,11 +220,11 @@ def get_training_context(context_id: int):
 @jwt_required()
 def upsert_training_context():
     """
-    Create or update Group 2 training context for a course or subject.
+    Create or update Group 2 training context for a course, subject, or event.
 
     JSON or multipart. Required identifiers:
-      - training_type: course | subject
-      - training_id: courses.id or subjects.id
+      - training_type: course | subject | event
+      - training_id: courses.id, subjects.id, or events.id
     """
     db = get_db()
     try:
