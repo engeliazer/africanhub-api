@@ -131,16 +131,46 @@ class CertificateRenderer:
         overlay_bytes = self._build_overlay_layer()
         return self._merge_layers(background_bytes, overlay_bytes)
 
-    def _load_background(self) -> bytes:
+    def _read_background_bytes(self) -> bytes:
         background_url = self.data["template"]["background_url"]
+        if not background_url:
+            raise ValueError("Certificate template background_url is missing")
+
         local_path = storage_url_to_local_path(background_url)
         if local_path and os.path.isfile(local_path):
             with open(local_path, "rb") as handle:
                 return handle.read()
 
-        response = requests.get(background_url, timeout=30)
-        response.raise_for_status()
-        return response.content
+        try:
+            response = requests.get(background_url, timeout=15)
+            response.raise_for_status()
+            return response.content
+        except requests.RequestException as exc:
+            raise ValueError(
+                f"Could not load certificate background from {background_url}: {exc}"
+            ) from exc
+
+    def _load_background(self) -> bytes:
+        raw = self._read_background_bytes()
+        if raw[:4] == b"%PDF":
+            return raw
+        return self._image_bytes_to_pdf_page(raw)
+
+    def _image_bytes_to_pdf_page(self, image_bytes: bytes) -> bytes:
+        buffer = BytesIO()
+        pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
+        pdf_canvas.drawImage(
+            ImageReader(BytesIO(image_bytes)),
+            0,
+            0,
+            width=self.page_w,
+            height=self.page_h,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+        pdf_canvas.save()
+        return buffer.getvalue()
 
     def _build_overlay_layer(self) -> bytes:
         buffer = BytesIO()
@@ -175,7 +205,9 @@ class CertificateRenderer:
     def _draw_preview_watermark(self, pdf_canvas) -> None:
         pdf_canvas.saveState()
         pdf_canvas.setFont("Helvetica-Bold", 72)
-        pdf_canvas.setFillGray(0.85, 0.25)
+        pdf_canvas.setFillGray(0.85)
+        if hasattr(pdf_canvas, "setFillAlpha"):
+            pdf_canvas.setFillAlpha(0.25)
         pdf_canvas.translate(self.page_w / 2, self.page_h / 2)
         pdf_canvas.rotate(45)
         pdf_canvas.drawCentredString(0, 0, "PREVIEW")
@@ -328,10 +360,16 @@ class CertificateRenderer:
             return None
 
     def _merge_layers(self, background_bytes: bytes, overlay_bytes: bytes) -> bytes:
-        background_reader = PdfReader(BytesIO(background_bytes))
-        overlay_reader = PdfReader(BytesIO(overlay_bytes))
-        writer = PdfWriter()
+        try:
+            background_reader = PdfReader(BytesIO(background_bytes))
+            overlay_reader = PdfReader(BytesIO(overlay_bytes))
+        except Exception as exc:
+            raise ValueError(f"Invalid certificate background PDF: {exc}") from exc
 
+        if not background_reader.pages:
+            raise ValueError("Certificate background PDF has no pages")
+
+        writer = PdfWriter()
         background_page = background_reader.pages[0]
         overlay_page = overlay_reader.pages[0]
         background_page.merge_page(overlay_page)

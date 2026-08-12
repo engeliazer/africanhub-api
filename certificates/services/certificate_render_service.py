@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from certificates.models.models import (
@@ -31,15 +32,19 @@ def get_participant_or_error(
     context_id: int,
     participant_id: int,
 ) -> Tuple[Optional[CertificateParticipant], Optional[str]]:
-    row = (
-        db.query(CertificateParticipant)
-        .filter(
-            CertificateParticipant.id == participant_id,
-            CertificateParticipant.training_context_id == context_id,
-            CertificateParticipant.deleted_at.is_(None),
+    try:
+        row = (
+            db.query(CertificateParticipant)
+            .filter(
+                CertificateParticipant.id == participant_id,
+                CertificateParticipant.training_context_id == context_id,
+                CertificateParticipant.deleted_at.is_(None),
+            )
+            .first()
         )
-        .first()
-    )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        return None, f"Certificate roster query failed: {exc}"
     if not row:
         return None, "Participant not found on this training context"
     return row, None
@@ -50,15 +55,21 @@ def get_event_participant_or_error(
     event_id: int,
     event_participant_id: int,
 ) -> Tuple[Optional[EventParticipant], Optional[str]]:
-    row = (
-        db.query(EventParticipant)
-        .filter(
-            EventParticipant.id == event_participant_id,
-            EventParticipant.event_id == event_id,
-            EventParticipant.deleted_at.is_(None),
+    try:
+        row = (
+            db.query(EventParticipant)
+            .filter(
+                EventParticipant.id == event_participant_id,
+                EventParticipant.event_id == event_id,
+                EventParticipant.deleted_at.is_(None),
+            )
+            .first()
         )
-        .first()
-    )
+    except Exception as exc:
+        return None, (
+            "Training calendar roster is unavailable. "
+            "Run scripts/add_event_participants_table.sql on the database."
+        )
     if not row:
         return None, "Event participant not found on this training calendar event"
     return row, None
@@ -195,15 +206,19 @@ def _resolve_signatories(
 
 
 def _next_certificate_sequence(db: Session, context_id: int) -> int:
-    count = (
-        db.query(Certificate.id)
-        .filter(
-            Certificate.training_context_id == context_id,
-            Certificate.deleted_at.is_(None),
+    try:
+        count = (
+            db.query(Certificate.id)
+            .filter(
+                Certificate.training_context_id == context_id,
+                Certificate.deleted_at.is_(None),
+            )
+            .count()
         )
-        .count()
-    )
-    return count + 1
+        return count + 1
+    except Exception:
+        db.rollback()
+        return 1
 
 
 def build_render_data(
@@ -255,7 +270,7 @@ def build_render_data(
         )
         cpd_line = ""
 
-    seq = sequence if sequence is not None else _next_certificate_sequence(db, context.id)
+    seq = 1 if preview else (sequence if sequence is not None else _next_certificate_sequence(db, context.id))
     cert_number = format_cert_number(
         context.cert_number_pattern,
         home_code=context.home_code,
@@ -337,5 +352,11 @@ def render_participant_certificate_pdf(
     if build_error:
         return None, None, build_error
 
-    pdf_bytes = CertificateRenderer(render_data).render_pdf_bytes()
+    try:
+        pdf_bytes = CertificateRenderer(render_data).render_pdf_bytes()
+    except ValueError as exc:
+        return None, None, str(exc)
+    except Exception as exc:
+        return None, None, f"Certificate render failed: {exc}"
+
     return pdf_bytes, render_data.get("meta"), None

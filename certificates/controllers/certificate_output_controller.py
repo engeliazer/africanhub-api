@@ -2,6 +2,7 @@
 Certificate preview and issuance (Group 4).
 """
 
+import logging
 import os
 from io import BytesIO
 
@@ -21,6 +22,8 @@ from certificates.services.certificate_render_service import (
 from certificates.services.certificate_renderer import CertificateRenderer
 from certificates.services.storage_path_utils import storage_url_to_local_path
 from database.db_connector import get_db
+
+logger = logging.getLogger(__name__)
 
 certificate_output_bp = Blueprint("certificate_output", __name__)
 
@@ -57,6 +60,9 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             status = 404 if "not found" in error.lower() else 400
             return jsonify({"status": "error", "message": error}), status
 
+        if not pdf_bytes:
+            return jsonify({"status": "error", "message": "Certificate render returned empty PDF"}), 500
+
         filename = f"certificate-preview-{participant_id}.pdf"
         return send_file(
             BytesIO(pdf_bytes),
@@ -65,6 +71,12 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             download_name=filename,
         )
     except Exception as exc:
+        logger.exception(
+            "preview_participant_certificate context=%s participant=%s: %s",
+            context_id,
+            participant_id,
+            exc,
+        )
         return jsonify({"status": "error", "message": str(exc)}), 500
     finally:
         db.close()
