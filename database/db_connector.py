@@ -40,8 +40,16 @@ db_session = scoped_session(SessionLocal)
 Base = declarative_base()
 
 def init_db():
-    """Initialize the database by creating all tables"""
-    Base.metadata.create_all(bind=engine)
+    """Initialize the database by creating all tables."""
+    try:
+        from database.base import Base as ModelBase
+        import certificates.models.models  # noqa: F401
+        import events.models.models  # noqa: F401
+
+        ModelBase.metadata.create_all(bind=engine)
+    except SQLAlchemyError as e:
+        print(f"Error creating tables: {str(e)}")
+        raise
 
 def get_db():
     """Get a database session"""
@@ -103,9 +111,13 @@ class DBConnector:
         return self._engine
 
     def create_all_tables(self):
-        """Create all tables defined in SQLAlchemy models"""
+        """Create all tables defined in SQLAlchemy models."""
         try:
-            Base.metadata.create_all(self._engine)
+            from database.base import Base as ModelBase
+            import certificates.models.models  # noqa: F401 — register certificate ORM models
+            import events.models.models  # noqa: F401 — register event ORM models
+
+            ModelBase.metadata.create_all(self._engine)
         except SQLAlchemyError as e:
             print(f"Error creating tables: {str(e)}")
             raise

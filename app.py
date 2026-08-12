@@ -168,8 +168,11 @@ CORS(app, resources={
 #     response.headers['Access-Control-Allow-Credentials'] = 'true'
 #     return response
 
-# Initialize database
-init_db()
+# Initialize database (non-fatal — app should still start if DB is temporarily unavailable)
+try:
+    init_db()
+except Exception as e:
+    print(f"Warning: init_db failed during startup: {e}")
 
 # Run database seeders
 try:

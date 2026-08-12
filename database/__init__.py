@@ -1,7 +1,4 @@
 from .db_connector import DBConnector
 
-# Create a global database connector instance
+# Global connector — do NOT run DDL here; app startup calls init_db() explicitly.
 db = DBConnector()
-
-# Initialize the database
-db.create_all_tables() 

@@ -48,7 +48,7 @@ class Event(Base):
         "EventParticipant",
         back_populates="event",
         cascade="all, delete-orphan",
-        order_by="EventParticipant.id.asc()",
+        order_by="EventParticipant.id",
     )
 
 
