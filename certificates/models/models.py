@@ -184,3 +184,45 @@ class CertificateParticipant(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     training_context = relationship("CertificateTrainingContext", backref="participants")
+
+
+class Certificate(Base):
+    """Issued certificate output (Group 4)."""
+
+    __tablename__ = "certificates"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    training_context_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("certificate_training_contexts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    participant_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("certificate_participants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    training_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=False,
+        comment="Denormalized courses.id, subjects.id, or events.id",
+    )
+    cert_number = Column(String(255), nullable=False, unique=True)
+    qualifies_for_cpd = Column(Boolean, nullable=False, default=False)
+    pdf_url = Column(String(500), nullable=False)
+    issued_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+    training_context = relationship("CertificateTrainingContext")
+    participant = relationship("CertificateParticipant")

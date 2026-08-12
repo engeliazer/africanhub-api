@@ -233,3 +233,17 @@ def salutation_payload(row: Any) -> Dict[str, Any]:
         "display_order": row.display_order,
         "is_active": row.is_active,
     }
+
+
+def certificate_output_payload(row: Any) -> Dict[str, Any]:
+    """Group 4 response shape for an issued certificate."""
+    return {
+        "certificate_id": row.id,
+        "training_context_id": row.training_context_id,
+        "participant_id": row.participant_id,
+        "training_id": row.training_id,
+        "cert_number": row.cert_number,
+        "qualifies_for_cpd": row.qualifies_for_cpd,
+        "pdf_url": row.pdf_url,
+        "issued_at": row.issued_at.isoformat() if row.issued_at else None,
+    }
