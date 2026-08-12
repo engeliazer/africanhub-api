@@ -2,31 +2,57 @@
 Certificate preview and issuance (Group 4).
 """
 
+import base64
 import logging
 import os
-from io import BytesIO
+import traceback
+from typing import Optional
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from certificates.controllers.certificate_file_utils import save_certificate_pdf
 from certificates.models.models import Certificate
 from certificates.models.schemas import certificate_output_payload
-from certificates.services.certificate_render_service import (
-    build_render_data,
-    diagnose_certificate_preview,
-    get_participant_or_error,
-    get_training_context_or_error,
-    render_participant_certificate_pdf,
-    resolve_render_participant,
-)
-from certificates.services.certificate_renderer import CertificateRenderer
 from certificates.services.storage_path_utils import storage_url_to_local_path
 from database.db_connector import get_db
 
 logger = logging.getLogger(__name__)
 
 certificate_output_bp = Blueprint("certificate_output", __name__)
+
+# Application-level error code for certificate preview/render failures (JSON body).
+CERTIFICATE_RENDER_ERROR_STATUS = 105
+
+
+def _certificate_render_error_response(
+    message: str,
+    *,
+    exc: Optional[BaseException] = None,
+    context_id: Optional[int] = None,
+    participant_id: Optional[int] = None,
+    include_trace: bool = False,
+):
+    body = {
+        "status": CERTIFICATE_RENDER_ERROR_STATUS,
+        "message": message,
+        "error_type": type(exc).__name__ if exc else "CertificateRenderError",
+    }
+    if context_id is not None:
+        body["context_id"] = context_id
+    if participant_id is not None:
+        body["participant_id"] = participant_id
+    if include_trace and exc is not None:
+        body["trace"] = traceback.format_exc()
+    return jsonify(body), 500
+
+
+def _wants_json_preview() -> bool:
+    fmt = (request.args.get("format") or "").strip().lower()
+    if fmt in {"json", "debug"}:
+        return True
+    accept = (request.headers.get("Accept") or "").lower()
+    return "application/json" in accept and "application/pdf" not in accept
 
 
 @certificate_output_bp.route(
@@ -41,6 +67,8 @@ def preview_participant_certificate_check(context_id: int, participant_id: int):
     """
     db = get_db()
     try:
+        from certificates.services.certificate_render_service import diagnose_certificate_preview
+
         source = (request.args.get("source") or "").strip().lower() or None
         try_render = (request.args.get("render") or "").strip().lower() in {"1", "true", "yes"}
         data = diagnose_certificate_preview(
@@ -50,11 +78,22 @@ def preview_participant_certificate_check(context_id: int, participant_id: int):
             source=source,
             try_render=try_render,
         )
-        status = 200 if data.get("ready") else 400
-        return jsonify({"status": "success" if data.get("ready") else "error", "data": data}), status
-    except Exception as exc:
+        if data.get("ready"):
+            return jsonify({"status": "success", "data": data}), 200
+        return jsonify({
+            "status": CERTIFICATE_RENDER_ERROR_STATUS,
+            "message": "Certificate preview is not ready",
+            "data": data,
+        }), 500
+    except BaseException as exc:
         logger.exception("preview_check failed: %s", exc)
-        return jsonify({"status": "error", "message": str(exc)}), 500
+        return _certificate_render_error_response(
+            str(exc) or "Preview check failed",
+            exc=exc,
+            context_id=context_id,
+            participant_id=participant_id,
+            include_trace=request.args.get("debug") == "1",
+        )
     finally:
         db.close()
 
@@ -73,12 +112,18 @@ def preview_participant_certificate(context_id: int, participant_id: int):
 
     Query params:
       - source=certificate (default) | event
-        For event training contexts, source=event uses training calendar
-        roster ids from event_participants. If omitted, certificate roster
-        is checked first, then event roster as fallback.
+      - format=json — return JSON (success: base64 PDF; failure: status 105 + message)
+      - debug=1 — include traceback on errors (JSON only)
     """
     db = get_db()
+    json_mode = _wants_json_preview()
+    include_trace = request.args.get("debug") == "1"
+
     try:
+        from certificates.services.certificate_render_service import (
+            render_participant_certificate_pdf,
+        )
+
         source = (request.args.get("source") or "").strip().lower() or None
         pdf_bytes, meta, error = render_participant_certificate_pdf(
             db,
@@ -87,28 +132,64 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             preview=True,
             source=source,
         )
+
         if error:
-            status = 404 if "not found" in error.lower() else 400
-            return jsonify({"status": "error", "message": error}), status
+            if json_mode:
+                return jsonify({
+                    "status": CERTIFICATE_RENDER_ERROR_STATUS,
+                    "message": error,
+                    "context_id": context_id,
+                    "participant_id": participant_id,
+                    "meta": meta,
+                }), 500
+            return jsonify({"status": "error", "message": error}), (
+                404 if "not found" in error.lower() else 400
+            )
 
         if not pdf_bytes:
-            return jsonify({"status": "error", "message": "Certificate render returned empty PDF"}), 500
+            return _certificate_render_error_response(
+                "Certificate render returned empty PDF",
+                context_id=context_id,
+                participant_id=participant_id,
+            )
 
         filename = f"certificate-preview-{participant_id}.pdf"
-        return send_file(
-            BytesIO(pdf_bytes),
+
+        if json_mode:
+            return jsonify({
+                "status": "success",
+                "message": "Certificate preview generated",
+                "data": {
+                    "context_id": context_id,
+                    "participant_id": participant_id,
+                    "filename": filename,
+                    "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii"),
+                    "meta": meta,
+                },
+            }), 200
+
+        return Response(
+            pdf_bytes,
             mimetype="application/pdf",
-            as_attachment=False,
-            download_name=filename,
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Content-Length": str(len(pdf_bytes)),
+            },
         )
-    except Exception as exc:
+    except BaseException as exc:
         logger.exception(
             "preview_participant_certificate context=%s participant=%s: %s",
             context_id,
             participant_id,
             exc,
         )
-        return jsonify({"status": "error", "message": str(exc)}), 500
+        return _certificate_render_error_response(
+            str(exc) or "Certificate preview failed",
+            exc=exc,
+            context_id=context_id,
+            participant_id=participant_id,
+            include_trace=include_trace,
+        )
     finally:
         db.close()
 
@@ -126,6 +207,14 @@ def generate_participant_certificate(context_id: int, participant_id: int):
     """
     db = get_db()
     try:
+        from certificates.services.certificate_render_service import (
+            build_render_data,
+            get_participant_or_error,
+            get_training_context_or_error,
+            resolve_render_participant,
+        )
+        from certificates.services.certificate_renderer import CertificateRenderer
+
         current_user_id = int(get_jwt_identity())
         context, context_error = get_training_context_or_error(db, context_id)
         if context_error:
@@ -214,9 +303,15 @@ def generate_participant_certificate(context_id: int, participant_id: int):
             "message": "Certificate issued successfully",
             "data": certificate_output_payload(certificate),
         }), 201
-    except Exception as exc:
+    except BaseException as exc:
         db.rollback()
-        return jsonify({"status": "error", "message": str(exc)}), 400
+        logger.exception("generate_participant_certificate: %s", exc)
+        return _certificate_render_error_response(
+            str(exc) or "Certificate generation failed",
+            exc=exc,
+            context_id=context_id,
+            participant_id=participant_id,
+        )
     finally:
         db.close()
 
