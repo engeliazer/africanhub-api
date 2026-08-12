@@ -360,3 +360,98 @@ def render_participant_certificate_pdf(
         return None, None, f"Certificate render failed: {exc}"
 
     return pdf_bytes, render_data.get("meta"), None
+
+
+def diagnose_certificate_preview(
+    db: Session,
+    context_id: int,
+    participant_id: int,
+    *,
+    source: Optional[str] = None,
+    try_render: bool = False,
+) -> Dict[str, Any]:
+    """JSON diagnostics for preview failures (no PDF unless try_render=true)."""
+    from certificates.services.storage_path_utils import (
+        read_storage_asset_bytes,
+        storage_url_to_local_path,
+    )
+
+    report: Dict[str, Any] = {
+        "context_id": context_id,
+        "participant_id": participant_id,
+        "source": source or "auto",
+        "checks": {},
+        "ready": False,
+    }
+
+    deps = {}
+    for module_name in ("pypdf", "reportlab", "PIL"):
+        try:
+            __import__(module_name)
+            deps[module_name] = "ok"
+        except ImportError as exc:
+            deps[module_name] = f"missing: {exc}"
+    report["checks"]["python_deps"] = deps
+
+    context, context_error = get_training_context_or_error(db, context_id)
+    if context_error:
+        report["checks"]["training_context"] = context_error
+        return report
+    report["checks"]["training_context"] = "ok"
+    report["training_type"] = context.training_type
+    report["training_id"] = context.training_id
+
+    identity, certificate_participant, resolve_error = resolve_render_participant(
+        db,
+        context,
+        participant_id,
+        source=source,
+    )
+    if resolve_error:
+        report["checks"]["participant"] = resolve_error
+        return report
+    report["checks"]["participant"] = "ok"
+    report["participant_source"] = identity.source
+    report["participant_display_name"] = identity.display_name
+
+    template, template_error = get_template_with_signatories(
+        db,
+        context.certificate_template_id,
+    )
+    if template_error:
+        report["checks"]["template"] = template_error
+        return report
+    report["checks"]["template"] = "ok"
+    report["background_url"] = template.background_url
+    report["background_local_path"] = storage_url_to_local_path(template.background_url)
+
+    _, bg_error = read_storage_asset_bytes(template.background_url)
+    report["checks"]["background_file"] = bg_error or "ok"
+
+    render_data, build_error = build_render_data(
+        db,
+        context,
+        identity,
+        certificate_participant=certificate_participant,
+        preview=True,
+    )
+    if build_error:
+        report["checks"]["render_data"] = build_error
+        return report
+    report["checks"]["render_data"] = "ok"
+
+    if try_render:
+        try:
+            pdf_bytes = CertificateRenderer(render_data).render_pdf_bytes()
+            report["checks"]["pdf_render"] = "ok"
+            report["pdf_bytes"] = len(pdf_bytes)
+        except Exception as exc:
+            report["checks"]["pdf_render"] = str(exc)
+            return report
+
+    report["ready"] = report["checks"].get("background_file") == "ok"
+    if not try_render:
+        report["ready"] = report["ready"] and report["checks"].get("render_data") == "ok"
+    else:
+        report["ready"] = report["ready"] and report["checks"].get("pdf_render") == "ok"
+    return report

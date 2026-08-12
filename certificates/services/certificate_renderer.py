@@ -5,19 +5,17 @@ Render certificate PDFs: empty background + coordinate overlay (ReportLab + pypd
 from __future__ import annotations
 
 import logging
-import os
 import re
-from datetime import date, datetime
+from datetime import date
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from certificates.services.storage_path_utils import storage_url_to_local_path
+from certificates.services.storage_path_utils import read_storage_asset_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -133,22 +131,10 @@ class CertificateRenderer:
 
     def _read_background_bytes(self) -> bytes:
         background_url = self.data["template"]["background_url"]
-        if not background_url:
-            raise ValueError("Certificate template background_url is missing")
-
-        local_path = storage_url_to_local_path(background_url)
-        if local_path and os.path.isfile(local_path):
-            with open(local_path, "rb") as handle:
-                return handle.read()
-
-        try:
-            response = requests.get(background_url, timeout=15)
-            response.raise_for_status()
-            return response.content
-        except requests.RequestException as exc:
-            raise ValueError(
-                f"Could not load certificate background from {background_url}: {exc}"
-            ) from exc
+        raw, error = read_storage_asset_bytes(background_url)
+        if error:
+            raise ValueError(error)
+        return raw
 
     def _load_background(self) -> bytes:
         raw = self._read_background_bytes()
@@ -159,14 +145,22 @@ class CertificateRenderer:
     def _image_bytes_to_pdf_page(self, image_bytes: bytes) -> bytes:
         buffer = BytesIO()
         pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
+        image_reader = ImageReader(BytesIO(image_bytes))
+        img_w, img_h = image_reader.getSize()
+        aspect = img_h / float(img_w) if img_w else 1.0
+        draw_w = self.page_w
+        draw_h = draw_w * aspect
+        if draw_h > self.page_h:
+            draw_h = self.page_h
+            draw_w = draw_h / aspect if aspect else self.page_w
+        x = (self.page_w - draw_w) / 2
+        y = (self.page_h - draw_h) / 2
         pdf_canvas.drawImage(
-            ImageReader(BytesIO(image_bytes)),
-            0,
-            0,
-            width=self.page_w,
-            height=self.page_h,
-            preserveAspectRatio=True,
-            anchor="c",
+            image_reader,
+            x,
+            y,
+            width=draw_w,
+            height=draw_h,
             mask="auto",
         )
         pdf_canvas.save()
@@ -347,17 +341,11 @@ class CertificateRenderer:
     def _load_image_bytes(self, url: Optional[str]) -> Optional[bytes]:
         if not url:
             return None
-        local_path = storage_url_to_local_path(url)
-        if local_path and os.path.isfile(local_path):
-            with open(local_path, "rb") as handle:
-                return handle.read()
-        try:
-            response = requests.get(url, timeout=20)
-            response.raise_for_status()
-            return response.content
-        except Exception as exc:
-            logger.warning("Failed to load image %s: %s", url, exc)
+        raw, error = read_storage_asset_bytes(url)
+        if error:
+            logger.warning("Failed to load image %s: %s", url, error)
             return None
+        return raw
 
     def _merge_layers(self, background_bytes: bytes, overlay_bytes: bytes) -> bytes:
         try:

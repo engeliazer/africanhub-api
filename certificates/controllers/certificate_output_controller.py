@@ -14,6 +14,7 @@ from certificates.models.models import Certificate
 from certificates.models.schemas import certificate_output_payload
 from certificates.services.certificate_render_service import (
     build_render_data,
+    diagnose_certificate_preview,
     get_participant_or_error,
     get_training_context_or_error,
     render_participant_certificate_pdf,
@@ -26,6 +27,36 @@ from database.db_connector import get_db
 logger = logging.getLogger(__name__)
 
 certificate_output_bp = Blueprint("certificate_output", __name__)
+
+
+@certificate_output_bp.route(
+    "/certificate-training-contexts/<int:context_id>/participants/<int:participant_id>/preview-check",
+    methods=["GET"],
+)
+@jwt_required()
+def preview_participant_certificate_check(context_id: int, participant_id: int):
+    """
+    Diagnose certificate preview readiness (JSON — use when preview returns 502).
+    ?source=event&render=true to also attempt PDF generation and report byte size.
+    """
+    db = get_db()
+    try:
+        source = (request.args.get("source") or "").strip().lower() or None
+        try_render = (request.args.get("render") or "").strip().lower() in {"1", "true", "yes"}
+        data = diagnose_certificate_preview(
+            db,
+            context_id,
+            participant_id,
+            source=source,
+            try_render=try_render,
+        )
+        status = 200 if data.get("ready") else 400
+        return jsonify({"status": "success" if data.get("ready") else "error", "data": data}), status
+    except Exception as exc:
+        logger.exception("preview_check failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
 
 
 @certificate_output_bp.route(
