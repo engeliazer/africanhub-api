@@ -1,8 +1,6 @@
 from app import app
-from database.db_connector import init_db
 
-# Initialize the database
-init_db()
+# Database init runs in app.py (non-fatal if DB is temporarily unavailable).
 
 if __name__ == "__main__":
-    app.run() 
+    app.run()
