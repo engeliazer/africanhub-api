@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from applications.models.models import Application, ApplicationDetail, ApplicationStatus
 from auth.models.models import User
-from certificates.models.models import CertificateParticipant, Salutation
+from certificates.models.models import CertificateParticipant, CertificateTrainingContext, Salutation
 from certificates.models.schemas import _format_user_full_name
 from subjects.models.models import Subject
 
@@ -66,6 +66,35 @@ def roster_user_ids(db: Session, training_context_id: int) -> Set[int]:
     return {row[0] for row in rows}
 
 
+def roster_user_ids_for_subject(db: Session, subject_id: int) -> Set[int]:
+    """Users already on any certificate roster for this subject."""
+    rows = (
+        db.query(CertificateParticipant.user_id)
+        .join(
+            CertificateTrainingContext,
+            CertificateParticipant.training_context_id == CertificateTrainingContext.id,
+        )
+        .filter(
+            CertificateTrainingContext.training_type == "subject",
+            CertificateTrainingContext.training_id == subject_id,
+            CertificateTrainingContext.deleted_at.is_(None),
+            CertificateParticipant.deleted_at.is_(None),
+        )
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
+def resolve_assigned_user_ids(
+    db: Session,
+    subject_id: int,
+    training_context_id: Optional[int] = None,
+) -> Set[int]:
+    if training_context_id:
+        return roster_user_ids(db, training_context_id)
+    return roster_user_ids_for_subject(db, subject_id)
+
+
 def parse_optional_bool(value: Optional[str]) -> Optional[bool]:
     if value is None or str(value).strip() == "":
         return None
@@ -122,9 +151,8 @@ def build_applicants_response(
     }
     salutations = _salutation_map(db, salutation_ids)
 
-    on_roster: Set[int] = set()
-    if training_context_id:
-        on_roster = roster_user_ids(db, training_context_id)
+    on_roster = resolve_assigned_user_ids(db, subject.id, training_context_id)
+    assignment_scope = "training_context" if training_context_id else "subject"
 
     for detail, application, user in rows:
         if user.id in seen_user_ids:
@@ -167,6 +195,7 @@ def build_applicants_response(
         "subject_name": subject.name,
         "subject_code": subject.code,
         "training_context_id": training_context_id,
+        "assignment_scope": assignment_scope,
         "filters": {
             "pending_certificate_assignment": pending_certificate_assignment,
             "missing_salutation": missing_salutation,

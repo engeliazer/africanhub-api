@@ -36,11 +36,13 @@ def list_approved_certificate_applicants(subject_id: int):
     List approved applicants for a subject — use to prepare certificate participants.
 
     Query params:
-      - training_context_id (required when using assignment filters)
-      - pending_certificate_assignment=true  → not yet on this context roster
-      - pending_certificate_assignment=false → already on this context roster
-      - missing_salutation=true              → users without users.salutation_id
-      - missing_salutation=false             → users with salutation set
+      - training_context_id (optional — narrows assignment check to one certificate run)
+      - pending_certificate_assignment=true  → exclude users already assigned
+      - pending_certificate_assignment=false → only users already assigned
+      - missing_salutation=true / false
+
+    Without training_context_id, assignment is checked across all certificate
+    training contexts linked to this subject.
     """
     db = get_db()
     try:
@@ -57,12 +59,6 @@ def list_approved_certificate_applicants(subject_id: int):
             return jsonify({"status": "error", "message": str(exc)}), 400
 
         training_context_id = request.args.get("training_context_id", type=int)
-
-        if pending_certificate_assignment is not None and not training_context_id:
-            return jsonify({
-                "status": "error",
-                "message": "training_context_id is required when pending_certificate_assignment is set",
-            }), 400
 
         if training_context_id:
             _, context_error = get_training_context_or_error(db, training_context_id)
