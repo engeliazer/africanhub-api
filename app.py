@@ -73,6 +73,7 @@ from public.controllers.mail_processing_controller import mail_processing_bp
 from public.controllers.invitation_mail_processing_controller import invitation_mail_processing_bp
 from public.controllers.invitations_controller import invitations_bp
 from events.controllers.events_controller import events_bp
+from events.controllers.event_participants_controller import event_participants_bp
 from api.routes.bank_reconciliation_routes import bank_reconciliation_bp
 from auth.middleware.token_middleware import token_refresh_middleware, add_refreshed_token_to_response
 from api.routes.vdocipher_routes import vdocipher_bp
@@ -187,6 +188,7 @@ app.register_blueprint(mail_processing_bp)
 app.register_blueprint(invitation_mail_processing_bp)
 app.register_blueprint(invitations_bp)
 app.register_blueprint(events_bp)
+app.register_blueprint(event_participants_bp)
 
 # Register new blueprints from route files
 app.register_blueprint(auth_bp, url_prefix='/api', name='api_auth')

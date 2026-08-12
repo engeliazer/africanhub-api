@@ -44,6 +44,12 @@ class Event(Base):
         cascade="all, delete-orphan",
         order_by="EventTrainerAssignment.display_order",
     )
+    participants = relationship(
+        "EventParticipant",
+        back_populates="event",
+        cascade="all, delete-orphan",
+        order_by="EventParticipant.id.asc()",
+    )
 
 
 class EventTrainerAssignment(Base):
@@ -86,3 +92,50 @@ class EventLetterRequest(Base):
     address = Column(Text, nullable=False)
     email = Column(String(255), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+
+
+class EventParticipant(Base):
+    """Attendance roster for a training calendar event — system users or walk-in guests."""
+
+    __tablename__ = "event_participants"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=True,
+        index=True,
+        comment="users.id when linked; NULL for walk-in guests",
+    )
+    full_name = Column(
+        String(255),
+        nullable=True,
+        comment="Guest name without salutation prefix",
+    )
+    salutation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=True,
+        index=True,
+        comment="Salutation for walk-in guests",
+    )
+    organization = Column(String(255), nullable=True)
+    email = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+    event = relationship("Event", back_populates="participants")
