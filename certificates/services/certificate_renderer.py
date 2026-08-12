@@ -136,8 +136,7 @@ class CertificateRenderer:
     def render_pdf_bytes(self) -> bytes:
         background_bytes = self._load_background()
         overlay_bytes = self._build_overlay_layer()
-        merged = self._merge_layers(background_bytes, overlay_bytes)
-        return self._compress_pdf(merged)
+        return self._merge_layers(background_bytes, overlay_bytes)
 
     @staticmethod
     def _optimize_raster_image(
@@ -417,21 +416,20 @@ class CertificateRenderer:
         overlay_page = overlay_reader.pages[0]
         background_page.merge_page(overlay_page)
         writer.add_page(background_page)
+        CertificateRenderer._compress_writer_pages(writer)
 
         output = BytesIO()
         writer.write(output)
         return output.getvalue()
 
     @staticmethod
-    def _compress_pdf(pdf_bytes: bytes) -> bytes:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        writer = PdfWriter()
-        for page in reader.pages:
-            page.compress_content_streams()
-            writer.add_page(page)
-        output = BytesIO()
-        writer.write(output)
-        return output.getvalue()
+    def _compress_writer_pages(writer: PdfWriter) -> None:
+        """Compress page streams after they are attached to the writer (pypdf requirement)."""
+        for page in writer.pages:
+            try:
+                page.compress_content_streams()
+            except Exception as exc:
+                logger.warning("PDF stream compression skipped: %s", exc)
 
 
 def pdf_string_width(text: str, font: str, size: float) -> float:
