@@ -9,10 +9,15 @@ from certificates.models.schemas import (
     ParticipantUpdateInput,
     participant_payload,
 )
+from certificates.services.event_roster_import_service import import_event_participants_to_context
 from certificates.services.participant_service import (
+    get_salutation_by_id,
+    get_salutation_for_participant,
     get_salutation_for_user,
     get_training_context_or_error,
     get_user_or_error,
+    guest_already_on_roster,
+    is_guest_participant,
     participant_already_on_roster,
 )
 from database.db_connector import get_db
@@ -21,8 +26,13 @@ certificate_participants_bp = Blueprint("certificate_participants", __name__)
 
 
 def _participant_view(db, participant, context):
-    user, _ = get_user_or_error(db, participant.user_id)
-    salutation = get_salutation_for_user(db, user) if user else None
+    user = None
+    salutation = None
+    if is_guest_participant(participant):
+        salutation = get_salutation_for_participant(db, participant)
+    else:
+        user, _ = get_user_or_error(db, participant.user_id)
+        salutation = get_salutation_for_user(db, user) if user else None
     return participant_payload(participant, user, salutation, context)
 
 
@@ -55,6 +65,8 @@ def list_participants(context_id: int):
             "status": "success",
             "data": {
                 "training_context_id": context_id,
+                "training_type": context.training_type,
+                "training_id": context.training_id,
                 "training_cpd_hours": context.cpd_hours,
                 "participants": participants,
             },
@@ -72,16 +84,13 @@ def list_participants(context_id: int):
 @jwt_required()
 def add_participants(context_id: int):
     """
-    Bulk add participants (Group 3) by user_id.
-    Salutation is derived from users.salutation_id.
+    Bulk add participants (Group 3).
 
-    Body:
-    {
-      "participants": [
-        {"user_id": 42},
-        {"user_id": 55}
-      ]
-    }
+    System users:
+      {"participants": [{"user_id": 42}]}
+
+    Walk-in guests (events / training calendar):
+      {"participants": [{"full_name": "John Doe", "salutation_id": 4}]}
     """
     db = get_db()
     try:
@@ -96,27 +105,46 @@ def add_participants(context_id: int):
         except Exception as exc:
             return jsonify({"status": "error", "message": str(exc)}), 400
 
-        if not parsed.participants:
-            return jsonify({"status": "error", "message": "participants array is required"}), 400
-
         created = []
         for item in parsed.participants:
-            user, user_error = get_user_or_error(db, item.user_id)
-            if user_error:
-                return jsonify({"status": "error", "message": user_error}), 404
+            if item.user_id is not None:
+                user, user_error = get_user_or_error(db, item.user_id)
+                if user_error:
+                    return jsonify({"status": "error", "message": user_error}), 404
 
-            if participant_already_on_roster(db, context_id, item.user_id):
-                return jsonify({
-                    "status": "error",
-                    "message": f"User {item.user_id} is already on this roster",
-                }), 400
+                if participant_already_on_roster(db, context_id, item.user_id):
+                    return jsonify({
+                        "status": "error",
+                        "message": f"User {item.user_id} is already on this roster",
+                    }), 400
 
-            row = CertificateParticipant(
-                training_context_id=context_id,
-                user_id=item.user_id,
-                created_by=current_user_id,
-                updated_by=current_user_id,
-            )
+                row = CertificateParticipant(
+                    training_context_id=context_id,
+                    user_id=item.user_id,
+                    created_by=current_user_id,
+                    updated_by=current_user_id,
+                )
+            else:
+                if item.salutation_id is not None and not get_salutation_by_id(db, item.salutation_id):
+                    return jsonify({
+                        "status": "error",
+                        "message": f"Salutation {item.salutation_id} not found or inactive",
+                    }), 400
+
+                if guest_already_on_roster(db, context_id, item.full_name, item.salutation_id):
+                    return jsonify({
+                        "status": "error",
+                        "message": f"Guest '{item.full_name}' is already on this roster",
+                    }), 400
+
+                row = CertificateParticipant(
+                    training_context_id=context_id,
+                    full_name=item.full_name,
+                    salutation_id=item.salutation_id,
+                    created_by=current_user_id,
+                    updated_by=current_user_id,
+                )
+
             db.add(row)
             created.append(row)
 
@@ -127,6 +155,52 @@ def add_participants(context_id: int):
             "message": f"{len(created)} participant(s) added",
             "data": {
                 "training_context_id": context_id,
+                "participants": [_participant_view(db, row, context) for row in created],
+            },
+        }), 201
+    except Exception as exc:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    finally:
+        db.close()
+
+
+@certificate_participants_bp.route(
+    "/certificate-training-contexts/<int:context_id>/participants/import-event-roster",
+    methods=["POST"],
+)
+@jwt_required()
+def import_event_roster(context_id: int):
+    """
+    Copy training calendar attendees (event_participants) onto the certificate roster.
+
+    Requires training_context.training_type=event. Uses context.training_id as events.id.
+    """
+    db = get_db()
+    try:
+        current_user_id = int(get_jwt_identity())
+        context, error = get_training_context_or_error(db, context_id)
+        if error:
+            return jsonify({"status": "error", "message": error}), 404
+
+        created, skipped, import_error = import_event_participants_to_context(
+            db,
+            context,
+            current_user_id,
+        )
+        if import_error:
+            return jsonify({"status": "error", "message": import_error}), 400
+
+        db.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": f"{len(created)} participant(s) imported, {skipped} skipped",
+            "data": {
+                "training_context_id": context_id,
+                "event_id": context.training_id,
+                "imported_count": len(created),
+                "skipped_count": skipped,
                 "participants": [_participant_view(db, row, context) for row in created],
             },
         }), 201

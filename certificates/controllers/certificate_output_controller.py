@@ -5,7 +5,7 @@ Certificate preview and issuance (Group 4).
 import os
 from io import BytesIO
 
-from flask import Blueprint, jsonify, send_file
+from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from certificates.controllers.certificate_file_utils import save_certificate_pdf
@@ -16,6 +16,7 @@ from certificates.services.certificate_render_service import (
     get_participant_or_error,
     get_training_context_or_error,
     render_participant_certificate_pdf,
+    resolve_render_participant,
 )
 from certificates.services.certificate_renderer import CertificateRenderer
 from certificates.services.storage_path_utils import storage_url_to_local_path
@@ -35,14 +36,22 @@ def preview_participant_certificate(context_id: int, participant_id: int):
 
     Uses the training context template, logos, signatories, and participant data.
     Adds a PREVIEW watermark and cert_number = PREVIEW.
+
+    Query params:
+      - source=certificate (default) | event
+        For event training contexts, source=event uses training calendar
+        roster ids from event_participants. If omitted, certificate roster
+        is checked first, then event roster as fallback.
     """
     db = get_db()
     try:
+        source = (request.args.get("source") or "").strip().lower() or None
         pdf_bytes, meta, error = render_participant_certificate_pdf(
             db,
             context_id,
             participant_id,
             preview=True,
+            source=source,
         )
         if error:
             status = 404 if "not found" in error.lower() else 400
@@ -85,7 +94,14 @@ def generate_participant_certificate(context_id: int, participant_id: int):
             participant_id,
         )
         if participant_error:
-            return jsonify({"status": "error", "message": participant_error}), 404
+            return jsonify({
+                "status": "error",
+                "message": (
+                    "Participant must be on the certificate roster before issuing. "
+                    "For events, import the training calendar roster first: "
+                    "POST .../participants/import-event-roster"
+                ),
+            }), 404
 
         if participant.certificate_id:
             existing = (
@@ -103,10 +119,20 @@ def generate_participant_certificate(context_id: int, participant_id: int):
                     "data": certificate_output_payload(existing),
                 }), 200
 
+        identity, _, identity_error = resolve_render_participant(
+            db,
+            context,
+            participant_id,
+            source="certificate",
+        )
+        if identity_error:
+            return jsonify({"status": "error", "message": identity_error}), 400
+
         render_data, build_error = build_render_data(
             db,
             context,
-            participant,
+            identity,
+            certificate_participant=participant,
             preview=False,
         )
         if build_error:

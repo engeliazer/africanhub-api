@@ -168,7 +168,29 @@ class CertificateParticipant(Base):
         nullable=False,
         index=True,
     )
-    user_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False, index=True)
+    user_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=True,
+        index=True,
+        comment="users.id when linked; NULL for walk-in guests",
+    )
+    full_name = Column(
+        String(255),
+        nullable=True,
+        comment="Guest name without salutation prefix",
+    )
+    salutation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=True,
+        index=True,
+        comment="Salutation for walk-in guests",
+    )
+    event_participant_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=True,
+        index=True,
+        comment="Optional link to event_participants.id for training calendar imports",
+    )
     qualifies_for_cpd_override = Column(Boolean, nullable=True)
     confirmation_status = Column(String(20), nullable=False, default="pending")
     certificate_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)

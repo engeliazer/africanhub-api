@@ -14,12 +14,16 @@ from certificates.services.certificate_renderer import (
     format_display_date,
 )
 from certificates.services.participant_service import (
+    ParticipantIdentity,
     compute_qualifies_for_cpd,
-    format_user_full_name,
+    get_salutation_by_id,
     get_salutation_for_user,
     get_training_context_or_error,
     get_user_or_error,
+    resolve_certificate_participant_identity,
 )
+from events.models.models import EventParticipant
+from events.services.event_participant_service import participant_display_names
 
 
 def get_participant_or_error(
@@ -39,6 +43,109 @@ def get_participant_or_error(
     if not row:
         return None, "Participant not found on this training context"
     return row, None
+
+
+def get_event_participant_or_error(
+    db: Session,
+    event_id: int,
+    event_participant_id: int,
+) -> Tuple[Optional[EventParticipant], Optional[str]]:
+    row = (
+        db.query(EventParticipant)
+        .filter(
+            EventParticipant.id == event_participant_id,
+            EventParticipant.event_id == event_id,
+            EventParticipant.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not row:
+        return None, "Event participant not found on this training calendar event"
+    return row, None
+
+
+def resolve_event_participant_identity(
+    db: Session,
+    event_participant: EventParticipant,
+) -> Tuple[Optional[ParticipantIdentity], Optional[str]]:
+    user = None
+    salutation = None
+    if event_participant.user_id is not None:
+        user, user_error = get_user_or_error(db, event_participant.user_id)
+        if user_error:
+            return None, user_error
+        salutation = get_salutation_for_user(db, user)
+    else:
+        salutation = get_salutation_by_id(db, event_participant.salutation_id)
+        if event_participant.salutation_id and salutation is None:
+            return None, f"Salutation {event_participant.salutation_id} not found or inactive"
+        if not (event_participant.full_name or "").strip():
+            return None, "Walk-in event participant is missing full_name"
+
+    _, display_name = participant_display_names(event_participant, user, salutation)
+    return ParticipantIdentity(
+        display_name=display_name,
+        salutation=salutation,
+        qualifies_for_cpd_override=None,
+        user_id=event_participant.user_id,
+        source="event",
+        source_id=event_participant.id,
+    ), None
+
+
+def resolve_render_participant(
+    db: Session,
+    context: CertificateTrainingContext,
+    participant_id: int,
+    *,
+    source: Optional[str] = None,
+) -> Tuple[Optional[ParticipantIdentity], Optional[CertificateParticipant], Optional[str]]:
+    normalized_source = (source or "certificate").strip().lower()
+
+    if normalized_source == "event":
+        if context.training_type != "event":
+            return None, None, "source=event is only valid for event training contexts"
+        event_participant, event_error = get_event_participant_or_error(
+            db,
+            context.training_id,
+            participant_id,
+        )
+        if event_error:
+            return None, None, event_error
+        identity, identity_error = resolve_event_participant_identity(db, event_participant)
+        return identity, None, identity_error
+
+    certificate_participant, participant_error = get_participant_or_error(
+        db,
+        context.id,
+        participant_id,
+    )
+    if certificate_participant:
+        identity, identity_error = resolve_certificate_participant_identity(
+            db,
+            certificate_participant,
+            context,
+        )
+        return identity, certificate_participant, identity_error
+
+    if context.training_type == "event":
+        event_participant, event_error = get_event_participant_or_error(
+            db,
+            context.training_id,
+            participant_id,
+        )
+        if event_participant:
+            identity, identity_error = resolve_event_participant_identity(db, event_participant)
+            if identity_error:
+                return None, None, identity_error
+            return identity, None, None
+
+    return None, None, (
+        "Participant not found on this certificate roster. "
+        "For events, either import the training calendar roster "
+        "(POST .../participants/import-event-roster) or preview with "
+        "?source=event using the event participant id."
+    )
 
 
 def get_template_with_signatories(
@@ -102,8 +209,9 @@ def _next_certificate_sequence(db: Session, context_id: int) -> int:
 def build_render_data(
     db: Session,
     context: CertificateTrainingContext,
-    participant: CertificateParticipant,
+    identity: ParticipantIdentity,
     *,
+    certificate_participant: Optional[CertificateParticipant] = None,
     preview: bool = False,
     sequence: Optional[int] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -114,16 +222,14 @@ def build_render_data(
     if template_error:
         return None, template_error
 
-    user, user_error = get_user_or_error(db, participant.user_id)
-    if user_error:
-        return None, user_error
+    override = None
+    if certificate_participant is not None:
+        override = certificate_participant.qualifies_for_cpd_override
 
-    salutation = get_salutation_for_user(db, user)
-    participant_name = format_user_full_name(user, salutation)
     qualifies_for_cpd = compute_qualifies_for_cpd(
-        salutation,
+        identity.salutation,
         context,
-        participant.qualifies_for_cpd_override,
+        override if override is not None else identity.qualifies_for_cpd_override,
     )
 
     start_text = format_display_date(context.start_date)
@@ -165,7 +271,7 @@ def build_render_data(
     render_data = {
         "preview": preview,
         "certificate_title": template.certificate_title,
-        "participant_name": participant_name,
+        "participant_name": identity.display_name,
         "participation_line": template.participation_prefix or "Participated in the training on",
         "subject_title": context.subject_title,
         "venue_line": venue_line,
@@ -186,8 +292,10 @@ def build_render_data(
             "training_context_id": context.id,
             "training_id": context.training_id,
             "training_type": context.training_type,
-            "participant_id": participant.id,
-            "user_id": participant.user_id,
+            "participant_id": certificate_participant.id if certificate_participant else None,
+            "participant_source": identity.source,
+            "participant_source_id": identity.source_id,
+            "user_id": identity.user_id,
             "qualifies_for_cpd": qualifies_for_cpd,
             "cert_number": cert_number,
         },
@@ -201,19 +309,29 @@ def render_participant_certificate_pdf(
     participant_id: int,
     *,
     preview: bool = False,
+    source: Optional[str] = None,
 ) -> Tuple[Optional[bytes], Optional[Dict[str, Any]], Optional[str]]:
     context, context_error = get_training_context_or_error(db, context_id)
     if context_error:
         return None, None, context_error
 
-    participant, participant_error = get_participant_or_error(db, context_id, participant_id)
-    if participant_error:
-        return None, None, participant_error
+    identity, certificate_participant, resolve_error = resolve_render_participant(
+        db,
+        context,
+        participant_id,
+        source=source,
+    )
+    if resolve_error:
+        return None, None, resolve_error
+
+    if preview and certificate_participant is None and identity.source == "event":
+        pass
 
     render_data, build_error = build_render_data(
         db,
         context,
-        participant,
+        identity,
+        certificate_participant=certificate_participant,
         preview=preview,
     )
     if build_error:

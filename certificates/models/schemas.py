@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SignatoryInput(BaseModel):
@@ -158,11 +158,25 @@ def training_context_payload(row: Any) -> Dict[str, Any]:
 
 
 class ParticipantInput(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
+    full_name: Optional[str] = None
+    salutation_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_identity(self):
+        has_user = self.user_id is not None
+        has_guest_name = bool((self.full_name or "").strip())
+        if has_user and has_guest_name:
+            raise ValueError("Provide either user_id or full_name, not both")
+        if not has_user and not has_guest_name:
+            raise ValueError("Either user_id or full_name is required")
+        if has_guest_name:
+            self.full_name = self.full_name.strip()
+        return self
 
 
 class ParticipantBulkInput(BaseModel):
-    participants: List[ParticipantInput]
+    participants: List[ParticipantInput] = Field(min_length=1)
 
 
 class ParticipantUpdateInput(BaseModel):
@@ -205,14 +219,28 @@ def participant_payload(
     )
     override = participant.qualifies_for_cpd_override
     qualifies_for_cpd = override if override is not None else qualifies_computed
-    full_name = _format_user_full_name(user, salutation) if user is not None else None
+
+    is_guest = participant.user_id is None
+    if is_guest:
+        core = (participant.full_name or "").strip()
+        if salutation and salutation.label and str(salutation.label).lower() != "none":
+            full_name = f"{salutation.label} {core}".strip()
+        else:
+            full_name = core or None
+    else:
+        full_name = _format_user_full_name(user, salutation) if user is not None else None
 
     return {
         "participant_id": participant.id,
+        "participant_type": "walk_in" if is_guest else "user",
         "user_id": participant.user_id,
+        "event_participant_id": getattr(participant, "event_participant_id", None),
         "training_context_id": participant.training_context_id,
         "full_name": full_name,
-        "salutation_id": user.salutation_id if user is not None else None,
+        "core_name": participant.full_name if is_guest else None,
+        "salutation_id": participant.salutation_id if is_guest else (
+            user.salutation_id if user is not None else None
+        ),
         "salutation": salutation.label if salutation else None,
         "qualifies_for_cpd_computed": qualifies_computed,
         "qualifies_for_cpd": qualifies_for_cpd,
