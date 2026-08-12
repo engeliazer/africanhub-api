@@ -43,8 +43,8 @@ class CertificateTemplate(Base):
     )
     field_layout = Column(JSON, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=False)
-    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id"), nullable=False)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
     updated_at = Column(
         DateTime,
