@@ -155,3 +155,81 @@ def training_context_payload(row: Any) -> Dict[str, Any]:
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+class ParticipantInput(BaseModel):
+    user_id: int
+
+
+class ParticipantBulkInput(BaseModel):
+    participants: List[ParticipantInput]
+
+
+class ParticipantUpdateInput(BaseModel):
+    qualifies_for_cpd_override: Optional[bool] = None
+    confirmation_status: Optional[str] = None
+
+    @field_validator("confirmation_status")
+    @classmethod
+    def validate_confirmation_status(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"pending", "confirmed", "excluded"}:
+            raise ValueError("confirmation_status must be pending, confirmed, or excluded")
+        return normalized
+
+
+def _format_user_full_name(user: Any, salutation: Any) -> str:
+    name_parts = [user.first_name]
+    if getattr(user, "middle_name", None):
+        name_parts.append(user.middle_name)
+    name_parts.append(user.last_name)
+    core_name = " ".join(part.strip() for part in name_parts if part and str(part).strip())
+    if salutation and salutation.label and str(salutation.label).lower() != "none":
+        return f"{salutation.label} {core_name}".strip()
+    return core_name
+
+
+def participant_payload(
+    participant: Any,
+    user: Any,
+    salutation: Any,
+    training_context: Any,
+) -> Dict[str, Any]:
+    """Group 3 response shape for one certificate participant."""
+    qualifies_computed = bool(
+        salutation
+        and salutation.qualifies_for_cpd
+        and (training_context.cpd_hours or 0) > 0
+    )
+    override = participant.qualifies_for_cpd_override
+    qualifies_for_cpd = override if override is not None else qualifies_computed
+    full_name = _format_user_full_name(user, salutation) if user is not None else None
+
+    return {
+        "participant_id": participant.id,
+        "user_id": participant.user_id,
+        "training_context_id": participant.training_context_id,
+        "full_name": full_name,
+        "salutation_id": user.salutation_id if user is not None else None,
+        "salutation": salutation.label if salutation else None,
+        "qualifies_for_cpd_computed": qualifies_computed,
+        "qualifies_for_cpd": qualifies_for_cpd,
+        "qualifies_for_cpd_override": override,
+        "confirmation_status": participant.confirmation_status,
+        "certificate_id": participant.certificate_id,
+        "created_at": participant.created_at.isoformat() if participant.created_at else None,
+        "updated_at": participant.updated_at.isoformat() if participant.updated_at else None,
+    }
+
+
+def salutation_payload(row: Any) -> Dict[str, Any]:
+    return {
+        "id": row.id,
+        "label": row.label,
+        "code": row.code,
+        "qualifies_for_cpd": row.qualifies_for_cpd,
+        "display_order": row.display_order,
+        "is_active": row.is_active,
+    }

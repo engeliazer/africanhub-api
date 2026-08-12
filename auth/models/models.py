@@ -23,6 +23,7 @@ class User(Base):
     updated_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
+    salutation_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True, index=True)
 
     # Relationship with UserRole
     user_roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")

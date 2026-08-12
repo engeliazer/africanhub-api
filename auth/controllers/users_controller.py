@@ -27,6 +27,7 @@ class UsersController:
                 status=user.status,
                 reset_password=False,
                 registration_mode=user.registration_mode,
+                salutation_id=getattr(user, "salutation_id", None),
                 created_by=get_jwt_identity().get('user_id'),
                 updated_by=get_jwt_identity().get('user_id'),
                 created_at=datetime.utcnow(),

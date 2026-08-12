@@ -39,6 +39,7 @@ class UserBase(BaseModel):
     email: EmailStr
     status: str = 'ACTIVE'
     registration_mode: str
+    salutation_id: Optional[int] = None
     created_by: int
     updated_by: int
 
@@ -54,6 +55,7 @@ class UserUpdate(BaseModel):
     status: Optional[str] = None
     reset_password: Optional[bool] = None
     registration_mode: Optional[str] = None
+    salutation_id: Optional[int] = None
     updated_by: int
 
 class UserInDB(UserBase):

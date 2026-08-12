@@ -130,3 +130,53 @@ class CertificateTrainingContext(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     template = relationship("CertificateTemplate")
+
+
+class Salutation(Base):
+    """Lookup table for participant salutations / titles."""
+
+    __tablename__ = "salutations"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    label = Column(String(100), nullable=False, unique=True, comment="Display label e.g. CPA. Dr.")
+    code = Column(String(50), nullable=False, unique=True, comment="Stable code e.g. cpa_dr")
+    qualifies_for_cpd = Column(Boolean, nullable=False, default=False)
+    display_order = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+
+class CertificateParticipant(Base):
+    """Participant roster entry for a certificate training context (Group 3)."""
+
+    __tablename__ = "certificate_participants"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    training_context_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("certificate_training_contexts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False, index=True)
+    qualifies_for_cpd_override = Column(Boolean, nullable=True)
+    confirmation_status = Column(String(20), nullable=False, default="pending")
+    certificate_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+    training_context = relationship("CertificateTrainingContext", backref="participants")
