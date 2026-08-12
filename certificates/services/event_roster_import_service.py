@@ -8,6 +8,7 @@ from certificates.services.participant_service import (
     get_salutation_by_id,
     get_salutation_for_user,
     get_user_or_error,
+    guest_already_on_roster,
     participant_already_on_roster,
 )
 from events.models.models import EventParticipant
@@ -29,15 +30,6 @@ def existing_certificate_guest_keys(db: Session, context_id: int) -> Set[Tuple[s
         .all()
     )
     return {_guest_key(name, salutation_id) for name, salutation_id in rows}
-
-
-def guest_already_on_roster(
-    db: Session,
-    context_id: int,
-    full_name: str,
-    salutation_id: Optional[int],
-) -> bool:
-    return _guest_key(full_name, salutation_id) in existing_certificate_guest_keys(db, context_id)
 
 
 def import_event_participants_to_context(

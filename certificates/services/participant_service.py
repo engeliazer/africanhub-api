@@ -155,3 +155,30 @@ def participant_already_on_roster(
         .first()
         is not None
     )
+
+
+def _normalize_guest_name(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _guest_roster_key(full_name: str, salutation_id: Optional[int]) -> Tuple[str, Optional[int]]:
+    return _normalize_guest_name(full_name), salutation_id
+
+
+def guest_already_on_roster(
+    db: Session,
+    context_id: int,
+    full_name: str,
+    salutation_id: Optional[int],
+) -> bool:
+    target_key = _guest_roster_key(full_name, salutation_id)
+    rows = (
+        db.query(CertificateParticipant.full_name, CertificateParticipant.salutation_id)
+        .filter(
+            CertificateParticipant.training_context_id == context_id,
+            CertificateParticipant.user_id.is_(None),
+            CertificateParticipant.deleted_at.is_(None),
+        )
+        .all()
+    )
+    return any(_guest_roster_key(name, sid) == target_key for name, sid in rows)
