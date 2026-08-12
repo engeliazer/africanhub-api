@@ -61,6 +61,7 @@ from instructors.controllers.instructors_controller import instructors_bp
 from testimonials.controllers.testimonials_controller import testimonials_bp
 from partner_organizations.controllers.partner_organizations_controller import partner_organizations_bp
 from certificates.controllers.certificate_templates_controller import certificate_templates_bp
+from certificates.controllers.training_context_controller import certificate_training_context_bp
 from api.routes.study_routes import material_categories_bp
 from api.routes.application_routes import applications_bp, payments_bp
 from public.controllers.sms_controller import sms_bp
@@ -202,6 +203,7 @@ app.register_blueprint(instructors_bp, url_prefix='/api', name='api_instructors'
 app.register_blueprint(testimonials_bp, url_prefix='/api', name='api_testimonials')
 app.register_blueprint(partner_organizations_bp, url_prefix='/api', name='api_partner_organizations')
 app.register_blueprint(certificate_templates_bp, url_prefix='/api', name='api_certificate_templates')
+app.register_blueprint(certificate_training_context_bp, url_prefix='/api', name='api_certificate_training_context')
 app.register_blueprint(chat_bp, url_prefix='/api', name='api_chat')
 app.register_blueprint(device_bp, url_prefix='/api', name='api_devices')
 app.register_blueprint(accounting_bp, url_prefix='/api/accounting', name='api_accounting')

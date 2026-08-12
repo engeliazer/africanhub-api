@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SignatoryInput(BaseModel):
@@ -88,4 +88,70 @@ def template_payload(template: Any, signatories: Optional[List[Any]] = None) -> 
         ],
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None,
+    }
+
+
+VALID_TRAINING_TYPES = {"course", "subject"}
+VALID_HOST_MODES = {"single", "collaboration"}
+
+
+class TrainingContextInput(BaseModel):
+    training_type: str
+    training_id: int
+    certificate_template_id: int
+    host_mode: str = "single"
+    host_organization_name: str
+    invited_organization_name: Optional[str] = None
+    subject_title: Optional[str] = None
+    venue_text: str
+    start_date: date
+    end_date: date
+    cpd_hours: int = 0
+    cert_number_pattern: str
+    home_code: str
+    invited_code: Optional[str] = None
+    signatory_override: Optional[List[Dict[str, Any]]] = None
+
+    @field_validator("training_type")
+    @classmethod
+    def validate_training_type(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in VALID_TRAINING_TYPES:
+            raise ValueError("training_type must be 'course' or 'subject'")
+        return normalized
+
+    @field_validator("host_mode")
+    @classmethod
+    def validate_host_mode(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in VALID_HOST_MODES:
+            raise ValueError("host_mode must be 'single' or 'collaboration'")
+        return normalized
+
+
+def training_context_payload(row: Any) -> Dict[str, Any]:
+    """Group 2 response shape for certificate training context."""
+    is_collaboration = row.host_mode == "collaboration"
+    return {
+        "id": row.id,
+        "training_id": row.training_id,
+        "training_type": row.training_type,
+        "certificate_template_id": row.certificate_template_id,
+        "host_mode": row.host_mode,
+        "is_collaboration": is_collaboration,
+        "host_organization_name": row.host_organization_name,
+        "invited_organization_name": row.invited_organization_name,
+        "home_logo_url": row.home_logo_url,
+        "invited_logo_url": row.invited_logo_url,
+        "subject_title": row.subject_title,
+        "venue_text": row.venue_text,
+        "start_date": row.start_date.isoformat() if row.start_date else None,
+        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "cpd_hours": row.cpd_hours,
+        "cert_number_pattern": row.cert_number_pattern,
+        "home_code": row.home_code,
+        "invited_code": row.invited_code,
+        "signatory_override": row.signatory_override,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }

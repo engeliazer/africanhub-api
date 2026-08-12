@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     JSON,
     Text,
+    Date,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -87,3 +88,45 @@ class CertificateTemplateSignatory(Base):
     )
 
     template = relationship("CertificateTemplate", back_populates="signatories")
+
+
+class CertificateTrainingContext(Base):
+    """Certificate run configuration for an existing course or subject (Group 2)."""
+
+    __tablename__ = "certificate_training_contexts"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    training_type = Column(String(20), nullable=False, comment="course or subject")
+    training_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    certificate_template_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("certificate_templates.id"),
+        nullable=False,
+        index=True,
+    )
+    host_mode = Column(String(20), nullable=False, default="single", comment="single or collaboration")
+    host_organization_name = Column(String(255), nullable=False)
+    invited_organization_name = Column(String(255), nullable=True)
+    home_logo_url = Column(String(500), nullable=True)
+    invited_logo_url = Column(String(500), nullable=True)
+    subject_title = Column(String(500), nullable=False)
+    venue_text = Column(String(500), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    cpd_hours = Column(Integer, nullable=False, default=0)
+    cert_number_pattern = Column(String(255), nullable=False)
+    home_code = Column(String(50), nullable=False)
+    invited_code = Column(String(50), nullable=True)
+    signatory_override = Column(JSON, nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+    template = relationship("CertificateTemplate")
