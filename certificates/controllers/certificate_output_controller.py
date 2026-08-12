@@ -14,7 +14,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from certificates.controllers.certificate_file_utils import save_certificate_pdf
 from certificates.models.models import Certificate
 from certificates.models.schemas import certificate_output_payload
-from certificates.services.storage_path_utils import storage_url_to_local_path
+from certificates.services.certificate_renderer import MAX_JSON_INLINE_PDF_BYTES
 from database.db_connector import get_db
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,8 @@ def preview_participant_certificate(context_id: int, participant_id: int):
 
     Query params:
       - source=certificate (default) | event
-      - format=json — return JSON (success: base64 PDF; failure: status 105 + message)
+      - format=json — metadata + optional small base64 PDF (see include_pdf)
+      - include_pdf=1 — embed pdf_base64 only when raw PDF <= 2 MB
       - debug=1 — include traceback on errors (JSON only)
     """
     db = get_db()
@@ -154,18 +155,45 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             )
 
         filename = f"certificate-preview-{participant_id}.pdf"
+        pdf_size = len(pdf_bytes)
 
         if json_mode:
+            payload = {
+                "context_id": context_id,
+                "participant_id": participant_id,
+                "filename": filename,
+                "pdf_size_bytes": pdf_size,
+                "content_type": "application/pdf",
+                "meta": meta,
+            }
+            include_pdf = (request.args.get("include_pdf") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            if include_pdf and pdf_size <= MAX_JSON_INLINE_PDF_BYTES:
+                payload["pdf_base64"] = base64.b64encode(pdf_bytes).decode("ascii")
+            elif include_pdf:
+                return jsonify({
+                    "status": CERTIFICATE_RENDER_ERROR_STATUS,
+                    "message": (
+                        f"PDF too large for JSON embedding ({pdf_size} bytes). "
+                        "Omit format=json to receive application/pdf directly."
+                    ),
+                    "context_id": context_id,
+                    "participant_id": participant_id,
+                    "data": payload,
+                }), 413
+            else:
+                payload["hint"] = (
+                    "Omit format=json (or send Accept: application/pdf) to download "
+                    "the PDF directly. Use include_pdf=1 only for small previews."
+                )
+
             return jsonify({
                 "status": "success",
                 "message": "Certificate preview generated",
-                "data": {
-                    "context_id": context_id,
-                    "participant_id": participant_id,
-                    "filename": filename,
-                    "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii"),
-                    "meta": meta,
-                },
+                "data": payload,
             }), 200
 
         return Response(

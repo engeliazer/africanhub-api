@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 A4_WIDTH = 595.28
 A4_HEIGHT = 841.89
 
+# ~150 DPI for A4 — enough for print preview without multi‑MB PDFs.
+MAX_BACKGROUND_WIDTH_PX = 1240
+MAX_BACKGROUND_HEIGHT_PX = 1754
+BACKGROUND_JPEG_QUALITY = 85
+LOGO_JPEG_QUALITY = 80
+
+# Do not embed full PDFs in JSON responses above this size (raw bytes).
+MAX_JSON_INLINE_PDF_BYTES = 2 * 1024 * 1024
+
 DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "page": {"width": A4_WIDTH, "height": A4_HEIGHT},
     "certificate_title": {
@@ -127,7 +136,32 @@ class CertificateRenderer:
     def render_pdf_bytes(self) -> bytes:
         background_bytes = self._load_background()
         overlay_bytes = self._build_overlay_layer()
-        return self._merge_layers(background_bytes, overlay_bytes)
+        merged = self._merge_layers(background_bytes, overlay_bytes)
+        return self._compress_pdf(merged)
+
+    @staticmethod
+    def _optimize_raster_image(
+        image_bytes: bytes,
+        *,
+        max_width_px: int = MAX_BACKGROUND_WIDTH_PX,
+        max_height_px: int = MAX_BACKGROUND_HEIGHT_PX,
+        jpeg_quality: int = BACKGROUND_JPEG_QUALITY,
+    ) -> bytes:
+        """Downscale and JPEG-compress raster assets before embedding in PDF."""
+        with Image.open(BytesIO(image_bytes)) as image:
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            if image.mode in ("RGBA", "LA"):
+                flattened = Image.new("RGB", image.size, (255, 255, 255))
+                flattened.paste(image, mask=image.split()[-1])
+                image = flattened
+            else:
+                image = image.convert("RGB")
+
+            image.thumbnail((max_width_px, max_height_px), Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            image.save(buffer, format="JPEG", quality=jpeg_quality, optimize=True)
+            return buffer.getvalue()
 
     def _read_background_bytes(self) -> bytes:
         background_url = self.data["template"]["background_url"]
@@ -139,13 +173,20 @@ class CertificateRenderer:
     def _load_background(self) -> bytes:
         raw = self._read_background_bytes()
         if raw[:4] == b"%PDF":
+            if len(raw) > 3_000_000:
+                logger.warning(
+                    "Large PDF background (%s bytes); upload a JPEG/PNG template or "
+                    "a compressed PDF for smaller certificate output",
+                    len(raw),
+                )
             return raw
         return self._image_bytes_to_pdf_page(raw)
 
     def _image_bytes_to_pdf_page(self, image_bytes: bytes) -> bytes:
+        optimized = self._optimize_raster_image(image_bytes)
         buffer = BytesIO()
         pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
-        image_reader = ImageReader(BytesIO(image_bytes))
+        image_reader = ImageReader(BytesIO(optimized))
         img_w, img_h = image_reader.getSize()
         aspect = img_h / float(img_w) if img_w else 1.0
         draw_w = self.page_w
@@ -161,7 +202,7 @@ class CertificateRenderer:
             y,
             width=draw_w,
             height=draw_h,
-            mask="auto",
+            mask=None,
         )
         pdf_canvas.save()
         return buffer.getvalue()
@@ -280,7 +321,15 @@ class CertificateRenderer:
         max_width = float(layout.get("max_width", 100))
         max_height = float(layout.get("max_height", 50))
 
-        with Image.open(BytesIO(image_bytes)) as image:
+        max_logo_px = max(int(max_width * 3), 120)
+        optimized = self._optimize_raster_image(
+            image_bytes,
+            max_width_px=max_logo_px,
+            max_height_px=max_logo_px,
+            jpeg_quality=LOGO_JPEG_QUALITY,
+        )
+
+        with Image.open(BytesIO(optimized)) as image:
             width_px, height_px = image.size
         aspect = height_px / width_px if width_px else 1.0
         draw_w = max_width
@@ -290,12 +339,12 @@ class CertificateRenderer:
             draw_w = draw_h / aspect if aspect else max_width
 
         pdf_canvas.drawImage(
-            ImageReader(BytesIO(image_bytes)),
+            ImageReader(BytesIO(optimized)),
             x,
             y - draw_h,
             width=draw_w,
             height=draw_h,
-            mask="auto",
+            mask=None,
             preserveAspectRatio=True,
         )
 
@@ -311,13 +360,19 @@ class CertificateRenderer:
             sig_y = float(layout.get("signature_y", layout.get("name_y", 0)))
             sig_w = float(layout.get("signature_width", 100))
             sig_h = float(layout.get("signature_height", 40))
+            optimized_sig = self._optimize_raster_image(
+                signature_bytes,
+                max_width_px=int(sig_w * 3),
+                max_height_px=int(sig_h * 3),
+                jpeg_quality=LOGO_JPEG_QUALITY,
+            )
             pdf_canvas.drawImage(
-                ImageReader(BytesIO(signature_bytes)),
+                ImageReader(BytesIO(optimized_sig)),
                 sig_x - (sig_w / 2 if align == "center" else 0),
                 sig_y,
                 width=sig_w,
                 height=sig_h,
-                mask="auto",
+                mask=None,
                 preserveAspectRatio=True,
             )
 
@@ -363,6 +418,17 @@ class CertificateRenderer:
         background_page.merge_page(overlay_page)
         writer.add_page(background_page)
 
+        output = BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    @staticmethod
+    def _compress_pdf(pdf_bytes: bytes) -> bytes:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        for page in reader.pages:
+            page.compress_content_streams()
+            writer.add_page(page)
         output = BytesIO()
         writer.write(output)
         return output.getvalue()
