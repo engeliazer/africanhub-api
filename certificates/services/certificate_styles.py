@@ -45,9 +45,9 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "invited_logo": {"x": 448, "y": 754, "max_width": 115, "max_height": 58},
     "cert_number": {
         "x": 543,
-        "y": 758,
+        "y": 822,
         "font": SERIF,
-        "size": 7.5,
+        "size": 15,
         "align": "right",
         "color": COLOR_BODY,
     },
