@@ -149,7 +149,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "signatory_1": {
         "name_x": SIGNATORY_1_CENTER_X,
         "name_y": 118,
-        "title_y": 102,
+        "title_y": 112,
         "signature_x": SIGNATORY_1_CENTER_X,
         "signature_y": 158,
         "signature_width": SIGNATORY_SIGNATURE_WIDTH,
@@ -167,7 +167,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "signatory_2": {
         "name_x": SIGNATORY_2_CENTER_X,
         "name_y": 118,
-        "title_y": 102,
+        "title_y": 112,
         "signature_x": SIGNATORY_2_CENTER_X,
         "signature_y": 158,
         "signature_width": SIGNATORY_SIGNATURE_WIDTH,
