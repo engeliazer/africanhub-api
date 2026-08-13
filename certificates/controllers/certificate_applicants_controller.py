@@ -15,6 +15,7 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     get_user_or_error,
 )
+from certificates.services.serial_no_service import assign_participant_serial_no
 from database.db_connector import get_db
 
 certificate_applicants_bp = Blueprint("certificate_applicants", __name__)
@@ -168,6 +169,8 @@ def import_approved_applicants(context_id: int):
                 updated_by=current_user_id,
             )
             db.add(row)
+            db.flush()
+            assign_participant_serial_no(row, context)
             created.append(row)
 
         db.commit()

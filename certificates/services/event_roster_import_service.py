@@ -11,6 +11,7 @@ from certificates.services.participant_service import (
     guest_already_on_roster,
     participant_already_on_roster,
 )
+from certificates.services.serial_no_service import assign_participant_serial_no
 from events.models.models import EventParticipant
 from events.services.event_participant_service import normalize_guest_name
 
@@ -96,6 +97,8 @@ def import_event_participants_to_context(
             seen_guest_keys.add(guest_key)
 
         db.add(row)
+        db.flush()
+        assign_participant_serial_no(row, context)
         created.append(row)
 
     return created, skipped, None

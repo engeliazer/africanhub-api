@@ -256,6 +256,7 @@ def participant_payload(
         "qualifies_for_cpd": qualifies_for_cpd,
         "qualifies_for_cpd_override": override,
         "confirmation_status": participant.confirmation_status,
+        "serial_no": participant.serial_no,
         "certificate_id": participant.certificate_id,
         "created_at": participant.created_at.isoformat() if participant.created_at else None,
         "updated_at": participant.updated_at.isoformat() if participant.updated_at else None,

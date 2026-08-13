@@ -63,7 +63,8 @@ def _wants_json_preview() -> bool:
 def preview_participant_certificate_check(context_id: int, participant_id: int):
     """
     Diagnose certificate preview readiness (JSON — use when preview returns 502).
-    ?source=event&render=true to also attempt PDF generation and report byte size.
+    Requires a confirmed certificate_participants row.
+    ?render=true to also attempt PDF generation and report byte size.
     """
     db = get_db()
     try:
@@ -108,10 +109,10 @@ def preview_participant_certificate(context_id: int, participant_id: int):
     Render a certificate PDF for one participant without saving it.
 
     Uses the training context template, logos, signatories, and participant data.
-    Adds a PREVIEW watermark and cert_number = PREVIEW.
+    Requires a confirmed row on certificate_participants. Uses the stored serial_no
+    on the PDF and adds a PREVIEW watermark when preview=true.
 
     Query params:
-      - source=event (default for event training contexts) | certificate
       - format=json — metadata + optional small base64 PDF (see include_pdf)
       - include_pdf=1 — embed pdf_base64 only when raw PDF <= 2 MB
       - debug=1 — include traceback on errors (JSON only)
@@ -237,9 +238,9 @@ def generate_participant_certificate(context_id: int, participant_id: int):
     try:
         from certificates.services.certificate_render_service import (
             build_render_data,
-            get_participant_or_error,
+            get_confirmed_participant_or_error,
             get_training_context_or_error,
-            resolve_render_participant,
+            resolve_confirmed_certificate_participant,
         )
         from certificates.services.certificate_renderer import CertificateRenderer
 
@@ -248,7 +249,7 @@ def generate_participant_certificate(context_id: int, participant_id: int):
         if context_error:
             return jsonify({"status": "error", "message": context_error}), 404
 
-        participant, participant_error = get_participant_or_error(
+        participant, participant_error = get_confirmed_participant_or_error(
             db,
             context_id,
             participant_id,
@@ -256,12 +257,8 @@ def generate_participant_certificate(context_id: int, participant_id: int):
         if participant_error:
             return jsonify({
                 "status": "error",
-                "message": (
-                    "Participant must be on the certificate roster before issuing. "
-                    "For events, import the training calendar roster first: "
-                    "POST .../participants/import-event-roster"
-                ),
-            }), 404
+                "message": participant_error,
+            }), 404 if "not found" in participant_error.lower() else 400
 
         if participant.certificate_id:
             existing = (
@@ -279,11 +276,10 @@ def generate_participant_certificate(context_id: int, participant_id: int):
                     "data": certificate_output_payload(existing),
                 }), 200
 
-        identity, _, identity_error = resolve_render_participant(
+        identity, _, identity_error = resolve_confirmed_certificate_participant(
             db,
             context,
             participant_id,
-            source="certificate",
         )
         if identity_error:
             return jsonify({"status": "error", "message": identity_error}), 400

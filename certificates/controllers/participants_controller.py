@@ -20,6 +20,7 @@ from certificates.services.participant_service import (
     is_guest_participant,
     participant_already_on_roster,
 )
+from certificates.services.serial_no_service import assign_participant_serial_no
 from database.db_connector import get_db
 
 certificate_participants_bp = Blueprint("certificate_participants", __name__)
@@ -146,6 +147,8 @@ def add_participants(context_id: int):
                 )
 
             db.add(row)
+            db.flush()
+            assign_participant_serial_no(row, context)
             created.append(row)
 
         db.commit()
@@ -249,6 +252,12 @@ def update_participant(context_id: int, participant_id: int):
         for field, value in updates.items():
             setattr(row, field, value)
         row.updated_by = current_user_id
+
+        if (
+            updates.get("confirmation_status") == "confirmed"
+            and not row.serial_no
+        ):
+            assign_participant_serial_no(row, context)
 
         db.commit()
 

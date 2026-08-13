@@ -202,6 +202,12 @@ class CertificateParticipant(Base):
     )
     qualifies_for_cpd_override = Column(Boolean, nullable=True)
     confirmation_status = Column(String(20), nullable=False, default="pending")
+    serial_no = Column(
+        String(255),
+        nullable=True,
+        unique=True,
+        comment="Unique serial from cert_number_pattern and participant id",
+    )
     certificate_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
