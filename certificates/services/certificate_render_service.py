@@ -110,6 +110,24 @@ def resolve_event_participant_identity(
     ), None
 
 
+def _default_preview_source(
+    context: CertificateTrainingContext,
+    source: Optional[str],
+    *,
+    preview: bool,
+) -> Optional[str]:
+    """
+    Event training contexts use two id spaces (event_participants vs certificate_participants).
+    Preview defaults to the training calendar unless source=certificate is explicit.
+    """
+    normalized = (source or "").strip().lower() or None
+    if normalized:
+        return normalized
+    if preview and context.training_type == "event":
+        return "event"
+    return None
+
+
 def resolve_render_participant(
     db: Session,
     context: CertificateTrainingContext,
@@ -117,7 +135,7 @@ def resolve_render_participant(
     *,
     source: Optional[str] = None,
 ) -> Tuple[Optional[ParticipantIdentity], Optional[CertificateParticipant], Optional[str]]:
-    normalized_source = (source or "certificate").strip().lower()
+    normalized_source = (source or "").strip().lower() or None
 
     if normalized_source == "event":
         if context.training_type != "event":
@@ -132,7 +150,22 @@ def resolve_render_participant(
         identity, identity_error = resolve_event_participant_identity(db, event_participant)
         return identity, None, identity_error
 
-    certificate_participant, participant_error = get_participant_or_error(
+    if normalized_source == "certificate":
+        certificate_participant, participant_error = get_participant_or_error(
+            db,
+            context.id,
+            participant_id,
+        )
+        if participant_error:
+            return None, None, participant_error
+        identity, identity_error = resolve_certificate_participant_identity(
+            db,
+            certificate_participant,
+            context,
+        )
+        return identity, certificate_participant, identity_error
+
+    certificate_participant, _ = get_participant_or_error(
         db,
         context.id,
         participant_id,
@@ -158,10 +191,9 @@ def resolve_render_participant(
             return identity, None, None
 
     return None, None, (
-        "Participant not found on this certificate roster. "
-        "For events, either import the training calendar roster "
-        "(POST .../participants/import-event-roster) or preview with "
-        "?source=event using the event participant id."
+        "Participant not found. For event training calendars use the event roster id "
+        "(preview defaults to source=event). For the certificate roster use "
+        "?source=certificate or import the event roster first."
     )
 
 
@@ -321,6 +353,7 @@ def build_render_data(
             "participant_id": certificate_participant.id if certificate_participant else None,
             "participant_source": identity.source,
             "participant_source_id": identity.source_id,
+            "participant_display_name": identity.display_name,
             "user_id": identity.user_id,
             "qualifies_for_cpd": qualifies_for_cpd,
             "cert_number": cert_number,
@@ -341,11 +374,13 @@ def render_participant_certificate_pdf(
     if context_error:
         return None, None, context_error
 
+    effective_source = _default_preview_source(context, source, preview=preview)
+
     identity, certificate_participant, resolve_error = resolve_render_participant(
         db,
         context,
         participant_id,
-        source=source,
+        source=effective_source,
     )
     if resolve_error:
         return None, None, resolve_error
@@ -412,11 +447,14 @@ def diagnose_certificate_preview(
     report["training_type"] = context.training_type
     report["training_id"] = context.training_id
 
+    effective_source = _default_preview_source(context, source, preview=True)
+    report["resolved_source"] = effective_source or "auto"
+
     identity, certificate_participant, resolve_error = resolve_render_participant(
         db,
         context,
         participant_id,
-        source=source,
+        source=effective_source,
     )
     if resolve_error:
         report["checks"]["participant"] = resolve_error

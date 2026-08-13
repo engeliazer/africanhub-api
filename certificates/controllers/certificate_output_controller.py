@@ -111,7 +111,7 @@ def preview_participant_certificate(context_id: int, participant_id: int):
     Adds a PREVIEW watermark and cert_number = PREVIEW.
 
     Query params:
-      - source=certificate (default) | event
+      - source=event (default for event training contexts) | certificate
       - format=json — metadata + optional small base64 PDF (see include_pdf)
       - include_pdf=1 — embed pdf_base64 only when raw PDF <= 2 MB
       - debug=1 — include traceback on errors (JSON only)
