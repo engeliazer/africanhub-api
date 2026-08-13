@@ -126,7 +126,7 @@ def add_participants(context_id: int):
             if create_error:
                 status = 404 if "not found" in create_error.lower() else 400
                 return jsonify({"status": "error", "message": create_error}), status
-            _, issue_error = issue_certificate_for_participant(
+            _, _, issue_error = issue_certificate_for_participant(
                 db,
                 context,
                 row,
@@ -181,7 +181,7 @@ def import_event_roster(context_id: int):
             return jsonify({"status": "error", "message": import_error}), 400
 
         for row in created:
-            _, issue_error = issue_certificate_for_participant(
+            _, _, issue_error = issue_certificate_for_participant(
                 db,
                 context,
                 row,
@@ -257,7 +257,7 @@ def update_participant(context_id: int, participant_id: int):
             assign_participant_serial_no(db, row, context)
 
         if row.confirmation_status == "confirmed" and not row.certificate_id:
-            _, issue_error = issue_certificate_for_participant(
+            _, _, issue_error = issue_certificate_for_participant(
                 db,
                 context,
                 row,

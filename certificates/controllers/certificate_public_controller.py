@@ -40,11 +40,15 @@ def verify_certificate_pdf():
     serial_no = _serial_no_from_request()
     db = get_db()
     try:
-        local_path, error = resolve_verification_pdf_path(db, serial_no)
+        local_path, error = resolve_verification_pdf_path(db, serial_no, regenerate=True)
         if error:
+            db.rollback()
             return jsonify({"status": "error", "message": error}), 404
         if not local_path or not os.path.isfile(local_path):
+            db.rollback()
             return jsonify({"status": "error", "message": "Certificate PDF file not found"}), 404
+
+        db.commit()
 
         inline = (request.args.get("inline") or "1").strip().lower() in {"1", "true", "yes"}
         return send_file(

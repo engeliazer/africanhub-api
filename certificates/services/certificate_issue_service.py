@@ -56,13 +56,18 @@ def issue_certificate_for_participant(
     context: CertificateTrainingContext,
     participant: CertificateParticipant,
     current_user_id: int,
-) -> Tuple[Optional[Certificate], Optional[str]]:
+    *,
+    regenerate: bool = False,
+) -> Tuple[Optional[Certificate], Optional[bytes], Optional[str]]:
     if not participant_is_issueable(participant):
-        return None, "Participant must be confirmed before a certificate can be issued"
+        return None, None, "Participant must be confirmed before a certificate can be issued"
 
     existing = get_participant_certificate(db, participant)
-    if existing and existing.pdf_url:
-        return existing, None
+    if existing and existing.pdf_url and not regenerate:
+        pdf_bytes, read_error = read_certificate_pdf_bytes(existing)
+        if read_error:
+            return existing, None, read_error
+        return existing, pdf_bytes, None
 
     identity, _, identity_error = resolve_confirmed_certificate_participant(
         db,
@@ -70,7 +75,7 @@ def issue_certificate_for_participant(
         participant.id,
     )
     if identity_error:
-        return None, identity_error
+        return None, None, identity_error
 
     render_data, build_error = build_render_data(
         db,
@@ -80,7 +85,7 @@ def issue_certificate_for_participant(
         preview=False,
     )
     if build_error:
-        return None, build_error
+        return None, None, build_error
 
     meta = render_data["meta"]
     pdf_bytes = CertificateRenderer(render_data).render_pdf_bytes()
@@ -112,7 +117,7 @@ def issue_certificate_for_participant(
     )
     certificate.pdf_url = pdf_url
     participant.updated_by = current_user_id
-    return certificate, None
+    return certificate, pdf_bytes, None
 
 
 def ensure_participant_certificate_issued(
@@ -120,10 +125,18 @@ def ensure_participant_certificate_issued(
     context: CertificateTrainingContext,
     participant: CertificateParticipant,
     current_user_id: int,
-) -> Tuple[Optional[Certificate], Optional[str]]:
+    *,
+    regenerate: bool = False,
+) -> Tuple[Optional[Certificate], Optional[bytes], Optional[str]]:
     if not participant_is_issueable(participant):
-        return None, "Participant must be confirmed before a certificate can be issued"
-    return issue_certificate_for_participant(db, context, participant, current_user_id)
+        return None, None, "Participant must be confirmed before a certificate can be issued"
+    return issue_certificate_for_participant(
+        db,
+        context,
+        participant,
+        current_user_id,
+        regenerate=regenerate,
+    )
 
 
 def issue_certificates_for_participants(
@@ -138,7 +151,7 @@ def issue_certificates_for_participants(
             continue
         if get_participant_certificate(db, participant) and participant.certificate_id:
             continue
-        certificate, error = issue_certificate_for_participant(
+        certificate, _, error = issue_certificate_for_participant(
             db,
             context,
             participant,
@@ -178,9 +191,10 @@ def get_participant_certificate_pdf(
     auto_issue: bool = True,
 ) -> Tuple[Optional[bytes], Optional[Dict[str, Any]], Optional[str]]:
     """
-    Return the stored official certificate PDF for a confirmed roster participant.
+    Return the official certificate PDF for a confirmed roster participant.
 
-    When auto_issue is true (default), issues the certificate first if it does not exist yet.
+    When auto_issue is true (default), issues or regenerates the certificate from the
+    current template before returning the PDF bytes.
     """
     from certificates.services.certificate_render_service import (
         build_render_data,
@@ -205,22 +219,17 @@ def get_participant_certificate_pdf(
     if resolve_error:
         return None, None, resolve_error
 
-    certificate = get_participant_certificate(db, certificate_participant)
-    if auto_issue and (certificate is None or not certificate.pdf_url):
-        certificate, issue_error = ensure_participant_certificate_issued(
-            db,
-            context,
-            certificate_participant,
-            current_user_id,
-        )
-        if issue_error:
-            return None, None, issue_error
-    elif certificate is None:
+    certificate, pdf_bytes, issue_error = issue_certificate_for_participant(
+        db,
+        context,
+        certificate_participant,
+        current_user_id,
+        regenerate=auto_issue,
+    )
+    if issue_error:
+        return None, None, issue_error
+    if certificate is None or pdf_bytes is None:
         return None, None, "Certificate has not been issued for this participant"
-
-    pdf_bytes, read_error = read_certificate_pdf_bytes(certificate)
-    if read_error:
-        return None, None, read_error
 
     render_data, build_error = build_render_data(
         db,

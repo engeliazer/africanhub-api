@@ -172,7 +172,7 @@ def import_approved_applicants(context_id: int):
             db.add(row)
             db.flush()
             assign_participant_serial_no(db, row, context)
-            _, issue_error = issue_certificate_for_participant(
+            _, _, issue_error = issue_certificate_for_participant(
                 db,
                 context,
                 row,

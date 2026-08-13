@@ -15,6 +15,7 @@ from certificates.models.models import (
 from certificates.services.participant_service import (
     resolve_certificate_participant_identity,
 )
+from certificates.services.certificate_issue_service import issue_certificate_for_participant
 from certificates.services.storage_path_utils import storage_url_to_local_path
 from config import API_BASE_URL, CERTIFICATE_VERIFY_BASE_URL
 
@@ -125,12 +126,35 @@ def build_verification_payload(
 def resolve_verification_pdf_path(
     db: Session,
     serial_no: str,
+    *,
+    regenerate: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
-    participant, certificate, _, error = lookup_certificate_by_serial(db, serial_no)
+    participant, certificate, context, error = lookup_certificate_by_serial(db, serial_no)
     if error:
         return None, error
     if certificate is None:
         return None, "Official certificate PDF is not available until issuance"
+    if not certificate.pdf_url and not regenerate:
+        return None, "Certificate PDF file reference is missing"
+
+    if regenerate and context is not None and participant is not None:
+        actor_id = (
+            certificate.updated_by
+            or certificate.created_by
+            or participant.updated_by
+            or participant.created_by
+            or 1
+        )
+        certificate, _, regen_error = issue_certificate_for_participant(
+            db,
+            context,
+            participant,
+            int(actor_id),
+            regenerate=True,
+        )
+        if regen_error:
+            return None, regen_error
+
     if not certificate.pdf_url:
         return None, "Certificate PDF file reference is missing"
 

@@ -276,7 +276,7 @@ def generate_participant_certificate(context_id: int, participant_id: int):
                 "data": certificate_output_payload(existing),
             }), 200
 
-        certificate, issue_error = issue_certificate_for_participant(
+        certificate, _, issue_error = issue_certificate_for_participant(
             db,
             context,
             participant,

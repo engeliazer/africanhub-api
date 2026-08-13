@@ -421,6 +421,7 @@ def diagnose_certificate_preview(
         report["checks"]["render_data"] = build_error
         return report
     report["checks"]["render_data"] = "ok"
+    report["watermark_enabled"] = render_data.get("watermark_enabled")
     report["verification_url"] = render_data.get("verification_url")
     report["checks"]["verification_qr"] = (
         "ok"

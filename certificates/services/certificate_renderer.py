@@ -61,6 +61,11 @@ class CertificateRenderer:
     def render_pdf_bytes(self) -> bytes:
         background_bytes = self._load_background()
         overlay_bytes = self._build_overlay_layer()
+
+        if self.data.get("watermark_enabled") and self.data.get("watermark_logo_url"):
+            watermark_bytes = self._build_watermark_layer()
+            background_bytes = self._merge_layers(background_bytes, watermark_bytes)
+
         return self._merge_layers(background_bytes, overlay_bytes)
 
     @staticmethod
@@ -109,7 +114,7 @@ class CertificateRenderer:
 
     @staticmethod
     def _prepare_watermark_png(image_bytes: bytes, opacity: float) -> bytes:
-        """Apply opacity; key out white JPEG backgrounds so tiles stay visible."""
+        """Apply opacity; key out near-white JPEG backgrounds so tiles stay visible."""
         with Image.open(BytesIO(image_bytes)) as image:
             image = image.convert("RGBA")
             pixels = list(image.getdata())
@@ -118,14 +123,21 @@ class CertificateRenderer:
                 if a == 0:
                     adjusted.append((r, g, b, 0))
                     continue
-                if r >= 235 and g >= 235 and b >= 235:
+                if r >= 250 and g >= 250 and b >= 250:
                     adjusted.append((255, 255, 255, 0))
-                else:
-                    adjusted.append((r, g, b, int(a * opacity)))
+                    continue
+                adjusted.append((r, g, b, max(1, int(a * opacity))))
             image.putdata(adjusted)
             buffer = BytesIO()
             image.save(buffer, format="PNG")
             return buffer.getvalue()
+
+    def _build_watermark_layer(self) -> bytes:
+        buffer = BytesIO()
+        pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
+        self._draw_template_watermark(pdf_canvas)
+        pdf_canvas.save()
+        return buffer.getvalue()
 
     def _draw_template_watermark(self, pdf_canvas) -> None:
         if not self.data.get("watermark_enabled"):
@@ -155,7 +167,15 @@ class CertificateRenderer:
             draw_h = draw_w * aspect
             x = (self.page_w - draw_w) / 2
             y = (self.page_h - draw_h) / 2
-            pdf_canvas.drawImage(reader, x, y, width=draw_w, height=draw_h, mask="auto")
+            pdf_canvas.drawImage(
+                reader,
+                x,
+                y,
+                width=draw_w,
+                height=draw_h,
+                mask="auto",
+                preserveAspectRatio=True,
+            )
         else:
             tile_w = float(layout.get("tile_width", 110))
             tile_h = tile_w * aspect
@@ -166,7 +186,15 @@ class CertificateRenderer:
             while y < self.page_h - margin:
                 x = margin
                 while x < self.page_w - margin:
-                    pdf_canvas.drawImage(reader, x, y, width=tile_w, height=tile_h, mask="auto")
+                    pdf_canvas.drawImage(
+                        reader,
+                        x,
+                        y,
+                        width=tile_w,
+                        height=tile_h,
+                        mask="auto",
+                        preserveAspectRatio=True,
+                    )
                     x += tile_w + gap_x
                 y += tile_h + gap_y
 
@@ -212,8 +240,6 @@ class CertificateRenderer:
     def _build_overlay_layer(self) -> bytes:
         buffer = BytesIO()
         pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
-
-        self._draw_template_watermark(pdf_canvas)
 
         if self.data.get("show_home_logo"):
             self._draw_logo(pdf_canvas, self.data.get("home_logo_url"), "home_logo")
@@ -671,9 +697,14 @@ def layout_watermark_config(field_layout: Optional[Dict[str, Any]]) -> Dict[str,
 def template_watermark_settings(template: Any) -> Dict[str, Any]:
     """Resolve watermark config from template columns with field_layout fallback."""
     layout_wm = layout_watermark_config(getattr(template, "field_layout", None))
-    logo_url = getattr(template, "watermark_logo_url", None) or layout_wm.get("logo_url")
+    logo_url = (
+        getattr(template, "watermark_logo_url", None)
+        or layout_wm.get("logo_url")
+        or layout_wm.get("watermark_logo_url")
+    )
+    logo_url = (logo_url or "").strip() or None
     enabled = bool(logo_url)
-    if layout_wm.get("enabled") is False:
+    if layout_wm.get("enabled") is False and not getattr(template, "watermark_logo_url", None):
         enabled = False
     opacity_raw = getattr(template, "watermark_opacity", None)
     if opacity_raw is None:
