@@ -28,7 +28,7 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     resolve_certificate_participant_identity,
 )
-from certificates.services.certificate_verification_service import build_verification_view_url
+from certificates.services.certificate_verify_urls import build_verification_view_url
 from certificates.services.serial_no_service import (
     build_participant_serial_no,
     participant_confirmation_error,

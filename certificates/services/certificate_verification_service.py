@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import quote
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -12,22 +11,22 @@ from certificates.models.models import (
     CertificateParticipant,
     CertificateTrainingContext,
 )
+from certificates.services.certificate_verify_urls import (
+    build_verification_pdf_url,
+    build_verification_view_url,
+)
 from certificates.services.participant_service import (
     resolve_certificate_participant_identity,
 )
-from certificates.services.certificate_issue_service import issue_certificate_for_participant
 from certificates.services.storage_path_utils import storage_url_to_local_path
-from config import API_BASE_URL, CERTIFICATE_VERIFY_BASE_URL
 
-
-def build_verification_view_url(serial_no: str) -> str:
-    encoded = quote((serial_no or "").strip(), safe="")
-    return f"{CERTIFICATE_VERIFY_BASE_URL}?serial_no={encoded}"
-
-
-def build_verification_pdf_url(serial_no: str) -> str:
-    encoded = quote((serial_no or "").strip(), safe="")
-    return f"{API_BASE_URL}/api/certificates/public/verify/pdf?serial_no={encoded}"
+__all__ = [
+    "build_verification_pdf_url",
+    "build_verification_view_url",
+    "build_verification_payload",
+    "lookup_certificate_by_serial",
+    "resolve_verification_pdf_path",
+]
 
 
 def _participant_summary(
@@ -129,6 +128,8 @@ def resolve_verification_pdf_path(
     *,
     regenerate: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
+    from certificates.services.certificate_issue_service import issue_certificate_for_participant
+
     participant, certificate, context, error = lookup_certificate_by_serial(db, serial_no)
     if error:
         return None, error

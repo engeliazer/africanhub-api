@@ -11,13 +11,6 @@ from typing import Optional
 from flask import Blueprint, Response, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from certificates.controllers.certificate_file_utils import save_certificate_pdf
-from certificates.models.models import Certificate
-from certificates.models.schemas import certificate_output_payload
-from certificates.services.certificate_issue_service import (
-    get_participant_certificate,
-    issue_certificate_for_participant,
-)
 from certificates.services.certificate_renderer import MAX_JSON_INLINE_PDF_BYTES
 from certificates.services.storage_path_utils import storage_url_to_local_path
 from database.db_connector import get_db
@@ -90,7 +83,7 @@ def preview_participant_certificate_check(context_id: int, participant_id: int):
             "status": CERTIFICATE_RENDER_ERROR_STATUS,
             "message": "Certificate preview is not ready",
             "data": data,
-        }), 500
+        }), 200
     except BaseException as exc:
         logger.exception("preview_check failed: %s", exc)
         return _certificate_render_error_response(
@@ -247,6 +240,11 @@ def generate_participant_certificate(context_id: int, participant_id: int):
     """
     db = get_db()
     try:
+        from certificates.models.schemas import certificate_output_payload
+        from certificates.services.certificate_issue_service import (
+            get_participant_certificate,
+            issue_certificate_for_participant,
+        )
         from certificates.services.certificate_render_service import (
             get_confirmed_participant_or_error,
             get_training_context_or_error,
@@ -311,6 +309,9 @@ def generate_participant_certificate(context_id: int, participant_id: int):
 @jwt_required()
 def get_certificate(certificate_id: int):
     """Fetch one issued certificate record (Group 4)."""
+    from certificates.models.models import Certificate
+    from certificates.models.schemas import certificate_output_payload
+
     db = get_db()
     try:
         row = (
@@ -337,6 +338,8 @@ def get_certificate(certificate_id: int):
 @jwt_required()
 def download_certificate(certificate_id: int):
     """Download the stored certificate PDF."""
+    from certificates.models.models import Certificate
+
     db = get_db()
     try:
         row = (
