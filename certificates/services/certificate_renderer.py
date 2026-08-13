@@ -27,6 +27,7 @@ from certificates.services.certificate_styles import (
     A4_HEIGHT,
     A4_WIDTH,
     COLOR_FLOURISH,
+    CONTENT_MAX_WIDTH,
     DEFAULT_CERTIFICATE_HEADING,
     DEFAULT_CERTIFICATE_SUBHEADING,
     DEFAULT_CERT_INTRO,
@@ -223,13 +224,27 @@ class CertificateRenderer:
         self._draw_subheading_with_flourishes(pdf_canvas)
         self._draw_text(pdf_canvas, self.data.get("cert_intro"), "cert_intro")
         self._draw_participant_name(pdf_canvas, self.data.get("participant_name"))
-        self._draw_wrapped_text(pdf_canvas, self.data.get("participation_line"), "participation_line")
-        self._draw_wrapped_text(pdf_canvas, self.data.get("subject_title"), "subject_title")
-        self._draw_wrapped_text(pdf_canvas, self.data.get("venue_line"), "venue_line")
-        self._draw_wrapped_text(pdf_canvas, self.data.get("date_line"), "date_line")
+        flow_y: Optional[float] = None
+        for layout_key in (
+            "participation_line",
+            "subject_title",
+            "venue_line",
+            "date_line",
+        ):
+            flow_y = self._draw_wrapped_text(
+                pdf_canvas,
+                self.data.get(layout_key),
+                layout_key,
+                flow_start_y=flow_y,
+            )
 
         if self.data.get("qualifies_for_cpd") and self.data.get("cpd_line"):
-            self._draw_wrapped_text(pdf_canvas, self.data.get("cpd_line"), "cpd_line")
+            self._draw_wrapped_text(
+                pdf_canvas,
+                self.data.get("cpd_line"),
+                "cpd_line",
+                flow_start_y=flow_y,
+            )
 
         signatories = self.data.get("signatories") or []
         for index, signatory in enumerate(signatories, start=1):
@@ -373,16 +388,25 @@ class CertificateRenderer:
         lines.append(current)
         return lines
 
-    def _draw_wrapped_text(self, pdf_canvas, text: Optional[str], layout_key: str) -> None:
-        if not text:
-            return
+    def _draw_wrapped_text(
+        self,
+        pdf_canvas,
+        text: Optional[str],
+        layout_key: str,
+        flow_start_y: Optional[float] = None,
+    ) -> Optional[float]:
         layout = self._layout_for(layout_key)
+        gap_after = float(layout.get("gap_after", 10))
+        y = float(flow_start_y if flow_start_y is not None else layout.get("y", 0))
+
+        if not text:
+            return y
+
         font = layout.get("font", SERIF)
         size = float(layout.get("size", 12))
         x = float(layout.get("x", 0))
-        y = float(layout.get("y", 0))
         align = layout.get("align", "left")
-        max_width = float(layout.get("max_width", self.page_w - 80))
+        max_width = float(layout.get("max_width", CONTENT_MAX_WIDTH))
         line_height = float(layout.get("line_height", size * 1.25))
 
         self._set_fill_from_layout(pdf_canvas, layout)
@@ -397,6 +421,8 @@ class CertificateRenderer:
             else:
                 pdf_canvas.drawString(x, cursor_y, line)
             cursor_y -= line_height
+
+        return cursor_y - gap_after
 
     def _draw_logo(self, pdf_canvas, logo_url: Optional[str], layout_key: str) -> None:
         image_bytes = self._load_image_bytes(logo_url)

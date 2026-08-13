@@ -11,6 +11,14 @@ from certificates.services.certificate_fonts import SERIF, SERIF_BOLD
 A4_WIDTH = 595.28
 A4_HEIGHT = 841.89
 
+# Inner gold border on the AHBT background — body text stays inside this frame.
+INNER_BORDER_INSET = 78
+CONTENT_PADDING = 12
+CONTENT_LEFT = INNER_BORDER_INSET + CONTENT_PADDING
+CONTENT_RIGHT = A4_WIDTH - INNER_BORDER_INSET - CONTENT_PADDING
+CONTENT_MAX_WIDTH = CONTENT_RIGHT - CONTENT_LEFT
+CONTENT_CENTER_X = A4_WIDTH / 2
+
 # Sample certificate palette
 COLOR_ACCENT = "#A66A28"  # burnt orange / gold-brown headings
 COLOR_ACCENT_DARK = "#8B4513"
@@ -73,54 +81,59 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "underline_gap": 6,
     },
     "participation_line": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 488,
         "font": SERIF,
         "size": 24,
         "align": "center",
         "color": COLOR_BODY,
-        "max_width": 480,
+        "max_width": CONTENT_MAX_WIDTH,
         "line_height": 28,
+        "gap_after": 14,
     },
     "subject_title": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 448,
         "font": SERIF_BOLD,
         "size": 25,
         "align": "center",
         "color": COLOR_ACCENT,
-        "max_width": 480,
+        "max_width": CONTENT_MAX_WIDTH,
         "line_height": 32,
+        "gap_after": 22,
     },
     "venue_line": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 378,
         "font": SERIF,
         "size": 23,
         "align": "center",
         "color": COLOR_BODY,
-        "max_width": 480,
+        "max_width": CONTENT_MAX_WIDTH,
         "line_height": 28,
+        "gap_after": 10,
     },
     "date_line": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 342,
         "font": SERIF,
         "size": 23,
         "align": "center",
         "color": COLOR_BODY,
-        "max_width": 480,
+        "max_width": CONTENT_MAX_WIDTH,
         "line_height": 28,
+        "gap_after": 8,
     },
     "cpd_line": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 306,
         "font": SERIF,
         "size": 23,
         "align": "center",
         "color": COLOR_BODY,
-        "max_width": 480,
+        "max_width": CONTENT_MAX_WIDTH,
         "line_height": 28,
+        "gap_after": 8,
         "optional": True,
     },
     "signatory_1": {
