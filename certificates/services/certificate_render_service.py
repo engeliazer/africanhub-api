@@ -375,6 +375,7 @@ def diagnose_certificate_preview(
     report["participant_source"] = identity.source
     report["participant_display_name"] = identity.display_name
     report["serial_no"] = certificate_participant.serial_no
+    report["certificate_id"] = certificate_participant.certificate_id
 
     template, template_error = get_template_with_signatories(
         db,
@@ -414,7 +415,7 @@ def diagnose_certificate_preview(
         context,
         identity,
         certificate_participant=certificate_participant,
-        preview=True,
+        preview=False,
     )
     if build_error:
         report["checks"]["render_data"] = build_error

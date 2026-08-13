@@ -9,6 +9,7 @@ from certificates.models.schemas import (
     ParticipantUpdateInput,
     participant_payload,
 )
+from certificates.services.certificate_issue_service import issue_certificate_for_participant
 from certificates.services.event_roster_import_service import import_event_participants_to_context
 from certificates.services.participant_create_service import create_certificate_participant
 from certificates.services.participant_service import (
@@ -125,6 +126,15 @@ def add_participants(context_id: int):
             if create_error:
                 status = 404 if "not found" in create_error.lower() else 400
                 return jsonify({"status": "error", "message": create_error}), status
+            _, issue_error = issue_certificate_for_participant(
+                db,
+                context,
+                row,
+                current_user_id,
+            )
+            if issue_error:
+                db.rollback()
+                return jsonify({"status": "error", "message": issue_error}), 400
             created.append(row)
 
         db.commit()
@@ -169,6 +179,17 @@ def import_event_roster(context_id: int):
         )
         if import_error:
             return jsonify({"status": "error", "message": import_error}), 400
+
+        for row in created:
+            _, issue_error = issue_certificate_for_participant(
+                db,
+                context,
+                row,
+                current_user_id,
+            )
+            if issue_error:
+                db.rollback()
+                return jsonify({"status": "error", "message": issue_error}), 400
 
         db.commit()
 
@@ -234,6 +255,17 @@ def update_participant(context_id: int, participant_id: int):
             and not row.serial_no
         ):
             assign_participant_serial_no(db, row, context)
+
+        if row.confirmation_status == "confirmed" and not row.certificate_id:
+            _, issue_error = issue_certificate_for_participant(
+                db,
+                context,
+                row,
+                current_user_id,
+            )
+            if issue_error:
+                db.rollback()
+                return jsonify({"status": "error", "message": issue_error}), 400
 
         db.commit()
 

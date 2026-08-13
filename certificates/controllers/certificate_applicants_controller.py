@@ -15,6 +15,7 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     get_user_or_error,
 )
+from certificates.services.certificate_issue_service import issue_certificate_for_participant
 from certificates.services.serial_no_service import assign_participant_serial_no
 from database.db_connector import get_db
 
@@ -171,6 +172,15 @@ def import_approved_applicants(context_id: int):
             db.add(row)
             db.flush()
             assign_participant_serial_no(db, row, context)
+            _, issue_error = issue_certificate_for_participant(
+                db,
+                context,
+                row,
+                current_user_id,
+            )
+            if issue_error:
+                db.rollback()
+                return jsonify({"status": "error", "message": issue_error}), 400
             created.append(row)
 
         db.commit()

@@ -14,7 +14,12 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from certificates.controllers.certificate_file_utils import save_certificate_pdf
 from certificates.models.models import Certificate
 from certificates.models.schemas import certificate_output_payload
+from certificates.services.certificate_issue_service import (
+    get_participant_certificate,
+    issue_certificate_for_participant,
+)
 from certificates.services.certificate_renderer import MAX_JSON_INLINE_PDF_BYTES
+from certificates.services.storage_path_utils import storage_url_to_local_path
 from database.db_connector import get_db
 
 logger = logging.getLogger(__name__)
@@ -106,11 +111,10 @@ def preview_participant_certificate_check(context_id: int, participant_id: int):
 @jwt_required()
 def preview_participant_certificate(context_id: int, participant_id: int):
     """
-    Render a certificate PDF for one participant without saving it.
+    Return the official certificate PDF for one confirmed roster participant.
 
-    Uses the training context template, logos, signatories, and participant data.
-    Requires a confirmed row on certificate_participants. Uses the stored serial_no
-    on the PDF and adds a PREVIEW watermark when preview=true.
+    Confirmed participants are issued automatically when added to the roster. This
+    endpoint returns the stored certificate PDF (and issues it first if missing).
 
     Query params:
       - format=json — metadata + optional small base64 PDF (see include_pdf)
@@ -120,22 +124,25 @@ def preview_participant_certificate(context_id: int, participant_id: int):
     db = get_db()
     json_mode = _wants_json_preview()
     include_trace = request.args.get("debug") == "1"
+    current_user_id = int(get_jwt_identity())
 
     try:
-        from certificates.services.certificate_render_service import (
-            render_participant_certificate_pdf,
+        from certificates.services.certificate_issue_service import (
+            get_participant_certificate_pdf,
         )
 
         source = (request.args.get("source") or "").strip().lower() or None
-        pdf_bytes, meta, error = render_participant_certificate_pdf(
+        pdf_bytes, meta, error = get_participant_certificate_pdf(
             db,
             context_id,
             participant_id,
-            preview=True,
+            current_user_id,
             source=source,
+            auto_issue=True,
         )
 
         if error:
+            db.rollback()
             if json_mode:
                 return jsonify({
                     "status": CERTIFICATE_RENDER_ERROR_STATUS,
@@ -149,13 +156,15 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             )
 
         if not pdf_bytes:
+            db.rollback()
             return _certificate_render_error_response(
                 "Certificate render returned empty PDF",
                 context_id=context_id,
                 participant_id=participant_id,
             )
 
-        filename = f"certificate-preview-{participant_id}.pdf"
+        db.commit()
+        filename = f"{(meta or {}).get('cert_number', participant_id)}.pdf".replace("/", "-")
         pdf_size = len(pdf_bytes)
 
         if json_mode:
@@ -193,7 +202,7 @@ def preview_participant_certificate(context_id: int, participant_id: int):
 
             return jsonify({
                 "status": "success",
-                "message": "Certificate preview generated",
+                "message": "Certificate retrieved",
                 "data": payload,
             }), 200
 
@@ -206,6 +215,7 @@ def preview_participant_certificate(context_id: int, participant_id: int):
             },
         )
     except BaseException as exc:
+        db.rollback()
         logger.exception(
             "preview_participant_certificate context=%s participant=%s: %s",
             context_id,
@@ -232,17 +242,15 @@ def generate_participant_certificate(context_id: int, participant_id: int):
     """
     Issue a certificate for one participant (Group 4 output).
 
-    Generates the PDF, stores it, and returns the certificate record.
+    Returns the existing certificate when already issued; otherwise generates,
+    stores the PDF, and returns the certificate record.
     """
     db = get_db()
     try:
         from certificates.services.certificate_render_service import (
-            build_render_data,
             get_confirmed_participant_or_error,
             get_training_context_or_error,
-            resolve_confirmed_certificate_participant,
         )
-        from certificates.services.certificate_renderer import CertificateRenderer
 
         current_user_id = int(get_jwt_identity())
         context, context_error = get_training_context_or_error(db, context_id)
@@ -260,64 +268,23 @@ def generate_participant_certificate(context_id: int, participant_id: int):
                 "message": participant_error,
             }), 404 if "not found" in participant_error.lower() else 400
 
-        if participant.certificate_id:
-            existing = (
-                db.query(Certificate)
-                .filter(
-                    Certificate.id == participant.certificate_id,
-                    Certificate.deleted_at.is_(None),
-                )
-                .first()
-            )
-            if existing:
-                return jsonify({
-                    "status": "success",
-                    "message": "Certificate already issued",
-                    "data": certificate_output_payload(existing),
-                }), 200
+        existing = get_participant_certificate(db, participant)
+        if existing and existing.pdf_url:
+            return jsonify({
+                "status": "success",
+                "message": "Certificate already issued",
+                "data": certificate_output_payload(existing),
+            }), 200
 
-        identity, _, identity_error = resolve_confirmed_certificate_participant(
+        certificate, issue_error = issue_certificate_for_participant(
             db,
             context,
-            participant_id,
+            participant,
+            current_user_id,
         )
-        if identity_error:
-            return jsonify({"status": "error", "message": identity_error}), 400
-
-        render_data, build_error = build_render_data(
-            db,
-            context,
-            identity,
-            certificate_participant=participant,
-            preview=False,
-        )
-        if build_error:
-            return jsonify({"status": "error", "message": build_error}), 400
-
-        meta = render_data["meta"]
-        pdf_bytes = CertificateRenderer(render_data).render_pdf_bytes()
-
-        certificate = Certificate(
-            training_context_id=context.id,
-            participant_id=participant.id,
-            training_id=context.training_id,
-            cert_number=meta["cert_number"],
-            qualifies_for_cpd=meta["qualifies_for_cpd"],
-            pdf_url="",
-            created_by=current_user_id,
-            updated_by=current_user_id,
-        )
-        db.add(certificate)
-        db.flush()
-
-        pdf_url, _ = save_certificate_pdf(
-            pdf_bytes,
-            context.training_id,
-            certificate_id=certificate.id,
-        )
-        certificate.pdf_url = pdf_url
-        participant.certificate_id = certificate.id
-        participant.updated_by = current_user_id
+        if issue_error:
+            db.rollback()
+            return jsonify({"status": "error", "message": issue_error}), 400
 
         db.commit()
         db.refresh(certificate)
@@ -326,7 +293,7 @@ def generate_participant_certificate(context_id: int, participant_id: int):
             "status": "success",
             "message": "Certificate issued successfully",
             "data": certificate_output_payload(certificate),
-        }), 201
+        }), 201 if existing is None else 200
     except BaseException as exc:
         db.rollback()
         logger.exception("generate_participant_certificate: %s", exc)
