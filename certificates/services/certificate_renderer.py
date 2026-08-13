@@ -250,8 +250,9 @@ class CertificateRenderer:
         signatories = self.data.get("signatories") or []
         for index, signatory in enumerate(signatories, start=1):
             self._draw_signatory(pdf_canvas, signatory, f"signatory_{index}")
-        if len(signatories) >= 2:
+        if self.data.get("verification_url"):
             self._draw_verification_qr(pdf_canvas)
+        if len(signatories) >= 2:
             self._draw_center_signatory_flourish(pdf_canvas)
 
         if self.data.get("preview"):
@@ -309,12 +310,11 @@ class CertificateRenderer:
         bottom_y = float(layout.get("y", 188))
         size = float(layout.get("size", 50))
 
-        try:
-            qr_bytes = generate_qr_png_bytes(url, box_size=4, border=1)
-        except Exception as exc:
-            logger.warning("Failed to generate verification QR code: %s", exc)
-            return
+        qr_bytes = generate_qr_png_bytes(url, box_size=5, border=1)
 
+        pdf_canvas.saveState()
+        pdf_canvas.setFillColor(HexColor("#FFFFFF"))
+        pdf_canvas.rect(cx - (size / 2) - 2, bottom_y - 2, size + 4, size + 4, fill=1, stroke=0)
         pdf_canvas.drawImage(
             ImageReader(BytesIO(qr_bytes)),
             cx - (size / 2),
@@ -323,6 +323,7 @@ class CertificateRenderer:
             height=size,
             mask="auto",
         )
+        pdf_canvas.restoreState()
 
     def _draw_participant_name(self, pdf_canvas, text: Optional[str]) -> None:
         if not text:

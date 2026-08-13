@@ -227,8 +227,8 @@ def build_render_data(
     watermark_settings = template_watermark_settings(template)
 
     verification_url = None
-    if certificate_participant and certificate_participant.serial_no:
-        verification_url = build_verification_view_url(certificate_participant.serial_no)
+    if cert_number and cert_number != "PREVIEW":
+        verification_url = build_verification_view_url(cert_number)
 
     render_data = {
         "preview": preview,
@@ -346,7 +346,7 @@ def diagnose_certificate_preview(
     }
 
     deps = {}
-    for module_name in ("pypdf", "reportlab", "PIL"):
+    for module_name in ("pypdf", "reportlab", "PIL", "qrcode"):
         try:
             __import__(module_name)
             deps[module_name] = "ok"
@@ -420,6 +420,16 @@ def diagnose_certificate_preview(
         report["checks"]["render_data"] = build_error
         return report
     report["checks"]["render_data"] = "ok"
+    report["verification_url"] = render_data.get("verification_url")
+    report["checks"]["verification_qr"] = (
+        "ok"
+        if render_data.get("verification_url") and deps.get("qrcode") == "ok"
+        else (
+            "missing qrcode package — pip install 'qrcode>=7.4.2'"
+            if deps.get("qrcode") != "ok"
+            else "no verification_url (participant missing serial_no)"
+        )
+    )
 
     if try_render:
         try:

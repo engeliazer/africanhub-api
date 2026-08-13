@@ -6,7 +6,13 @@ from io import BytesIO
 
 
 def generate_qr_png_bytes(url: str, *, box_size: int = 6, border: int = 1) -> bytes:
-    import qrcode
+    try:
+        import qrcode
+    except ImportError as exc:
+        raise ImportError(
+            "qrcode is required for certificate verification QR codes. "
+            "Install with: pip install 'qrcode>=7.4.2'"
+        ) from exc
 
     qr = qrcode.QRCode(
         version=None,
