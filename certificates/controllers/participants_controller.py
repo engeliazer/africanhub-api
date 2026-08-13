@@ -10,15 +10,13 @@ from certificates.models.schemas import (
     participant_payload,
 )
 from certificates.services.event_roster_import_service import import_event_participants_to_context
+from certificates.services.participant_create_service import create_certificate_participant
 from certificates.services.participant_service import (
-    get_salutation_by_id,
     get_salutation_for_participant,
     get_salutation_for_user,
     get_training_context_or_error,
     get_user_or_error,
-    guest_already_on_roster,
     is_guest_participant,
-    participant_already_on_roster,
 )
 from certificates.services.serial_no_service import assign_participant_serial_no
 from database.db_connector import get_db
@@ -87,11 +85,21 @@ def add_participants(context_id: int):
     """
     Bulk add participants (Group 3).
 
-    System users:
-      {"participants": [{"user_id": 42}]}
+    Event example:
+      {
+        "participants": [{
+          "participant_id": 1,
+          "type": "event",
+          "event_id": 12,
+          "full_name": "Jane Smith",
+          "salutation_id": 7,
+          "email": "jane@example.com",
+          "organization": "NSSF"
+        }]
+      }
 
-    Walk-in guests (events / training calendar):
-      {"participants": [{"full_name": "John Doe", "salutation_id": 4}]}
+    Subject/course: use type + subject_id or course_id instead of event_id.
+    System user shortcut: {"participants": [{"user_id": 42}]}
     """
     db = get_db()
     try:
@@ -108,47 +116,15 @@ def add_participants(context_id: int):
 
         created = []
         for item in parsed.participants:
-            if item.user_id is not None:
-                user, user_error = get_user_or_error(db, item.user_id)
-                if user_error:
-                    return jsonify({"status": "error", "message": user_error}), 404
-
-                if participant_already_on_roster(db, context_id, item.user_id):
-                    return jsonify({
-                        "status": "error",
-                        "message": f"User {item.user_id} is already on this roster",
-                    }), 400
-
-                row = CertificateParticipant(
-                    training_context_id=context_id,
-                    user_id=item.user_id,
-                    created_by=current_user_id,
-                    updated_by=current_user_id,
-                )
-            else:
-                if item.salutation_id is not None and not get_salutation_by_id(db, item.salutation_id):
-                    return jsonify({
-                        "status": "error",
-                        "message": f"Salutation {item.salutation_id} not found or inactive",
-                    }), 400
-
-                if guest_already_on_roster(db, context_id, item.full_name, item.salutation_id):
-                    return jsonify({
-                        "status": "error",
-                        "message": f"Guest '{item.full_name}' is already on this roster",
-                    }), 400
-
-                row = CertificateParticipant(
-                    training_context_id=context_id,
-                    full_name=item.full_name,
-                    salutation_id=item.salutation_id,
-                    created_by=current_user_id,
-                    updated_by=current_user_id,
-                )
-
-            db.add(row)
-            db.flush()
-            assign_participant_serial_no(row, context)
+            row, create_error = create_certificate_participant(
+                db,
+                context,
+                item,
+                current_user_id,
+            )
+            if create_error:
+                status = 404 if "not found" in create_error.lower() else 400
+                return jsonify({"status": "error", "message": create_error}), status
             created.append(row)
 
         db.commit()
@@ -257,7 +233,7 @@ def update_participant(context_id: int, participant_id: int):
             updates.get("confirmation_status") == "confirmed"
             and not row.serial_no
         ):
-            assign_participant_serial_no(row, context)
+            assign_participant_serial_no(db, row, context)
 
         db.commit()
 

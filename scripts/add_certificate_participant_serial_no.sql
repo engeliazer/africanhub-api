@@ -13,7 +13,7 @@ SET @sql := IF(
     @has_serial_no = 0,
     'ALTER TABLE certificate_participants
         ADD COLUMN serial_no VARCHAR(255) NULL
-            COMMENT ''Unique serial from training context cert_number_pattern and participant id''
+            COMMENT ''Unique serial: home/invited/training_code/certificate_participant_id''
             AFTER confirmation_status',
     'SELECT ''certificate_participants.serial_no already exists'' AS message'
 );

@@ -170,7 +170,7 @@ def import_approved_applicants(context_id: int):
             )
             db.add(row)
             db.flush()
-            assign_participant_serial_no(row, context)
+            assign_participant_serial_no(db, row, context)
             created.append(row)
 
         db.commit()

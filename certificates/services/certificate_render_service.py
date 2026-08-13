@@ -28,7 +28,10 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     resolve_certificate_participant_identity,
 )
-from certificates.services.serial_no_service import participant_confirmation_error
+from certificates.services.serial_no_service import (
+    build_participant_serial_no,
+    participant_confirmation_error,
+)
 
 
 def get_participant_or_error(
@@ -206,24 +209,16 @@ def build_render_data(
     if certificate_participant is not None and certificate_participant.serial_no:
         cert_number = certificate_participant.serial_no
     elif certificate_participant is not None:
-        cert_number = format_cert_number(
-            context.cert_number_pattern,
-            home_code=context.home_code,
-            invited_code=context.invited_code,
-            start_date=context.start_date,
-            training_id=context.training_id,
-            sequence=certificate_participant.id,
-            preview=False,
-        )
+        cert_number = build_participant_serial_no(db, context, certificate_participant.id)
     else:
-        cert_number = format_cert_number(
+        cert_number = "PREVIEW" if preview else format_cert_number(
             context.cert_number_pattern,
             home_code=context.home_code,
             invited_code=context.invited_code,
             start_date=context.start_date,
             training_id=context.training_id,
             sequence=seq,
-            preview=preview,
+            preview=False,
         )
 
     is_collaboration = context.host_mode == "collaboration"

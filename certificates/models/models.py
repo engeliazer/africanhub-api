@@ -200,6 +200,8 @@ class CertificateParticipant(Base):
         index=True,
         comment="Optional link to event_participants.id for training calendar imports",
     )
+    email = Column(String(255), nullable=True)
+    organization = Column(String(255), nullable=True)
     qualifies_for_cpd_override = Column(Boolean, nullable=True)
     confirmation_status = Column(String(20), nullable=False, default="pending")
     serial_no = Column(

@@ -168,20 +168,53 @@ def training_context_payload(row: Any) -> Dict[str, Any]:
 
 
 class ParticipantInput(BaseModel):
+    participant_id: Optional[int] = Field(
+        None,
+        description="Source roster id, e.g. event_participants.id when type=event",
+    )
+    type: Optional[str] = Field(
+        None,
+        description="event, subject, or course — must match the training context",
+    )
+    event_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    course_id: Optional[int] = None
     user_id: Optional[int] = None
     full_name: Optional[str] = None
     salutation_id: Optional[int] = None
+    email: Optional[str] = None
+    organization: Optional[str] = None
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in VALID_TRAINING_TYPES:
+            raise ValueError("type must be 'course', 'subject', or 'event'")
+        return normalized
 
     @model_validator(mode="after")
     def validate_identity(self):
         has_user = self.user_id is not None
         has_guest_name = bool((self.full_name or "").strip())
+        has_source = self.participant_id is not None
+
         if has_user and has_guest_name:
             raise ValueError("Provide either user_id or full_name, not both")
-        if not has_user and not has_guest_name:
-            raise ValueError("Either user_id or full_name is required")
+
+        if not has_user and not has_guest_name and not has_source:
+            raise ValueError(
+                "Provide participant_id (linked roster row), user_id, or full_name"
+            )
+
         if has_guest_name:
             self.full_name = self.full_name.strip()
+        if self.email is not None:
+            self.email = self.email.strip() or None
+        if self.organization is not None:
+            self.organization = self.organization.strip() or None
         return self
 
 
@@ -240,9 +273,25 @@ def participant_payload(
     else:
         full_name = _format_user_full_name(user, salutation) if user is not None else None
 
+    training_type = training_context.training_type
+    training_ref: Dict[str, Optional[int]] = {
+        "event_id": None,
+        "subject_id": None,
+        "course_id": None,
+    }
+    if training_type == "event":
+        training_ref["event_id"] = training_context.training_id
+    elif training_type == "subject":
+        training_ref["subject_id"] = training_context.training_id
+    elif training_type == "course":
+        training_ref["course_id"] = training_context.training_id
+
     return {
-        "participant_id": participant.id,
+        "certificate_participant_id": participant.id,
+        "participant_id": participant.event_participant_id or participant.id,
         "participant_type": "walk_in" if is_guest else "user",
+        "type": training_type,
+        **training_ref,
         "user_id": participant.user_id,
         "event_participant_id": getattr(participant, "event_participant_id", None),
         "training_context_id": participant.training_context_id,
@@ -252,6 +301,8 @@ def participant_payload(
             user.salutation_id if user is not None else None
         ),
         "salutation": salutation.label if salutation else None,
+        "email": getattr(participant, "email", None),
+        "organization": getattr(participant, "organization", None),
         "qualifies_for_cpd_computed": qualifies_computed,
         "qualifies_for_cpd": qualifies_for_cpd,
         "qualifies_for_cpd_override": override,

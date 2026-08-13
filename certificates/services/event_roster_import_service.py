@@ -72,6 +72,8 @@ def import_event_participants_to_context(
                 training_context_id=context.id,
                 user_id=event_row.user_id,
                 event_participant_id=event_row.id,
+                email=(event_row.email or "").strip() or None,
+                organization=(event_row.organization or "").strip() or None,
                 created_by=current_user_id,
                 updated_by=current_user_id,
             )
@@ -91,6 +93,8 @@ def import_event_participants_to_context(
                 full_name=core_name,
                 salutation_id=event_row.salutation_id,
                 event_participant_id=event_row.id,
+                email=(event_row.email or "").strip() or None,
+                organization=(event_row.organization or "").strip() or None,
                 created_by=current_user_id,
                 updated_by=current_user_id,
             )
@@ -98,7 +102,7 @@ def import_event_participants_to_context(
 
         db.add(row)
         db.flush()
-        assign_participant_serial_no(row, context)
+        assign_participant_serial_no(db, row, context)
         created.append(row)
 
     return created, skipped, None

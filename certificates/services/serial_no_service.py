@@ -1,26 +1,41 @@
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
 from certificates.models.models import CertificateParticipant, CertificateTrainingContext
-from certificates.services.certificate_renderer import format_cert_number
+from certificates.services.training_context_service import training_record
+
+
+def resolve_training_serial_code(db: Session, context: CertificateTrainingContext) -> str:
+    """EVENT for calendar events; subject.code or course.code otherwise."""
+    training_type = (context.training_type or "").strip().lower()
+    if training_type == "event":
+        return "EVENT"
+
+    record, _ = training_record(db, training_type, context.training_id)
+    if record is not None:
+        code = getattr(record, "code", None)
+        if code and str(code).strip():
+            return str(code).strip().upper()
+    return training_type.upper()
 
 
 def build_participant_serial_no(
+    db: Session,
     context: CertificateTrainingContext,
-    participant_id: int,
+    certificate_participant_id: int,
 ) -> str:
-    """Build a unique serial from the training context pattern and roster row id."""
-    return format_cert_number(
-        context.cert_number_pattern,
-        home_code=context.home_code,
-        invited_code=context.invited_code,
-        start_date=context.start_date,
-        training_id=context.training_id,
-        sequence=participant_id,
-        preview=False,
-    )
+    """
+    AHBT/DCRC/{EVENT|SUBJECT_CODE|COURSE_CODE}/{certificate_participant_id}
+    """
+    home_code = (context.home_code or "").strip()
+    invited_code = (context.invited_code or context.home_code or "").strip()
+    training_code = resolve_training_serial_code(db, context)
+    return f"{home_code}/{invited_code}/{training_code}/{certificate_participant_id}"
 
 
 def assign_participant_serial_no(
+    db: Session,
     participant: CertificateParticipant,
     context: CertificateTrainingContext,
 ) -> str:
@@ -29,7 +44,7 @@ def assign_participant_serial_no(
     if participant.serial_no:
         return participant.serial_no
 
-    serial_no = build_participant_serial_no(context, participant.id)
+    serial_no = build_participant_serial_no(db, context, participant.id)
     participant.serial_no = serial_no
     return serial_no
 
