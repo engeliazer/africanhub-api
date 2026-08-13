@@ -73,7 +73,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "cert_intro": {
         "x": 297.64,
-        "y": 595,
+        "y": 615,
         "font": SERIF,
         "size": 13,
         "align": "center",
@@ -81,7 +81,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "participant_name": {
         "x": 297.64,
-        "y": 548,
+        "y": 568,
         "size": 34,
         "align": "center",
         "color": COLOR_BODY,
@@ -92,7 +92,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "participation_line": {
         "x": CONTENT_CENTER_X,
-        "y": 488,
+        "y": 508,
         "font": SERIF,
         "size": 24,
         "align": "center",
@@ -103,7 +103,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "subject_title": {
         "x": CONTENT_CENTER_X,
-        "y": 448,
+        "y": 468,
         "font": SERIF_BOLD,
         "size": 25,
         "align": "center",
@@ -114,7 +114,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "venue_line": {
         "x": CONTENT_CENTER_X,
-        "y": 378,
+        "y": 398,
         "font": SERIF,
         "size": 18,
         "align": "center",
@@ -125,7 +125,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "date_line": {
         "x": CONTENT_CENTER_X,
-        "y": 342,
+        "y": 362,
         "font": SERIF,
         "size": 18,
         "align": "center",
@@ -136,7 +136,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "cpd_line": {
         "x": CONTENT_CENTER_X,
-        "y": 306,
+        "y": 326,
         "font": SERIF,
         "size": 23,
         "align": "center",
