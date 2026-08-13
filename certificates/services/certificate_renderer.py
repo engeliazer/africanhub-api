@@ -605,7 +605,7 @@ def template_watermark_settings(template: Any) -> Dict[str, Any]:
     """Resolve watermark config from template columns with field_layout fallback."""
     layout_wm = layout_watermark_config(getattr(template, "field_layout", None))
     logo_url = getattr(template, "watermark_logo_url", None) or layout_wm.get("logo_url")
-    enabled = bool(getattr(template, "watermark_enabled", False)) or bool(logo_url)
+    enabled = bool(logo_url)
     if layout_wm.get("enabled") is False:
         enabled = False
     opacity_raw = getattr(template, "watermark_opacity", None)

@@ -321,7 +321,10 @@ def create_certificate_template():
         signatories = data.pop("signatories", [])
 
         template_data = CertificateTemplateCreate(**data)
-        row = CertificateTemplate(**template_data.model_dump())
+        orm_data = template_data.model_dump(
+            exclude={"watermark_logo_filename", "watermark_enabled"},
+        )
+        row = CertificateTemplate(**orm_data)
         db.add(row)
         db.flush()
 

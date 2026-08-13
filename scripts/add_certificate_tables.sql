@@ -50,6 +50,30 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------------
+-- 1b. certificate_templates watermark columns (if table predates watermark feature)
+-- ---------------------------------------------------------------------------
+SET @wm_col_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'certificate_templates'
+      AND COLUMN_NAME = 'watermark_logo_url'
+);
+
+SET @sql := IF(
+    @wm_col_exists = 0,
+    'ALTER TABLE certificate_templates
+        ADD COLUMN watermark_logo_url VARCHAR(500) NULL AFTER background_filename,
+        ADD COLUMN watermark_opacity DECIMAL(3, 2) NOT NULL DEFAULT 0.12 AFTER watermark_logo_url,
+        ADD COLUMN watermark_style VARCHAR(20) NOT NULL DEFAULT ''distributed'' AFTER watermark_opacity',
+    'SELECT ''certificate_templates watermark columns already exist'' AS message'
+);
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
 -- 2. certificate_template_signatories (Group 1 — signatory names + signatures)
 -- ---------------------------------------------------------------------------
 SET @signatories_table_exists := (
