@@ -19,6 +19,14 @@ CONTENT_RIGHT = A4_WIDTH - INNER_BORDER_INSET - CONTENT_PADDING
 CONTENT_MAX_WIDTH = CONTENT_RIGHT - CONTENT_LEFT
 CONTENT_CENTER_X = A4_WIDTH / 2
 
+# Signatory blocks — one per inner-frame half, centered with padded signature lines.
+SIGNATORY_HALF_WIDTH = CONTENT_MAX_WIDTH / 2
+SIGNATORY_SIDE_PADDING = 18
+SIGNATORY_LINE_WIDTH = SIGNATORY_HALF_WIDTH - (2 * SIGNATORY_SIDE_PADDING)
+SIGNATORY_1_CENTER_X = CONTENT_LEFT + SIGNATORY_HALF_WIDTH / 2
+SIGNATORY_2_CENTER_X = CONTENT_CENTER_X + SIGNATORY_HALF_WIDTH / 2
+SIGNATORY_SIGNATURE_WIDTH = min(120, SIGNATORY_LINE_WIDTH - 10)
+
 # Sample certificate palette
 COLOR_ACCENT = "#A66A28"  # burnt orange / gold-brown headings
 COLOR_ACCENT_DARK = "#8B4513"
@@ -99,7 +107,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "align": "center",
         "color": COLOR_ACCENT,
         "max_width": CONTENT_MAX_WIDTH,
-        "line_height": 32,
+        "line_height": 28,
         "gap_after": 22,
     },
     "venue_line": {
@@ -137,15 +145,15 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "optional": True,
     },
     "signatory_1": {
-        "name_x": 148,
+        "name_x": SIGNATORY_1_CENTER_X,
         "name_y": 118,
         "title_y": 102,
-        "signature_x": 148,
+        "signature_x": SIGNATORY_1_CENTER_X,
         "signature_y": 158,
-        "signature_width": 120,
+        "signature_width": SIGNATORY_SIGNATURE_WIDTH,
         "signature_height": 44,
         "line_y": 132,
-        "line_width": 130,
+        "line_width": SIGNATORY_LINE_WIDTH,
         "name_font": SERIF_BOLD,
         "title_font": SERIF,
         "name_color": COLOR_BODY,
@@ -155,15 +163,15 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "align": "center",
     },
     "signatory_2": {
-        "name_x": 447,
+        "name_x": SIGNATORY_2_CENTER_X,
         "name_y": 118,
         "title_y": 102,
-        "signature_x": 447,
+        "signature_x": SIGNATORY_2_CENTER_X,
         "signature_y": 158,
-        "signature_width": 120,
+        "signature_width": SIGNATORY_SIGNATURE_WIDTH,
         "signature_height": 44,
         "line_y": 132,
-        "line_width": 130,
+        "line_width": SIGNATORY_LINE_WIDTH,
         "name_font": SERIF_BOLD,
         "title_font": SERIF,
         "name_color": COLOR_BODY,
@@ -173,7 +181,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "align": "center",
     },
     "signatory_center_flourish": {
-        "x": 297.64,
+        "x": CONTENT_CENTER_X,
         "y": 138,
         "color": COLOR_FLOURISH,
     },
