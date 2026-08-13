@@ -23,9 +23,10 @@ PUBLIC_STORAGE_BASE_URL = os.getenv(
     'PUBLIC_STORAGE_BASE_URL',
     f'{API_BASE_URL}/storage',
 ).rstrip('/')
+PUBLIC_WEBSITE_URL = os.getenv('PUBLIC_WEBSITE_URL', 'https://africanhub.ac.tz').rstrip('/')
 CERTIFICATE_VERIFY_BASE_URL = os.getenv(
     'CERTIFICATE_VERIFY_BASE_URL',
-    f'{API_BASE_URL}/api/certificates/public/verify/view',
+    f'{PUBLIC_WEBSITE_URL}/certificate',
 ).rstrip('/')
 
 

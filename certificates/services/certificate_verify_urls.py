@@ -6,7 +6,9 @@ from config import API_BASE_URL, CERTIFICATE_VERIFY_BASE_URL
 
 
 def build_verification_view_url(serial_no: str) -> str:
-    encoded = quote((serial_no or "").strip(), safe="")
+    """Public certificate page on the marketing site (embedded in QR codes)."""
+    normalized = (serial_no or "").strip()
+    encoded = quote(normalized, safe="/")
     return f"{CERTIFICATE_VERIFY_BASE_URL}?serial_no={encoded}"
 
 
