@@ -25,4 +25,5 @@ pyHanko>=0.12.1
 pyhanko-certvalidator>=0.19.5
 pypdf>=3.0.0
 reportlab>=4.0.4,<5
+qrcode>=7.4.2
 xhtml2pdf==0.2.16 

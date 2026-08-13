@@ -33,6 +33,7 @@ from certificates.services.certificate_styles import (
     DEFAULT_CERT_INTRO,
     DEFAULT_FIELD_LAYOUT,
 )
+from certificates.services.certificate_qr import generate_qr_png_bytes
 from certificates.services.storage_path_utils import read_storage_asset_bytes
 
 logger = logging.getLogger(__name__)
@@ -250,6 +251,7 @@ class CertificateRenderer:
         for index, signatory in enumerate(signatories, start=1):
             self._draw_signatory(pdf_canvas, signatory, f"signatory_{index}")
         if len(signatories) >= 2:
+            self._draw_verification_qr(pdf_canvas)
             self._draw_center_signatory_flourish(pdf_canvas)
 
         if self.data.get("preview"):
@@ -296,6 +298,31 @@ class CertificateRenderer:
         pdf_canvas.line(cx - 9, cy, cx + 9, cy)
         pdf_canvas.line(cx, cy - 9, cx, cy + 9)
         pdf_canvas.restoreState()
+
+    def _draw_verification_qr(self, pdf_canvas) -> None:
+        url = (self.data.get("verification_url") or "").strip()
+        if not url:
+            return
+
+        layout = self._layout_for("verification_qr")
+        cx = float(layout.get("x", self.page_w / 2))
+        bottom_y = float(layout.get("y", 188))
+        size = float(layout.get("size", 50))
+
+        try:
+            qr_bytes = generate_qr_png_bytes(url, box_size=4, border=1)
+        except Exception as exc:
+            logger.warning("Failed to generate verification QR code: %s", exc)
+            return
+
+        pdf_canvas.drawImage(
+            ImageReader(BytesIO(qr_bytes)),
+            cx - (size / 2),
+            bottom_y,
+            width=size,
+            height=size,
+            mask="auto",
+        )
 
     def _draw_participant_name(self, pdf_canvas, text: Optional[str]) -> None:
         if not text:

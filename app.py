@@ -65,6 +65,7 @@ from certificates.controllers.training_context_controller import certificate_tra
 from certificates.controllers.salutations_controller import salutations_bp
 from certificates.controllers.participants_controller import certificate_participants_bp
 from certificates.controllers.certificate_applicants_controller import certificate_applicants_bp
+from certificates.controllers.certificate_public_controller import certificate_public_bp
 from certificates.controllers.certificate_output_controller import certificate_output_bp
 from api.routes.study_routes import material_categories_bp
 from api.routes.application_routes import applications_bp, payments_bp
@@ -217,6 +218,7 @@ app.register_blueprint(salutations_bp, url_prefix='/api', name='api_salutations'
 app.register_blueprint(certificate_participants_bp, url_prefix='/api', name='api_certificate_participants')
 app.register_blueprint(certificate_applicants_bp, url_prefix='/api', name='api_certificate_applicants')
 app.register_blueprint(certificate_output_bp, url_prefix='/api', name='api_certificate_output')
+app.register_blueprint(certificate_public_bp, url_prefix='/api', name='api_certificate_public')
 app.register_blueprint(chat_bp, url_prefix='/api', name='api_chat')
 app.register_blueprint(device_bp, url_prefix='/api', name='api_devices')
 app.register_blueprint(accounting_bp, url_prefix='/api/accounting', name='api_accounting')

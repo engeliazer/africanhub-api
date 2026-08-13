@@ -23,6 +23,10 @@ PUBLIC_STORAGE_BASE_URL = os.getenv(
     'PUBLIC_STORAGE_BASE_URL',
     f'{API_BASE_URL}/storage',
 ).rstrip('/')
+CERTIFICATE_VERIFY_BASE_URL = os.getenv(
+    'CERTIFICATE_VERIFY_BASE_URL',
+    f'{API_BASE_URL}/api/certificates/public/verify/view',
+).rstrip('/')
 
 
 def public_storage_url(*path_parts: str) -> str:

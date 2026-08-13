@@ -6,7 +6,7 @@ import sys
 
 def main() -> int:
     missing = []
-    for module_name in ("pypdf", "reportlab", "PIL"):
+    for module_name in ("pypdf", "reportlab", "PIL", "qrcode"):
         try:
             __import__(module_name)
         except ImportError as exc:
@@ -16,7 +16,7 @@ def main() -> int:
         print("FAIL: certificate PDF dependencies missing:")
         for line in missing:
             print(f"  - {line}")
-        print("  Fix: source venv/bin/activate && pip install pypdf 'reportlab>=4.0.4,<5' Pillow")
+        print("  Fix: source venv/bin/activate && pip install pypdf 'reportlab>=4.0.4,<5' Pillow qrcode")
         return 1
 
     try:

@@ -28,6 +28,7 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     resolve_certificate_participant_identity,
 )
+from certificates.services.certificate_verification_service import build_verification_view_url
 from certificates.services.serial_no_service import (
     build_participant_serial_no,
     participant_confirmation_error,
@@ -225,6 +226,10 @@ def build_render_data(
     text_overrides = layout_text_overrides(template.field_layout)
     watermark_settings = template_watermark_settings(template)
 
+    verification_url = None
+    if certificate_participant and certificate_participant.serial_no:
+        verification_url = build_verification_view_url(certificate_participant.serial_no)
+
     render_data = {
         "preview": preview,
         **watermark_settings,
@@ -241,6 +246,7 @@ def build_render_data(
         "cpd_line": cpd_line,
         "qualifies_for_cpd": qualifies_for_cpd,
         "cert_number": cert_number,
+        "verification_url": verification_url,
         "show_home_logo": bool(context.home_logo_url),
         "show_invited_logo": bool(is_collaboration and context.invited_logo_url),
         "home_logo_url": context.home_logo_url,
@@ -262,6 +268,7 @@ def build_render_data(
             "user_id": identity.user_id,
             "qualifies_for_cpd": qualifies_for_cpd,
             "cert_number": cert_number,
+            "verification_url": verification_url,
             "watermark_logo_url": watermark_settings.get("watermark_logo_url"),
             "watermark_enabled": watermark_settings.get("watermark_enabled"),
             "watermark_opacity": watermark_settings.get("watermark_opacity"),

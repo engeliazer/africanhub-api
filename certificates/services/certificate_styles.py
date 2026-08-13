@@ -187,6 +187,11 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "y": 151,
         "color": COLOR_FLOURISH,
     },
+    "verification_qr": {
+        "x": CONTENT_CENTER_X,
+        "y": 188,
+        "size": 50,
+    },
     "watermark": {
         "tile_width": 110,
         "gap_x": 28,
