@@ -44,6 +44,9 @@ def main() -> int:
     render_data = {
         "preview": True,
         "certificate_title": "Test",
+        "certificate_heading": "CERTIFICATE",
+        "certificate_subheading": "OF PARTICIPATION",
+        "cert_intro": "This is to certify that",
         "participant_name": "Test User",
         "participation_line": "Participated in",
         "subject_title": "Subject",

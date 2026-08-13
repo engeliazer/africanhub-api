@@ -1,5 +1,6 @@
 """
 Render certificate PDFs: empty background + coordinate overlay (ReportLab + pypdf).
+Typography and layout follow the AHBT sample certificate.
 """
 
 from __future__ import annotations
@@ -12,15 +13,28 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
+from certificates.services.certificate_fonts import (
+    SERIF,
+    SERIF_BOLD,
+    ensure_certificate_fonts,
+    participant_name_font,
+)
+from certificates.services.certificate_styles import (
+    A4_HEIGHT,
+    A4_WIDTH,
+    COLOR_FLOURISH,
+    DEFAULT_CERTIFICATE_HEADING,
+    DEFAULT_CERTIFICATE_SUBHEADING,
+    DEFAULT_CERT_INTRO,
+    DEFAULT_FIELD_LAYOUT,
+)
 from certificates.services.storage_path_utils import read_storage_asset_bytes
 
 logger = logging.getLogger(__name__)
-
-A4_WIDTH = 595.28
-A4_HEIGHT = 841.89
 
 # ~150 DPI for A4 — enough for print preview without multi‑MB PDFs.
 MAX_BACKGROUND_WIDTH_PX = 1240
@@ -31,101 +45,10 @@ LOGO_JPEG_QUALITY = 80
 # Do not embed full PDFs in JSON responses above this size (raw bytes).
 MAX_JSON_INLINE_PDF_BYTES = 2 * 1024 * 1024
 
-DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
-    "page": {"width": A4_WIDTH, "height": A4_HEIGHT},
-    "certificate_title": {
-        "x": 297.64,
-        "y": 720,
-        "font": "Helvetica-Bold",
-        "size": 22,
-        "align": "center",
-    },
-    "home_logo": {"x": 70, "y": 770, "max_width": 110, "max_height": 55},
-    "invited_logo": {"x": 415, "y": 770, "max_width": 110, "max_height": 55},
-    "participant_name": {
-        "x": 297.64,
-        "y": 585,
-        "font": "Helvetica-Bold",
-        "size": 18,
-        "align": "center",
-    },
-    "participation_line": {
-        "x": 297.64,
-        "y": 535,
-        "font": "Helvetica",
-        "size": 12,
-        "align": "center",
-        "max_width": 470,
-    },
-    "subject_title": {
-        "x": 297.64,
-        "y": 505,
-        "font": "Helvetica-Bold",
-        "size": 13,
-        "align": "center",
-        "max_width": 470,
-    },
-    "venue_line": {
-        "x": 297.64,
-        "y": 465,
-        "font": "Helvetica",
-        "size": 11,
-        "align": "center",
-        "max_width": 470,
-    },
-    "date_line": {
-        "x": 297.64,
-        "y": 435,
-        "font": "Helvetica",
-        "size": 11,
-        "align": "center",
-        "max_width": 470,
-    },
-    "cpd_line": {
-        "x": 297.64,
-        "y": 405,
-        "font": "Helvetica",
-        "size": 11,
-        "align": "center",
-        "max_width": 470,
-        "optional": True,
-    },
-    "cert_number": {
-        "x": 520,
-        "y": 78,
-        "font": "Helvetica",
-        "size": 10,
-        "align": "right",
-    },
-    "signatory_1": {
-        "name_x": 150,
-        "name_y": 145,
-        "title_y": 128,
-        "signature_x": 150,
-        "signature_y": 175,
-        "signature_width": 110,
-        "signature_height": 42,
-        "font": "Helvetica",
-        "size": 10,
-        "align": "center",
-    },
-    "signatory_2": {
-        "name_x": 445,
-        "name_y": 145,
-        "title_y": 128,
-        "signature_x": 445,
-        "signature_y": 175,
-        "signature_width": 110,
-        "signature_height": 42,
-        "font": "Helvetica",
-        "size": 10,
-        "align": "center",
-    },
-}
-
 
 class CertificateRenderer:
     def __init__(self, render_data: Dict[str, Any]):
+        ensure_certificate_fonts()
         self.data = render_data
         template = render_data["template"]
         self.layout = template.get("field_layout") or DEFAULT_FIELD_LAYOUT
@@ -146,7 +69,6 @@ class CertificateRenderer:
         max_height_px: int = MAX_BACKGROUND_HEIGHT_PX,
         jpeg_quality: int = BACKGROUND_JPEG_QUALITY,
     ) -> bytes:
-        """Downscale and JPEG-compress raster assets before embedding in PDF."""
         with Image.open(BytesIO(image_bytes)) as image:
             if image.mode == "P":
                 image = image.convert("RGBA")
@@ -195,14 +117,7 @@ class CertificateRenderer:
             draw_w = draw_h / aspect if aspect else self.page_w
         x = (self.page_w - draw_w) / 2
         y = (self.page_h - draw_h) / 2
-        pdf_canvas.drawImage(
-            image_reader,
-            x,
-            y,
-            width=draw_w,
-            height=draw_h,
-            mask=None,
-        )
+        pdf_canvas.drawImage(image_reader, x, y, width=draw_w, height=draw_h, mask=None)
         pdf_canvas.save()
         return buffer.getvalue()
 
@@ -215,20 +130,24 @@ class CertificateRenderer:
         if self.data.get("show_invited_logo"):
             self._draw_logo(pdf_canvas, self.data.get("invited_logo_url"), "invited_logo")
 
-        self._draw_text(pdf_canvas, self.data["certificate_title"], "certificate_title")
-        self._draw_text(pdf_canvas, self.data["participant_name"], "participant_name")
-        self._draw_wrapped_text(pdf_canvas, self.data["participation_line"], "participation_line")
-        self._draw_wrapped_text(pdf_canvas, self.data["subject_title"], "subject_title")
-        self._draw_wrapped_text(pdf_canvas, self.data["venue_line"], "venue_line")
-        self._draw_wrapped_text(pdf_canvas, self.data["date_line"], "date_line")
+        self._draw_text(pdf_canvas, self.data.get("cert_number"), "cert_number")
+        self._draw_text(pdf_canvas, self.data.get("certificate_heading"), "certificate_heading")
+        self._draw_subheading_with_flourishes(pdf_canvas)
+        self._draw_text(pdf_canvas, self.data.get("cert_intro"), "cert_intro")
+        self._draw_participant_name(pdf_canvas, self.data.get("participant_name"))
+        self._draw_wrapped_text(pdf_canvas, self.data.get("participation_line"), "participation_line")
+        self._draw_wrapped_text(pdf_canvas, self.data.get("subject_title"), "subject_title")
+        self._draw_wrapped_text(pdf_canvas, self.data.get("venue_line"), "venue_line")
+        self._draw_wrapped_text(pdf_canvas, self.data.get("date_line"), "date_line")
 
         if self.data.get("qualifies_for_cpd") and self.data.get("cpd_line"):
-            self._draw_wrapped_text(pdf_canvas, self.data["cpd_line"], "cpd_line")
+            self._draw_wrapped_text(pdf_canvas, self.data.get("cpd_line"), "cpd_line")
 
-        self._draw_text(pdf_canvas, self.data["cert_number"], "cert_number")
-
-        for index, signatory in enumerate(self.data.get("signatories") or [], start=1):
+        signatories = self.data.get("signatories") or []
+        for index, signatory in enumerate(signatories, start=1):
             self._draw_signatory(pdf_canvas, signatory, f"signatory_{index}")
+        if len(signatories) >= 2:
+            self._draw_center_signatory_flourish(pdf_canvas)
 
         if self.data.get("preview"):
             self._draw_preview_watermark(pdf_canvas)
@@ -236,12 +155,88 @@ class CertificateRenderer:
         pdf_canvas.save()
         return buffer.getvalue()
 
+    def _draw_subheading_with_flourishes(self, pdf_canvas) -> None:
+        text = self.data.get("certificate_subheading") or DEFAULT_CERTIFICATE_SUBHEADING
+        layout = self._layout_for("certificate_subheading")
+        self._draw_text(pdf_canvas, text, "certificate_subheading")
+        if layout.get("draw_flourishes", True):
+            self._draw_side_flourishes(
+                pdf_canvas,
+                float(layout.get("x", self.page_w / 2)),
+                float(layout.get("y", 662)),
+                layout.get("color", COLOR_FLOURISH),
+            )
+
+    def _draw_side_flourishes(self, pdf_canvas, center_x: float, y: float, color: str) -> None:
+        pdf_canvas.saveState()
+        pdf_canvas.setStrokeColor(HexColor(color))
+        pdf_canvas.setFillColor(HexColor(color))
+        pdf_canvas.setLineWidth(0.8)
+        for side in (-1, 1):
+            ox = center_x + side * 118
+            path = pdf_canvas.beginPath()
+            path.moveTo(ox, y + 2)
+            path.curveTo(ox + side * 18, y + 10, ox + side * 22, y - 6, ox + side * 8, y - 8)
+            path.curveTo(ox + side * 2, y - 10, ox - side * 6, y + 2, ox, y + 2)
+            pdf_canvas.drawPath(path, stroke=1, fill=0)
+        pdf_canvas.restoreState()
+
+    def _draw_center_signatory_flourish(self, pdf_canvas) -> None:
+        layout = self._layout_for("signatory_center_flourish")
+        cx = float(layout.get("x", self.page_w / 2))
+        cy = float(layout.get("y", 138))
+        color = layout.get("color", COLOR_FLOURISH)
+        pdf_canvas.saveState()
+        pdf_canvas.setStrokeColor(HexColor(color))
+        pdf_canvas.setLineWidth(0.9)
+        pdf_canvas.circle(cx, cy, 5, stroke=1, fill=0)
+        pdf_canvas.line(cx - 9, cy, cx + 9, cy)
+        pdf_canvas.line(cx, cy - 9, cx, cy + 9)
+        pdf_canvas.restoreState()
+
+    def _draw_participant_name(self, pdf_canvas, text: Optional[str]) -> None:
+        if not text:
+            return
+        layout = self._layout_for("participant_name")
+        font = participant_name_font()
+        size = float(layout.get("size", 34))
+        x = float(layout.get("x", self.page_w / 2))
+        y = float(layout.get("y", 592))
+        align = layout.get("align", "center")
+        color = layout.get("color", "#1A1A1A")
+
+        pdf_canvas.setFillColor(HexColor(color))
+        pdf_canvas.setFont(font, size)
+        if align == "center":
+            pdf_canvas.drawCentredString(x, y, text)
+            text_width = pdf_string_width(text, font, size)
+        elif align == "right":
+            pdf_canvas.drawRightString(x, y, text)
+            text_width = pdf_string_width(text, font, size)
+        else:
+            pdf_canvas.drawString(x, y, text)
+            text_width = pdf_string_width(text, font, size)
+
+        if layout.get("underline"):
+            gap = float(layout.get("underline_gap", 6))
+            line_y = y - gap
+            line_color = layout.get("underline_color", color)
+            line_width = float(layout.get("underline_width", 0.75))
+            pdf_canvas.setStrokeColor(HexColor(line_color))
+            pdf_canvas.setLineWidth(line_width)
+            if align == "center":
+                pdf_canvas.line(x - text_width / 2, line_y, x + text_width / 2, line_y)
+            elif align == "right":
+                pdf_canvas.line(x - text_width, line_y, x, line_y)
+            else:
+                pdf_canvas.line(x, line_y, x + text_width, line_y)
+
     def _draw_preview_watermark(self, pdf_canvas) -> None:
         pdf_canvas.saveState()
-        pdf_canvas.setFont("Helvetica-Bold", 72)
-        pdf_canvas.setFillGray(0.85)
+        pdf_canvas.setFont(SERIF_BOLD, 72)
+        pdf_canvas.setFillColor(HexColor("#CCCCCC"))
         if hasattr(pdf_canvas, "setFillAlpha"):
-            pdf_canvas.setFillAlpha(0.25)
+            pdf_canvas.setFillAlpha(0.22)
         pdf_canvas.translate(self.page_w / 2, self.page_h / 2)
         pdf_canvas.rotate(45)
         pdf_canvas.drawCentredString(0, 0, "PREVIEW")
@@ -250,16 +245,21 @@ class CertificateRenderer:
     def _layout_for(self, key: str) -> Dict[str, Any]:
         return dict(self.layout.get(key) or DEFAULT_FIELD_LAYOUT.get(key) or {})
 
-    def _draw_text(self, pdf_canvas, text: str, layout_key: str) -> None:
+    @staticmethod
+    def _set_fill_from_layout(pdf_canvas, layout: Dict[str, Any], default: str = "#1A1A1A") -> None:
+        pdf_canvas.setFillColor(HexColor(layout.get("color", default)))
+
+    def _draw_text(self, pdf_canvas, text: Optional[str], layout_key: str) -> None:
         if not text:
             return
         layout = self._layout_for(layout_key)
-        font = layout.get("font", "Helvetica")
+        font = layout.get("font", SERIF)
         size = float(layout.get("size", 12))
         x = float(layout.get("x", 0))
         y = float(layout.get("y", 0))
         align = layout.get("align", "left")
 
+        self._set_fill_from_layout(pdf_canvas, layout)
         pdf_canvas.setFont(font, size)
         if align == "center":
             pdf_canvas.drawCentredString(x, y, text)
@@ -285,11 +285,11 @@ class CertificateRenderer:
         lines.append(current)
         return lines
 
-    def _draw_wrapped_text(self, pdf_canvas, text: str, layout_key: str) -> None:
+    def _draw_wrapped_text(self, pdf_canvas, text: Optional[str], layout_key: str) -> None:
         if not text:
             return
         layout = self._layout_for(layout_key)
-        font = layout.get("font", "Helvetica")
+        font = layout.get("font", SERIF)
         size = float(layout.get("size", 12))
         x = float(layout.get("x", 0))
         y = float(layout.get("y", 0))
@@ -297,6 +297,7 @@ class CertificateRenderer:
         max_width = float(layout.get("max_width", self.page_w - 80))
         line_height = float(layout.get("line_height", size * 1.25))
 
+        self._set_fill_from_layout(pdf_canvas, layout)
         lines = self._wrap_text(text, font, size, max_width)
         pdf_canvas.setFont(font, size)
         cursor_y = y
@@ -349,14 +350,22 @@ class CertificateRenderer:
 
     def _draw_signatory(self, pdf_canvas, signatory: Dict[str, Any], layout_key: str) -> None:
         layout = self._layout_for(layout_key)
-        font = layout.get("font", "Helvetica")
-        size = float(layout.get("size", 10))
         align = layout.get("align", "center")
+        name_font = layout.get("name_font", SERIF_BOLD)
+        title_font = layout.get("title_font", SERIF)
+        size = float(layout.get("size", 10))
+
+        name_x = float(layout.get("name_x", 0))
+        name_y = float(layout.get("name_y", 0))
+        title_y = float(layout.get("title_y", name_y - 14))
+        line_y = float(layout.get("line_y", name_y + 14))
+        line_width = float(layout.get("line_width", 120))
+        line_color = layout.get("line_color", "#A66A28")
 
         signature_bytes = self._load_image_bytes(signatory.get("signature_url"))
         if signature_bytes:
-            sig_x = float(layout.get("signature_x", layout.get("name_x", 0)))
-            sig_y = float(layout.get("signature_y", layout.get("name_y", 0)))
+            sig_x = float(layout.get("signature_x", name_x))
+            sig_y = float(layout.get("signature_y", name_y + 40))
             sig_w = float(layout.get("signature_width", 100))
             sig_h = float(layout.get("signature_height", 40))
             optimized_sig = self._optimize_raster_image(
@@ -375,21 +384,34 @@ class CertificateRenderer:
                 preserveAspectRatio=True,
             )
 
-        pdf_canvas.setFont(font, size)
-        name_x = float(layout.get("name_x", 0))
-        name_y = float(layout.get("name_y", 0))
-        title_y = float(layout.get("title_y", name_y - 14))
+        pdf_canvas.setStrokeColor(HexColor(line_color))
+        pdf_canvas.setLineWidth(1.0)
+        if align == "center":
+            pdf_canvas.line(name_x - line_width / 2, line_y, name_x + line_width / 2, line_y)
+        elif align == "right":
+            pdf_canvas.line(name_x - line_width, line_y, name_x, line_y)
+        else:
+            pdf_canvas.line(name_x, line_y, name_x + line_width, line_y)
+
         full_name = signatory.get("full_name") or ""
         title = signatory.get("title") or ""
 
+        pdf_canvas.setFont(name_font, size)
+        pdf_canvas.setFillColor(HexColor(layout.get("name_color", "#1A1A1A")))
         if align == "center":
             pdf_canvas.drawCentredString(name_x, name_y, full_name)
-            pdf_canvas.drawCentredString(name_x, title_y, title)
         elif align == "right":
             pdf_canvas.drawRightString(name_x, name_y, full_name)
-            pdf_canvas.drawRightString(name_x, title_y, title)
         else:
             pdf_canvas.drawString(name_x, name_y, full_name)
+
+        pdf_canvas.setFont(title_font, size)
+        pdf_canvas.setFillColor(HexColor(layout.get("title_color", "#A66A28")))
+        if align == "center":
+            pdf_canvas.drawCentredString(name_x, title_y, title)
+        elif align == "right":
+            pdf_canvas.drawRightString(name_x, title_y, title)
+        else:
             pdf_canvas.drawString(name_x, title_y, title)
 
     def _load_image_bytes(self, url: Optional[str]) -> Optional[bytes]:
@@ -424,7 +446,6 @@ class CertificateRenderer:
 
     @staticmethod
     def _compress_writer_pages(writer: PdfWriter) -> None:
-        """Compress page streams after they are attached to the writer (pypdf requirement)."""
         for page in writer.pages:
             try:
                 page.compress_content_streams()
@@ -433,6 +454,7 @@ class CertificateRenderer:
 
 
 def pdf_string_width(text: str, font: str, size: float) -> float:
+    ensure_certificate_fonts()
     buffer = BytesIO()
     pdf_canvas = canvas.Canvas(buffer, pagesize=(A4_WIDTH, A4_HEIGHT))
     pdf_canvas.setFont(font, size)
@@ -473,5 +495,25 @@ def format_cert_number(
     return result
 
 
+def _ordinal_day(day: int) -> str:
+    if 10 <= day % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
 def format_display_date(value: date) -> str:
     return value.strftime("%d/%m/%Y")
+
+
+def format_display_date_prose(value: date) -> str:
+    """e.g. 20th May 2026 — matches the sample certificate."""
+    return f"{_ordinal_day(value.day)} {value.strftime('%B %Y')}"
+
+
+def layout_text_overrides(field_layout: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    if not field_layout:
+        return {}
+    text = field_layout.get("text")
+    return dict(text) if isinstance(text, dict) else {}

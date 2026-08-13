@@ -12,7 +12,13 @@ from certificates.models.models import (
 from certificates.services.certificate_renderer import (
     CertificateRenderer,
     format_cert_number,
-    format_display_date,
+    format_display_date_prose,
+    layout_text_overrides,
+)
+from certificates.services.certificate_styles import (
+    DEFAULT_CERTIFICATE_HEADING,
+    DEFAULT_CERTIFICATE_SUBHEADING,
+    DEFAULT_CERT_INTRO,
 )
 from certificates.services.participant_service import (
     ParticipantIdentity,
@@ -247,8 +253,8 @@ def build_render_data(
         override if override is not None else identity.qualifies_for_cpd_override,
     )
 
-    start_text = format_display_date(context.start_date)
-    end_text = format_display_date(context.end_date)
+    start_text = format_display_date_prose(context.start_date)
+    end_text = format_display_date_prose(context.end_date)
     venue_line = (template.venue_template or "held at {venue}").format(
         venue=context.venue_text,
     )
@@ -282,10 +288,15 @@ def build_render_data(
     )
 
     is_collaboration = context.host_mode == "collaboration"
+    text_overrides = layout_text_overrides(template.field_layout)
 
     render_data = {
         "preview": preview,
-        "certificate_title": template.certificate_title,
+        "certificate_heading": text_overrides.get("certificate_heading") or DEFAULT_CERTIFICATE_HEADING,
+        "certificate_subheading": (
+            text_overrides.get("certificate_subheading") or DEFAULT_CERTIFICATE_SUBHEADING
+        ),
+        "cert_intro": text_overrides.get("cert_intro") or DEFAULT_CERT_INTRO,
         "participant_name": identity.display_name,
         "participation_line": template.participation_prefix or "Participated in the training on",
         "subject_title": context.subject_title,
