@@ -349,6 +349,84 @@ def create_certificate_template():
         db.close()
 
 
+@certificate_templates_bp.route(
+    "/certificate-templates/<int:template_id>/watermark",
+    methods=["PATCH", "POST"],
+)
+@jwt_required()
+def update_certificate_template_watermark(template_id: int):
+    """
+    Upload or configure the distributed/center watermark for an existing template.
+
+    Multipart: watermark_logo (PNG/JPG), watermark_opacity, watermark_style
+    JSON: { "watermark_logo_url": "/storage/certificate_templates/watermarks/....png", ... }
+    """
+    db = get_db()
+    try:
+        row = (
+            db.query(CertificateTemplate)
+            .filter(
+                CertificateTemplate.id == template_id,
+                CertificateTemplate.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not row:
+            return jsonify({"status": "error", "message": "Certificate template not found"}), 404
+
+        is_multipart = bool(request.form) or bool(request.files)
+        if is_multipart:
+            watermark_fields, watermark_error = _parse_watermark_fields(
+                row.name,
+                request.form,
+                is_form=True,
+            )
+            if watermark_error:
+                return jsonify({"status": "error", "message": watermark_error}), 400
+        else:
+            data = request.get_json(silent=True) or {}
+            watermark_fields, watermark_error = _parse_watermark_fields(
+                row.name,
+                data,
+                is_form=False,
+            )
+            if watermark_error:
+                return jsonify({"status": "error", "message": watermark_error}), 400
+
+        if watermark_fields.get("watermark_logo_url"):
+            row.watermark_logo_url = watermark_fields["watermark_logo_url"]
+        row.watermark_opacity = watermark_fields.get("watermark_opacity", row.watermark_opacity)
+        row.watermark_style = watermark_fields.get("watermark_style", row.watermark_style)
+        row.updated_by = int(get_jwt_identity())
+
+        db.commit()
+        db.refresh(row)
+
+        from certificates.services.storage_path_utils import (
+            read_storage_asset_bytes,
+            storage_url_to_local_path,
+        )
+
+        wm_url = row.watermark_logo_url
+        file_check = "not configured"
+        if wm_url:
+            _, file_error = read_storage_asset_bytes(wm_url)
+            file_check = file_error or "ok"
+
+        return jsonify({
+            "status": "success",
+            "message": "Certificate template watermark updated",
+            "data": template_payload(row),
+            "watermark_local_path": storage_url_to_local_path(wm_url),
+            "watermark_file_check": file_check,
+        })
+    except Exception as exc:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    finally:
+        db.close()
+
+
 @certificate_templates_bp.route("/certificate-templates/<int:template_id>", methods=["DELETE"])
 @jwt_required()
 def delete_certificate_template(template_id: int):

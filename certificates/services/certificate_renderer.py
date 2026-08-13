@@ -105,29 +105,42 @@ class CertificateRenderer:
             image.save(buffer, format="PNG", optimize=True)
             return buffer.getvalue()
 
+    @staticmethod
+    def _prepare_watermark_png(image_bytes: bytes, opacity: float) -> bytes:
+        """Apply opacity; key out white JPEG backgrounds so tiles stay visible."""
+        with Image.open(BytesIO(image_bytes)) as image:
+            image = image.convert("RGBA")
+            pixels = list(image.getdata())
+            adjusted = []
+            for r, g, b, a in pixels:
+                if a == 0:
+                    adjusted.append((r, g, b, 0))
+                    continue
+                if r >= 235 and g >= 235 and b >= 235:
+                    adjusted.append((255, 255, 255, 0))
+                else:
+                    adjusted.append((r, g, b, int(a * opacity)))
+            image.putdata(adjusted)
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+
     def _draw_template_watermark(self, pdf_canvas) -> None:
         if not self.data.get("watermark_enabled"):
             return
-        image_bytes = self._load_image_bytes(self.data.get("watermark_logo_url"))
+        watermark_url = self.data.get("watermark_logo_url")
+        image_bytes = self._load_image_bytes(watermark_url)
         if not image_bytes:
             logger.warning(
                 "Certificate watermark enabled but logo could not be loaded: %s",
-                self.data.get("watermark_logo_url"),
+                watermark_url,
             )
             return
 
         opacity = float(self.data.get("watermark_opacity") or 0.12)
         style = (self.data.get("watermark_style") or "distributed").strip().lower()
         layout = self._layout_for("watermark")
-
-        with Image.open(BytesIO(image_bytes)) as image:
-            if image.mode != "RGBA":
-                image = image.convert("RGBA")
-            alpha = image.getchannel("A")
-            image.putalpha(alpha.point(lambda value: int(value * opacity)))
-            buffer = BytesIO()
-            image.save(buffer, format="PNG")
-            watermark_png = buffer.getvalue()
+        watermark_png = self._prepare_watermark_png(image_bytes, opacity)
 
         reader = ImageReader(BytesIO(watermark_png))
         src_w, src_h = reader.getSize()
@@ -136,17 +149,17 @@ class CertificateRenderer:
         pdf_canvas.saveState()
 
         if style == "center":
-            draw_w = float(layout.get("center_width", 220))
+            draw_w = float(layout.get("center_width", 260))
             draw_h = draw_w * aspect
             x = (self.page_w - draw_w) / 2
             y = (self.page_h - draw_h) / 2
             pdf_canvas.drawImage(reader, x, y, width=draw_w, height=draw_h, mask="auto")
         else:
-            tile_w = float(layout.get("tile_width", 88))
+            tile_w = float(layout.get("tile_width", 110))
             tile_h = tile_w * aspect
-            gap_x = float(layout.get("gap_x", 36))
-            gap_y = float(layout.get("gap_y", 44))
-            margin = float(layout.get("margin", 48))
+            gap_x = float(layout.get("gap_x", 28))
+            gap_y = float(layout.get("gap_y", 36))
+            margin = float(layout.get("margin", 40))
             y = margin
             while y < self.page_h - margin:
                 x = margin

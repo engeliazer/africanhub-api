@@ -361,6 +361,10 @@ def build_render_data(
             "user_id": identity.user_id,
             "qualifies_for_cpd": qualifies_for_cpd,
             "cert_number": cert_number,
+            "watermark_logo_url": watermark_settings.get("watermark_logo_url"),
+            "watermark_enabled": watermark_settings.get("watermark_enabled"),
+            "watermark_opacity": watermark_settings.get("watermark_opacity"),
+            "watermark_style": watermark_settings.get("watermark_style"),
         },
     }
     return render_data, None
@@ -480,10 +484,22 @@ def diagnose_certificate_preview(
     wm = template_watermark_settings(template)
     report["watermark_logo_url"] = wm.get("watermark_logo_url")
     report["watermark_enabled"] = wm.get("watermark_enabled")
+    report["watermark_opacity"] = wm.get("watermark_opacity")
+    report["watermark_style"] = wm.get("watermark_style")
+    report["watermark_local_path"] = storage_url_to_local_path(wm.get("watermark_logo_url"))
     report["checks"]["watermark_file"] = "skipped"
-    if wm.get("watermark_enabled") and wm.get("watermark_logo_url"):
+    if wm.get("watermark_logo_url"):
         _, wm_error = read_storage_asset_bytes(wm["watermark_logo_url"])
-        report["checks"]["watermark_file"] = wm_error or "ok"
+        if wm_error:
+            report["checks"]["watermark_file"] = wm_error
+            report["watermark_hint"] = (
+                "Set watermark_logo_url to a real uploaded file under "
+                "/storage/certificate_templates/watermarks/ — not a placeholder path."
+            )
+        else:
+            report["checks"]["watermark_file"] = "ok"
+    elif wm.get("watermark_enabled"):
+        report["checks"]["watermark_file"] = "watermark_logo_url is empty"
 
     _, bg_error = read_storage_asset_bytes(template.background_url)
     report["checks"]["background_file"] = bg_error or "ok"
