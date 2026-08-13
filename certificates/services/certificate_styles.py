@@ -18,6 +18,8 @@ CONTENT_LEFT = INNER_BORDER_INSET + CONTENT_PADDING
 CONTENT_RIGHT = A4_WIDTH - INNER_BORDER_INSET - CONTENT_PADDING
 CONTENT_MAX_WIDTH = CONTENT_RIGHT - CONTENT_LEFT
 CONTENT_CENTER_X = A4_WIDTH / 2
+INNER_FRAME_TOP_Y = A4_HEIGHT - INNER_BORDER_INSET
+CERT_NUMBER_Y = INNER_FRAME_TOP_Y - CONTENT_PADDING - 14
 
 # Signatory blocks — one per inner-frame half, centered with padded signature lines.
 SIGNATORY_HALF_WIDTH = CONTENT_MAX_WIDTH / 2
@@ -44,8 +46,8 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "home_logo": {"x": 52, "y": 768, "max_width": 135, "max_height": 62},
     "invited_logo": {"x": 448, "y": 754, "max_width": 115, "max_height": 58},
     "cert_number": {
-        "x": 543,
-        "y": 822,
+        "x": CONTENT_RIGHT,
+        "y": CERT_NUMBER_Y,
         "font": SERIF,
         "size": 15,
         "align": "right",
