@@ -1,4 +1,5 @@
 import re
+import secrets
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -7,6 +8,8 @@ from certificates.models.models import CertificateParticipant, CertificateTraini
 from certificates.services.training_context_service import training_record
 
 _SERIAL_CODE_RE = re.compile(r"[^A-Z0-9-]+")
+_SERIAL_SUFFIX_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+_SERIAL_SUFFIX_LENGTH = 4
 
 
 def _sanitize_serial_code(value: str, *, max_length: int = 24) -> str:
@@ -43,20 +46,52 @@ def resolve_training_serial_code(db: Session, context: CertificateTrainingContex
     return _date_serial_code(context)
 
 
-def build_participant_serial_no(
+def build_participant_serial_prefix(
     db: Session,
     context: CertificateTrainingContext,
-    certificate_participant_id: int,
 ) -> str:
-    """
-    AHBT/DCRC/{training_code}/{certificate_participant_id}
-
-    training_code = subject/course code, or MMYY for events.
-    """
+    """AHBT/DCRC/{training_code}/"""
     home_code = (context.home_code or "").strip()
     invited_code = (context.invited_code or context.home_code or "").strip()
     training_code = resolve_training_serial_code(db, context)
-    return f"{home_code}/{invited_code}/{training_code}/{certificate_participant_id}"
+    return f"{home_code}/{invited_code}/{training_code}/"
+
+
+def generate_serial_suffix(*, length: int = _SERIAL_SUFFIX_LENGTH) -> str:
+    """Random suffix — avoids sequential participant ids (e.g. K7M3)."""
+    return "".join(secrets.choice(_SERIAL_SUFFIX_ALPHABET) for _ in range(length))
+
+
+def _serial_no_taken(db: Session, serial_no: str) -> bool:
+    return (
+        db.query(CertificateParticipant.id)
+        .filter(
+            CertificateParticipant.serial_no == serial_no,
+            CertificateParticipant.deleted_at.is_(None),
+        )
+        .first()
+        is not None
+    )
+
+
+def build_participant_serial_no(
+    db: Session,
+    context: CertificateTrainingContext,
+    certificate_participant_id: Optional[int] = None,
+) -> str:
+    """
+    AHBT/DCRC/{training_code}/{random_suffix}
+
+    training_code = subject/course code, or MMYY for events.
+    The suffix is random (not the roster row id) to deter serial guessing.
+    """
+    del certificate_participant_id  # kept for call-site compatibility
+    prefix = build_participant_serial_prefix(db, context)
+    for _ in range(25):
+        candidate = f"{prefix}{generate_serial_suffix()}"
+        if not _serial_no_taken(db, candidate):
+            return candidate
+    raise ValueError("Could not generate a unique certificate serial number")
 
 
 def assign_participant_serial_no(
@@ -69,7 +104,7 @@ def assign_participant_serial_no(
     if participant.serial_no:
         return participant.serial_no
 
-    serial_no = build_participant_serial_no(db, context, participant.id)
+    serial_no = build_participant_serial_no(db, context)
     participant.serial_no = serial_no
     return serial_no
 

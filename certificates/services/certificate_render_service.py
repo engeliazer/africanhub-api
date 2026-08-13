@@ -30,7 +30,7 @@ from certificates.services.participant_service import (
 )
 from certificates.services.certificate_verify_urls import build_verification_view_url
 from certificates.services.serial_no_service import (
-    build_participant_serial_no,
+    assign_participant_serial_no,
     participant_confirmation_error,
 )
 
@@ -210,7 +210,7 @@ def build_render_data(
     if certificate_participant is not None and certificate_participant.serial_no:
         cert_number = certificate_participant.serial_no
     elif certificate_participant is not None:
-        cert_number = build_participant_serial_no(db, context, certificate_participant.id)
+        cert_number = assign_participant_serial_no(db, certificate_participant, context)
     else:
         cert_number = "PREVIEW" if preview else format_cert_number(
             context.cert_number_pattern,

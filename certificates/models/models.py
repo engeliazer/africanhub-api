@@ -208,7 +208,7 @@ class CertificateParticipant(Base):
         String(255),
         nullable=True,
         unique=True,
-        comment="Unique serial: home/invited/training_code/certificate_participant_id",
+        comment="Unique serial: home/invited/training_code/random_suffix",
     )
     certificate_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
