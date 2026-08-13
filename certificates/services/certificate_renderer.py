@@ -336,7 +336,16 @@ class CertificateRenderer:
         bottom_y = float(layout.get("y", 188))
         size = float(layout.get("size", 50))
 
-        qr_bytes = generate_qr_png_bytes(url, box_size=5, border=1)
+        center_logo_bytes = None
+        if self.data.get("show_home_logo") and self.data.get("home_logo_url"):
+            center_logo_bytes = self._load_image_bytes(self.data.get("home_logo_url"))
+
+        qr_bytes = generate_qr_png_bytes(
+            url,
+            box_size=5,
+            border=1,
+            center_logo_bytes=center_logo_bytes,
+        )
 
         pdf_canvas.saveState()
         pdf_canvas.setFillColor(HexColor("#FFFFFF"))
