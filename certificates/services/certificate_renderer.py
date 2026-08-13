@@ -361,27 +361,53 @@ class CertificateRenderer:
         pdf_canvas.restoreState()
 
     def _draw_participant_name(self, pdf_canvas, text: Optional[str]) -> None:
-        if not text:
+        salutation = (self.data.get("participant_salutation") or "").strip()
+        core_name = (self.data.get("participant_name") or text or "").strip()
+        if not core_name and not salutation:
             return
+
         layout = self._layout_for("participant_name")
-        font = participant_name_font()
-        size = float(layout.get("size", 34))
+        script_font = participant_name_font()
+        script_size = float(layout.get("size", 34))
+        salutation_font = layout.get("salutation_font", SERIF_BOLD)
+        salutation_size = float(layout.get("salutation_size", script_size * 0.65))
+        salutation_gap = float(layout.get("salutation_gap", 10))
+        salutation_offset = float(layout.get("salutation_baseline_offset", 0))
         x = float(layout.get("x", self.page_w / 2))
         y = float(layout.get("y", 592))
         align = layout.get("align", "center")
         color = layout.get("color", "#1A1A1A")
 
-        pdf_canvas.setFillColor(HexColor(color))
-        pdf_canvas.setFont(font, size)
+        segments: List[Tuple[str, str, float]] = []
+        if salutation:
+            segments.append((salutation, salutation_font, salutation_size))
+        if core_name:
+            segments.append((core_name, script_font, script_size))
+
+        total_width = 0.0
+        segment_widths: List[float] = []
+        for index, (segment_text, segment_font, segment_size) in enumerate(segments):
+            segment_width = pdf_string_width(segment_text, segment_font, segment_size)
+            segment_widths.append(segment_width)
+            total_width += segment_width
+            if index < len(segments) - 1:
+                total_width += salutation_gap
+
         if align == "center":
-            pdf_canvas.drawCentredString(x, y, text)
-            text_width = pdf_string_width(text, font, size)
+            cursor_x = x - (total_width / 2)
         elif align == "right":
-            pdf_canvas.drawRightString(x, y, text)
-            text_width = pdf_string_width(text, font, size)
+            cursor_x = x - total_width
         else:
-            pdf_canvas.drawString(x, y, text)
-            text_width = pdf_string_width(text, font, size)
+            cursor_x = x
+
+        pdf_canvas.setFillColor(HexColor(color))
+        for index, (segment_text, segment_font, segment_size) in enumerate(segments):
+            baseline_y = y + (salutation_offset if segment_font != script_font else 0)
+            pdf_canvas.setFont(segment_font, segment_size)
+            pdf_canvas.drawString(cursor_x, baseline_y, segment_text)
+            cursor_x += segment_widths[index]
+            if index < len(segments) - 1:
+                cursor_x += salutation_gap
 
         if layout.get("underline"):
             gap = float(layout.get("underline_gap", 6))
@@ -391,11 +417,11 @@ class CertificateRenderer:
             pdf_canvas.setStrokeColor(HexColor(line_color))
             pdf_canvas.setLineWidth(line_width)
             if align == "center":
-                pdf_canvas.line(x - text_width / 2, line_y, x + text_width / 2, line_y)
+                pdf_canvas.line(x - total_width / 2, line_y, x + total_width / 2, line_y)
             elif align == "right":
-                pdf_canvas.line(x - text_width, line_y, x, line_y)
+                pdf_canvas.line(x - total_width, line_y, x, line_y)
             else:
-                pdf_canvas.line(x, line_y, x + text_width, line_y)
+                pdf_canvas.line(x, line_y, x + total_width, line_y)
 
     def _draw_preview_watermark(self, pdf_canvas) -> None:
         pdf_canvas.saveState()

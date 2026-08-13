@@ -117,15 +117,40 @@ def get_salutation_for_user(db: Session, user: User) -> Optional[Salutation]:
 
 
 def format_user_full_name(user: User, salutation: Optional[Salutation]) -> str:
+    core_name = format_user_core_name(user)
+    label = participant_salutation_label(salutation)
+    if label:
+        return f"{label} {core_name}".strip()
+    return core_name
+
+
+def participant_salutation_label(salutation: Optional[Salutation]) -> Optional[str]:
+    if not salutation or not salutation.label:
+        return None
+    label = str(salutation.label).strip()
+    if not label or label.lower() == "none":
+        return None
+    return label
+
+
+def format_user_core_name(user: User) -> str:
     name_parts = [user.first_name]
     if user.middle_name:
         name_parts.append(user.middle_name)
     name_parts.append(user.last_name)
-    core_name = " ".join(part.strip() for part in name_parts if part and part.strip())
+    return " ".join(part.strip() for part in name_parts if part and part.strip())
 
-    if salutation and salutation.label and salutation.label.lower() != "none":
-        return f"{salutation.label} {core_name}".strip()
-    return core_name
+
+def split_certificate_participant_name(
+    display_name: str,
+    salutation: Optional[Salutation],
+) -> Tuple[Optional[str], str]:
+    """Return (salutation_label, name_for_script_font)."""
+    label = participant_salutation_label(salutation)
+    normalized = (display_name or "").strip()
+    if label and normalized.startswith(f"{label} "):
+        return label, normalized[len(label) :].strip()
+    return label, normalized
 
 
 def compute_qualifies_for_cpd(

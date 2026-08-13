@@ -27,6 +27,7 @@ from certificates.services.participant_service import (
     compute_qualifies_for_cpd,
     get_training_context_or_error,
     resolve_certificate_participant_identity,
+    split_certificate_participant_name,
 )
 from certificates.services.certificate_verify_urls import build_verification_view_url
 from certificates.services.serial_no_service import (
@@ -230,6 +231,11 @@ def build_render_data(
     if cert_number and cert_number != "PREVIEW":
         verification_url = build_verification_view_url(cert_number)
 
+    participant_salutation, participant_name_core = split_certificate_participant_name(
+        identity.display_name,
+        identity.salutation,
+    )
+
     render_data = {
         "preview": preview,
         **watermark_settings,
@@ -238,7 +244,9 @@ def build_render_data(
             text_overrides.get("certificate_subheading") or DEFAULT_CERTIFICATE_SUBHEADING
         ),
         "cert_intro": text_overrides.get("cert_intro") or DEFAULT_CERT_INTRO,
-        "participant_name": identity.display_name,
+        "participant_name": participant_name_core,
+        "participant_salutation": participant_salutation,
+        "participant_display_name": identity.display_name,
         "participation_line": template.participation_prefix or "Participated in the training on",
         "subject_title": context.subject_title,
         "venue_line": venue_line,
