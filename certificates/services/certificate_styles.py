@@ -118,8 +118,8 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "align": "center",
         "color": COLOR_BODY,
         "max_width": CONTENT_MAX_WIDTH,
-        "line_height": 25,
-        "gap_after": 10,
+        "line_height": 22,
+        "gap_after": 4,
     },
     "date_line": {
         "x": CONTENT_CENTER_X,
@@ -129,7 +129,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "align": "center",
         "color": COLOR_BODY,
         "max_width": CONTENT_MAX_WIDTH,
-        "line_height": 25,
+        "line_height": 22,
         "gap_after": 8,
     },
     "cpd_line": {
