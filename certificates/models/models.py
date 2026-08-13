@@ -203,12 +203,12 @@ class CertificateParticipant(Base):
     email = Column(String(255), nullable=True)
     organization = Column(String(255), nullable=True)
     qualifies_for_cpd_override = Column(Boolean, nullable=True)
-    confirmation_status = Column(String(20), nullable=False, default="pending")
+    confirmation_status = Column(String(20), nullable=False, default="confirmed")
     serial_no = Column(
         String(255),
         nullable=True,
         unique=True,
-        comment="Unique serial from cert_number_pattern and participant id",
+        comment="Unique serial: home/invited/training_code/certificate_participant_id",
     )
     certificate_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)

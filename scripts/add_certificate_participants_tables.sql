@@ -52,7 +52,7 @@ SET @sql := IF(
         training_context_id BIGINT NOT NULL,
         user_id BIGINT NOT NULL COMMENT ''users.id — salutation derived from users.salutation_id'',
         qualifies_for_cpd_override TINYINT(1) NULL,
-        confirmation_status VARCHAR(20) NOT NULL DEFAULT ''pending'',
+        confirmation_status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
         certificate_id BIGINT NULL,
         created_by BIGINT NOT NULL,
         updated_by BIGINT NOT NULL,
