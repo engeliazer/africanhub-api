@@ -152,7 +152,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "signature_y": 158,
         "signature_width": SIGNATORY_SIGNATURE_WIDTH,
         "signature_height": 44,
-        "line_y": 132,
+        "line_y": 145,
         "line_width": SIGNATORY_LINE_WIDTH,
         "name_font": SERIF_BOLD,
         "title_font": SERIF,
@@ -170,7 +170,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "signature_y": 158,
         "signature_width": SIGNATORY_SIGNATURE_WIDTH,
         "signature_height": 44,
-        "line_y": 132,
+        "line_y": 145,
         "line_width": SIGNATORY_LINE_WIDTH,
         "name_font": SERIF_BOLD,
         "title_font": SERIF,
@@ -182,7 +182,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "signatory_center_flourish": {
         "x": CONTENT_CENTER_X,
-        "y": 138,
+        "y": 151,
         "color": COLOR_FLOURISH,
     },
     "watermark": {
