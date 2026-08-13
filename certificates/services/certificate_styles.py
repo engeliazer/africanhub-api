@@ -189,7 +189,7 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     },
     "verification_qr": {
         "x": CONTENT_CENTER_X,
-        "y": 220,
+        "y": 210,
         "size": 64,
     },
     "watermark": {
