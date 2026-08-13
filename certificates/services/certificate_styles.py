@@ -27,9 +27,6 @@ SIGNATORY_1_CENTER_X = CONTENT_LEFT + SIGNATORY_HALF_WIDTH / 2
 SIGNATORY_2_CENTER_X = CONTENT_CENTER_X + SIGNATORY_HALF_WIDTH / 2
 SIGNATORY_SIGNATURE_WIDTH = min(120, SIGNATORY_LINE_WIDTH - 10)
 
-# Header band — logos top-out near y≈792; keep serial below logo bottoms (~720).
-HEADER_SERIAL_Y = 706
-
 # Sample certificate palette
 COLOR_ACCENT = "#A66A28"  # burnt orange / gold-brown headings
 COLOR_ACCENT_DARK = "#8B4513"
@@ -44,21 +41,15 @@ DEFAULT_CERT_INTRO = "This is to certify that"
 
 DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
     "page": {"width": A4_WIDTH, "height": A4_HEIGHT},
-    "home_logo": {"x": 52, "y": 792, "max_width": 135, "max_height": 62},
-    "invited_logo": {
-        "x": CONTENT_RIGHT - 115,
-        "y": 778,
-        "max_width": 115,
-        "max_height": 58,
-    },
+    "home_logo": {"x": 52, "y": 768, "max_width": 135, "max_height": 62},
+    "invited_logo": {"x": 448, "y": 754, "max_width": 115, "max_height": 58},
     "cert_number": {
-        "x": CONTENT_CENTER_X,
-        "y": HEADER_SERIAL_Y,
+        "x": 543,
+        "y": 758,
         "font": SERIF,
-        "size": 8.5,
-        "align": "center",
+        "size": 7.5,
+        "align": "right",
         "color": COLOR_BODY,
-        "max_width": CONTENT_MAX_WIDTH,
     },
     "certificate_heading": {
         "x": 297.64,
