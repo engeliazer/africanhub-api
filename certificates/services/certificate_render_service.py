@@ -14,6 +14,8 @@ from certificates.services.certificate_renderer import (
     format_cert_number,
     format_display_date_prose,
     layout_text_overrides,
+    layout_watermark_config,
+    template_watermark_settings,
 )
 from certificates.services.certificate_styles import (
     DEFAULT_CERTIFICATE_HEADING,
@@ -321,9 +323,11 @@ def build_render_data(
 
     is_collaboration = context.host_mode == "collaboration"
     text_overrides = layout_text_overrides(template.field_layout)
+    watermark_settings = template_watermark_settings(template)
 
     render_data = {
         "preview": preview,
+        **watermark_settings,
         "certificate_heading": text_overrides.get("certificate_heading") or DEFAULT_CERTIFICATE_HEADING,
         "certificate_subheading": (
             text_overrides.get("certificate_subheading") or DEFAULT_CERTIFICATE_SUBHEADING
@@ -473,6 +477,13 @@ def diagnose_certificate_preview(
     report["checks"]["template"] = "ok"
     report["background_url"] = template.background_url
     report["background_local_path"] = storage_url_to_local_path(template.background_url)
+    wm = template_watermark_settings(template)
+    report["watermark_logo_url"] = wm.get("watermark_logo_url")
+    report["watermark_enabled"] = wm.get("watermark_enabled")
+    report["checks"]["watermark_file"] = "skipped"
+    if wm.get("watermark_enabled") and wm.get("watermark_logo_url"):
+        _, wm_error = read_storage_asset_bytes(wm["watermark_logo_url"])
+        report["checks"]["watermark_file"] = wm_error or "ok"
 
     _, bg_error = read_storage_asset_bytes(template.background_url)
     report["checks"]["background_file"] = bg_error or "ok"

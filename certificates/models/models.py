@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     Text,
     Date,
+    Numeric,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -26,6 +27,16 @@ class CertificateTemplate(Base):
     description = Column(Text, nullable=True)
     background_url = Column(String(500), nullable=False)
     background_filename = Column(String(255), nullable=True)
+    watermark_logo_url = Column(String(500), nullable=True)
+    watermark_logo_filename = Column(String(255), nullable=True)
+    watermark_opacity = Column(Numeric(4, 3), nullable=False, default=0.12)
+    watermark_style = Column(
+        String(20),
+        nullable=False,
+        default="distributed",
+        comment="distributed (tiled) or center",
+    )
+    watermark_enabled = Column(Boolean, nullable=False, default=False)
     certificate_title = Column(String(255), nullable=False, default="Certificate of Participation")
     participation_prefix = Column(
         String(500),

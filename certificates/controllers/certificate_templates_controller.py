@@ -8,6 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from certificates.controllers.template_file_utils import (
     handle_background_upload,
     handle_signature_upload,
+    handle_watermark_upload,
 )
 from certificates.models.models import CertificateTemplate, CertificateTemplateSignatory
 from certificates.models.schemas import (
@@ -68,6 +69,48 @@ def _parse_signatories(raw_value) -> Tuple[List[SignatoryInput], Optional[str]]:
     return signatories, None
 
 
+def _parse_watermark_fields(name: str, form_or_data: Any, *, is_form: bool) -> Tuple[Dict[str, Any], Optional[str]]:
+    def get(key: str, default=None):
+        if is_form:
+            return request.form.get(key, default)
+        return form_or_data.get(key, default)
+
+    watermark_logo_url = (get("watermark_logo_url") or "").strip() or None
+    watermark_logo_filename = (get("watermark_logo_filename") or "").strip() or None
+    watermark_enabled = _parse_bool(get("watermark_enabled"), False)
+    watermark_style = (get("watermark_style") or "distributed").strip().lower()
+    if watermark_style not in {"distributed", "center"}:
+        return {}, "watermark_style must be distributed or center"
+
+    try:
+        watermark_opacity = float(get("watermark_opacity") or 0.12)
+    except (TypeError, ValueError):
+        return {}, "watermark_opacity must be a number"
+    watermark_opacity = max(0.05, min(0.35, watermark_opacity))
+
+    if is_form:
+        watermark_file = request.files.get("watermark_logo") or request.files.get("watermark")
+        if watermark_file and watermark_file.filename:
+            watermark_logo_url, watermark_logo_filename, upload_error = handle_watermark_upload(
+                watermark_file,
+                name,
+            )
+            if upload_error:
+                return {}, upload_error
+            watermark_enabled = True
+
+    if watermark_logo_url and not watermark_enabled:
+        watermark_enabled = True
+
+    return {
+        "watermark_logo_url": watermark_logo_url,
+        "watermark_logo_filename": watermark_logo_filename,
+        "watermark_opacity": watermark_opacity,
+        "watermark_style": watermark_style,
+        "watermark_enabled": watermark_enabled,
+    }, None
+
+
 def _parse_create_payload(current_user_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[str, int]]]:
     is_multipart = bool(request.form) or bool(request.files)
 
@@ -101,11 +144,16 @@ def _parse_create_payload(current_user_id: int) -> Tuple[Optional[Dict[str, Any]
         elif not background_url:
             return None, ("background PDF file is required", 400)
 
+        watermark_fields, watermark_error = _parse_watermark_fields(name, request.form, is_form=True)
+        if watermark_error:
+            return None, (watermark_error, 400)
+
         data = {
             "name": name,
             "description": request.form.get("description"),
             "background_url": background_url,
             "background_filename": background_filename,
+            **watermark_fields,
             "certificate_title": request.form.get("certificate_title") or DEFAULT_CERTIFICATE_TITLE,
             "participation_prefix": request.form.get("participation_prefix") or DEFAULT_PARTICIPATION_PREFIX,
             "venue_template": request.form.get("venue_template") or DEFAULT_VENUE_TEMPLATE,
@@ -136,11 +184,16 @@ def _parse_create_payload(current_user_id: int) -> Tuple[Optional[Dict[str, Any]
         except Exception as exc:
             return None, (f"signatories[{index}] is invalid: {exc}", 400)
 
+    watermark_fields, watermark_error = _parse_watermark_fields(name, data, is_form=False)
+    if watermark_error:
+        return None, (watermark_error, 400)
+
     payload = {
         "name": name,
         "description": data.get("description"),
         "background_url": background_url,
         "background_filename": data.get("background_filename"),
+        **watermark_fields,
         "certificate_title": data.get("certificate_title") or DEFAULT_CERTIFICATE_TITLE,
         "participation_prefix": data.get("participation_prefix") or DEFAULT_PARTICIPATION_PREFIX,
         "venue_template": data.get("venue_template") or DEFAULT_VENUE_TEMPLATE,
@@ -247,7 +300,11 @@ def create_certificate_template():
 
     Multipart form fields:
       - name (required)
-      - background (PDF file, required unless background_url provided)
+      - background (PDF/PNG file, required unless background_url provided)
+      - watermark_logo (PNG/JPG, optional — tiled or centered on certificate)
+      - watermark_opacity (0.05–0.35, default 0.12)
+      - watermark_style (distributed | center)
+      - watermark_enabled (true when logo uploaded)
       - certificate_title, participation_prefix, venue_template, date_template, cpd_template
       - field_layout (JSON string)
       - signatories (JSON array string)

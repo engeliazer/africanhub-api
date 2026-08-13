@@ -20,6 +20,11 @@ class SignatoryInDB(SignatoryInput):
 class CertificateTemplateBase(BaseModel):
     name: str
     description: Optional[str] = None
+    watermark_logo_url: Optional[str] = None
+    watermark_logo_filename: Optional[str] = None
+    watermark_opacity: float = 0.12
+    watermark_style: str = "distributed"
+    watermark_enabled: bool = False
     certificate_title: str = "Certificate of Participation"
     participation_prefix: str = "Participated in the training on"
     venue_template: str = "held at {venue}"
@@ -69,6 +74,11 @@ def template_payload(template: Any, signatories: Optional[List[Any]] = None) -> 
         "description": template.description,
         "background_url": template.background_url,
         "background_filename": template.background_filename,
+        "watermark_logo_url": getattr(template, "watermark_logo_url", None),
+        "watermark_logo_filename": getattr(template, "watermark_logo_filename", None),
+        "watermark_opacity": float(getattr(template, "watermark_opacity", 0.12) or 0.12),
+        "watermark_style": getattr(template, "watermark_style", None) or "distributed",
+        "watermark_enabled": bool(getattr(template, "watermark_enabled", False)),
         "certificate_title": template.certificate_title,
         "participation_prefix": template.participation_prefix,
         "venue_template": template.venue_template,

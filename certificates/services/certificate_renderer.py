@@ -84,6 +84,79 @@ class CertificateRenderer:
             image.save(buffer, format="JPEG", quality=jpeg_quality, optimize=True)
             return buffer.getvalue()
 
+    @staticmethod
+    def _optimize_background_image(image_bytes: bytes) -> bytes:
+        """Resize background rasters; keep PNG to preserve faint watermark patterns."""
+        with Image.open(BytesIO(image_bytes)) as image:
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            if image.mode in ("RGBA", "LA"):
+                flattened = Image.new("RGB", image.size, (255, 255, 255))
+                flattened.paste(image, mask=image.split()[-1])
+                image = flattened
+            else:
+                image = image.convert("RGB")
+
+            image.thumbnail(
+                (MAX_BACKGROUND_WIDTH_PX, MAX_BACKGROUND_HEIGHT_PX),
+                Image.Resampling.LANCZOS,
+            )
+            buffer = BytesIO()
+            image.save(buffer, format="PNG", optimize=True)
+            return buffer.getvalue()
+
+    def _draw_template_watermark(self, pdf_canvas) -> None:
+        if not self.data.get("watermark_enabled"):
+            return
+        image_bytes = self._load_image_bytes(self.data.get("watermark_logo_url"))
+        if not image_bytes:
+            logger.warning(
+                "Certificate watermark enabled but logo could not be loaded: %s",
+                self.data.get("watermark_logo_url"),
+            )
+            return
+
+        opacity = float(self.data.get("watermark_opacity") or 0.12)
+        style = (self.data.get("watermark_style") or "distributed").strip().lower()
+        layout = self._layout_for("watermark")
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            if image.mode != "RGBA":
+                image = image.convert("RGBA")
+            alpha = image.getchannel("A")
+            image.putalpha(alpha.point(lambda value: int(value * opacity)))
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            watermark_png = buffer.getvalue()
+
+        reader = ImageReader(BytesIO(watermark_png))
+        src_w, src_h = reader.getSize()
+        aspect = src_h / float(src_w) if src_w else 1.0
+
+        pdf_canvas.saveState()
+
+        if style == "center":
+            draw_w = float(layout.get("center_width", 220))
+            draw_h = draw_w * aspect
+            x = (self.page_w - draw_w) / 2
+            y = (self.page_h - draw_h) / 2
+            pdf_canvas.drawImage(reader, x, y, width=draw_w, height=draw_h, mask="auto")
+        else:
+            tile_w = float(layout.get("tile_width", 88))
+            tile_h = tile_w * aspect
+            gap_x = float(layout.get("gap_x", 36))
+            gap_y = float(layout.get("gap_y", 44))
+            margin = float(layout.get("margin", 48))
+            y = margin
+            while y < self.page_h - margin:
+                x = margin
+                while x < self.page_w - margin:
+                    pdf_canvas.drawImage(reader, x, y, width=tile_w, height=tile_h, mask="auto")
+                    x += tile_w + gap_x
+                y += tile_h + gap_y
+
+        pdf_canvas.restoreState()
+
     def _read_background_bytes(self) -> bytes:
         background_url = self.data["template"]["background_url"]
         raw, error = read_storage_asset_bytes(background_url)
@@ -104,7 +177,7 @@ class CertificateRenderer:
         return self._image_bytes_to_pdf_page(raw)
 
     def _image_bytes_to_pdf_page(self, image_bytes: bytes) -> bytes:
-        optimized = self._optimize_raster_image(image_bytes)
+        optimized = self._optimize_background_image(image_bytes)
         buffer = BytesIO()
         pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
         image_reader = ImageReader(BytesIO(optimized))
@@ -124,6 +197,8 @@ class CertificateRenderer:
     def _build_overlay_layer(self) -> bytes:
         buffer = BytesIO()
         pdf_canvas = canvas.Canvas(buffer, pagesize=(self.page_w, self.page_h))
+
+        self._draw_template_watermark(pdf_canvas)
 
         if self.data.get("show_home_logo"):
             self._draw_logo(pdf_canvas, self.data.get("home_logo_url"), "home_logo")
@@ -517,3 +592,35 @@ def layout_text_overrides(field_layout: Optional[Dict[str, Any]]) -> Dict[str, s
         return {}
     text = field_layout.get("text")
     return dict(text) if isinstance(text, dict) else {}
+
+
+def layout_watermark_config(field_layout: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not field_layout:
+        return {}
+    watermark = field_layout.get("watermark")
+    return dict(watermark) if isinstance(watermark, dict) else {}
+
+
+def template_watermark_settings(template: Any) -> Dict[str, Any]:
+    """Resolve watermark config from template columns with field_layout fallback."""
+    layout_wm = layout_watermark_config(getattr(template, "field_layout", None))
+    logo_url = getattr(template, "watermark_logo_url", None) or layout_wm.get("logo_url")
+    enabled = bool(getattr(template, "watermark_enabled", False)) or bool(logo_url)
+    if layout_wm.get("enabled") is False:
+        enabled = False
+    opacity_raw = getattr(template, "watermark_opacity", None)
+    if opacity_raw is None:
+        opacity = float(layout_wm.get("opacity") or 0.12)
+    else:
+        opacity = float(opacity_raw)
+    style = (
+        getattr(template, "watermark_style", None)
+        or layout_wm.get("style")
+        or "distributed"
+    )
+    return {
+        "watermark_logo_url": logo_url,
+        "watermark_enabled": enabled and bool(logo_url),
+        "watermark_opacity": max(0.05, min(0.35, opacity)),
+        "watermark_style": str(style).lower(),
+    }

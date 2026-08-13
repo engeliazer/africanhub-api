@@ -9,7 +9,9 @@ from config import UPLOAD_FOLDER, public_storage_url
 
 BACKGROUNDS_DIR = "certificate_templates/backgrounds"
 SIGNATURES_DIR = "certificate_templates/signatures"
-ALLOWED_BACKGROUND_EXTENSIONS = {"pdf"}
+WATERMARKS_DIR = "certificate_templates/watermarks"
+ALLOWED_BACKGROUND_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
+ALLOWED_WATERMARK_EXTENSIONS = {"png", "jpg", "jpeg"}
 ALLOWED_SIGNATURE_EXTENSIONS = {"png", "jpg", "jpeg"}
 MAX_BACKGROUND_BYTES = 15 * 1024 * 1024  # 15 MB
 MAX_SIGNATURE_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -47,7 +49,7 @@ def handle_background_upload(
 
     ext = file_storage.filename.rsplit(".", 1)[1].lower()
     if ext not in ALLOWED_BACKGROUND_EXTENSIONS:
-        return None, None, "Invalid background type. Allowed: PDF"
+        return None, None, "Invalid background type. Allowed: PDF, PNG, JPG, JPEG"
 
     size_error = _validate_file_size(file_storage, MAX_BACKGROUND_BYTES)
     if size_error:
@@ -60,6 +62,37 @@ def handle_background_upload(
     file_storage.save(os.path.join(directory, filename))
 
     return public_storage_url(BACKGROUNDS_DIR, filename), file_storage.filename, None
+
+
+def handle_watermark_upload(
+    file_storage: FileStorage,
+    template_name: str,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Save optional certificate watermark logo (PNG/JPG).
+    Returns (public_url, original_filename, error_message).
+    """
+    if not file_storage or not file_storage.filename:
+        return None, None, None
+
+    if "." not in file_storage.filename:
+        return None, None, "Invalid watermark file name"
+
+    ext = file_storage.filename.rsplit(".", 1)[1].lower()
+    if ext not in ALLOWED_WATERMARK_EXTENSIONS:
+        return None, None, "Invalid watermark type. Allowed: PNG, JPG, JPEG"
+
+    size_error = _validate_file_size(file_storage, MAX_SIGNATURE_BYTES)
+    if size_error:
+        return None, None, size_error
+
+    directory = os.path.join(UPLOAD_FOLDER, WATERMARKS_DIR)
+    os.makedirs(directory, exist_ok=True)
+
+    filename = f"{_safe_slug(template_name)}-wm-{uuid.uuid4().hex[:8]}.{ext}"
+    file_storage.save(os.path.join(directory, filename))
+
+    return public_storage_url(WATERMARKS_DIR, filename), file_storage.filename, None
 
 
 def handle_signature_upload(

@@ -162,4 +162,11 @@ DEFAULT_FIELD_LAYOUT: Dict[str, Any] = {
         "y": 138,
         "color": COLOR_FLOURISH,
     },
+    "watermark": {
+        "tile_width": 88,
+        "gap_x": 36,
+        "gap_y": 44,
+        "margin": 48,
+        "center_width": 220,
+    },
 }
