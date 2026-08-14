@@ -132,6 +132,7 @@ If the client sends `is_published: true` before requirements are met, the API **
 | `GET/POST/PUT/DELETE /api/events/trainers` | JWT required |
 | `GET /api/events/public` | **No auth** |
 | `POST /api/events/public/{id}/letter` | **No auth** |
+| `POST /api/events/public/{id}/letter/verify-phone` | **No auth** |
 | `POST /api/events/{id}/template` | JWT required |
 
 ### Standard JSON envelope
@@ -342,29 +343,84 @@ Same as admin list, but:
 
 ```json
 {
-  "full_name": "John Doe",
+  "first_name": "John",
+  "middle_name": "Michael",
+  "last_name": "Doe",
+  "salutation_id": 4,
   "organization": "Ministry of Finance",
   "address": "P.O. Box 123\nDodoma, Tanzania",
-  "email": "john@example.com"
+  "email": "john@example.com",
+  "phone": "+255712345678"
 }
 ```
 
 | Field | Required |
 |-------|----------|
-| full_name | Yes |
+| first_name | Yes |
+| middle_name | No |
+| last_name | Yes |
+| salutation_id | Yes — use `GET /api/salutations/public` |
 | organization | Yes |
 | address | Yes |
-| email | No |
+| email | Yes — unique per event |
+| phone | Yes — unique per event; stored as `255` + last 9 digits (e.g. `0712 001 002` → `255712001002`) |
 
-**Success:** `200` with `Content-Type: application/pdf` — browser file download (same personalized PDF used in invitation mail attachments).
+On first request for an event, the API saves the record (unless the same email or phone already exists for that event). Verification codes are random **6-digit numbers**. Default verification flags are **`phone_verified: false`** and **`email_verified: false`**.
+
+**If both phone and email are unverified**, the API does **not** return a PDF. It sends the phone verification code by SMS and responds with JSON:
+
+```json
+{
+  "status": "success",
+  "id": 12,
+  "verification_required": true,
+  "phone_verification_sent": true,
+  "phone_verified": false,
+  "email_verified": false,
+  "message": "Verification code sent to your phone. Verify your phone before downloading the invitation letter."
+}
+```
+
+Use the returned **`id`** when calling the verify-phone endpoint.
+
+---
+
+## 4b. Verify phone & download letter — `POST /api/events/public/{event_id}/letter/verify-phone`
+
+**Auth:** None
+
+**Body:**
+
+```json
+{
+  "id": 12,
+  "verification_code": "482913"
+}
+```
+
+| Field | Required |
+|-------|----------|
+| id | Yes — `event_letter_requests.id` from the letter request response |
+| verification_code | Yes — 6-digit code from SMS |
+
+**Success (`200`):** `Content-Type: application/pdf` — invitation letter file download (issued immediately after successful verification).
+
+If phone was already verified for this request, send only `id` to re-download the PDF.
 
 **Errors:**
 
 | HTTP | When |
 |------|------|
-| 400 | Missing/invalid fields |
-| 404 | Event not found or not published |
-| 410 | Event has already ended |
+| `400` | Invalid verification code |
+| `404` | Letter request or event not found |
+| `410` | Event has already ended |
+| `500` | PDF generation failed |
+
+---
+
+## 4c. Download letter without re-verifying (optional)
+
+If phone is already verified, `POST /api/events/public/{event_id}/letter` with the same payload also returns the PDF directly (no second SMS).
 
 ---
 

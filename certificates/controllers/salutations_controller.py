@@ -8,6 +8,27 @@ from database.db_connector import get_db
 salutations_bp = Blueprint("salutations", __name__)
 
 
+@salutations_bp.route("/salutations/public", methods=["GET"])
+def list_salutations_public():
+    """Public list of active salutations (e.g. event letter request forms)."""
+    db = get_db()
+    try:
+        rows = (
+            db.query(Salutation)
+            .filter(Salutation.is_active == True)
+            .order_by(Salutation.display_order.asc(), Salutation.label.asc())
+            .all()
+        )
+        return jsonify({
+            "status": "success",
+            "data": [salutation_payload(row) for row in rows],
+        })
+    except Exception as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
 @salutations_bp.route("/salutations", methods=["GET"])
 @jwt_required()
 def list_salutations():

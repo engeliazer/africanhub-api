@@ -120,16 +120,29 @@ CREATE TABLE IF NOT EXISTS `event_trainer_assignments` (
 CREATE TABLE IF NOT EXISTS `event_letter_requests` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `event_id` BIGINT NOT NULL,
-  `full_name` VARCHAR(255) NOT NULL,
+  `first_name` VARCHAR(100) NOT NULL,
+  `middle_name` VARCHAR(100) NULL,
+  `last_name` VARCHAR(100) NOT NULL,
+  `salutation_id` BIGINT NOT NULL,
   `organization` VARCHAR(255) NOT NULL,
   `address` TEXT NOT NULL,
-  `email` VARCHAR(255) NULL,
+  `email` VARCHAR(255) NOT NULL,
+  `phone` VARCHAR(50) NOT NULL,
+  `phone_verification_code` VARCHAR(6) NULL,
+  `email_verification_code` VARCHAR(6) NULL,
+  `phone_verified` TINYINT(1) NOT NULL DEFAULT 0,
+  `email_verified` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_event_letter_requests_event_phone` (`event_id`, `phone`),
+  UNIQUE KEY `uq_event_letter_requests_event_email` (`event_id`, `email`),
   KEY `ix_event_letter_requests_id` (`id`),
   KEY `ix_event_letter_requests_event_id` (`event_id`),
+  KEY `ix_event_letter_requests_salutation_id` (`salutation_id`),
   CONSTRAINT `fk_event_letter_requests_event_id`
-    FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+    FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_event_letter_requests_salutation_id`
+    FOREIGN KEY (`salutation_id`) REFERENCES `salutations` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Cleanup helper procedure

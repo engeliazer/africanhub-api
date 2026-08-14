@@ -6,7 +6,6 @@ Public: list published events and download personalized invitation letters (PDF)
 """
 
 import logging
-import re
 from datetime import date, datetime, time as time_type
 from decimal import Decimal
 from io import BytesIO
@@ -16,11 +15,26 @@ from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.orm import joinedload
 from sqlalchemy import true
+from sqlalchemy.exc import IntegrityError
 
+from certificates.models.models import Salutation
 from applications.models.models import InvitationTrainer
 from database.db_connector import get_db
 from events.models.models import Event, EventLetterRequest, EventTrainerAssignment
-from events.services.event_setup_service import build_event_setup
+from events.services.event_letter_request_service import (
+    build_invitee_from_letter_request,
+    build_letter_invitee_full_name,
+    find_existing_letter_request,
+    find_letter_request_by_id,
+    generate_verification_code,
+    get_salutation_or_error,
+    is_verification_required,
+    letter_request_to_dict,
+    send_phone_verification_sms,
+    validate_letter_request_payload,
+    validate_phone_verification_payload,
+    verification_codes_match,
+)
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_campaign_pdf_service import render_event_invitation_pdf_bytes
 from public.services.invitation_template_service import (
@@ -32,8 +46,6 @@ from public.services.invitation_template_service import (
 logger = logging.getLogger(__name__)
 
 events_bp = Blueprint("events", __name__)
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _parse_date(value: str, field: str):
@@ -129,6 +141,17 @@ def _trainers_for_event(event: Event, db, *, public: bool = False) -> List[Dict[
         if trainer and (not public or trainer.is_active):
             result.append(_trainer_to_dict(trainer, public=public, display_order=assignment.display_order))
     return result
+
+
+def _send_event_letter_pdf(event: Event, invitee: Dict[str, Any], db):
+    trainers = _trainers_for_event(event, db, public=True)
+    pdf_bytes, filename = render_event_invitation_pdf_bytes(event, invitee, trainers)
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 def _event_to_dict(
@@ -561,22 +584,6 @@ def list_events_public():
         db.close()
 
 
-def _letter_request_to_dict(row: EventLetterRequest, event: Optional[Event] = None) -> Dict[str, Any]:
-    data: Dict[str, Any] = {
-        "id": row.id,
-        "event_id": row.event_id,
-        "full_name": row.full_name,
-        "organization": row.organization,
-        "address": row.address,
-        "email": row.email,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-    }
-    if event:
-        data["event_title"] = event.title
-        data["course_title"] = event.course_title
-    return data
-
-
 @events_bp.route("/api/events/letter-requests", methods=["GET"])
 @jwt_required()
 def list_all_letter_requests():
@@ -588,7 +595,11 @@ def list_all_letter_requests():
         event_id = request.args.get("event_id", type=int)
         offset = (page - 1) * per_page
 
-        q = db.query(EventLetterRequest, Event).join(Event, EventLetterRequest.event_id == Event.id)
+        q = (
+            db.query(EventLetterRequest, Event, Salutation)
+            .join(Event, EventLetterRequest.event_id == Event.id)
+            .join(Salutation, EventLetterRequest.salutation_id == Salutation.id)
+        )
         if event_id:
             q = q.filter(EventLetterRequest.event_id == event_id)
         total = q.count()
@@ -601,7 +612,10 @@ def list_all_letter_requests():
         return jsonify({
             "status": "success",
             "data": {
-                "requests": [_letter_request_to_dict(req, event) for req, event in rows],
+                "requests": [
+                    letter_request_to_dict(req, salutation=salutation, event=event)
+                    for req, event, salutation in rows
+                ],
                 "pagination": {
                     "total": total,
                     "page": page,
@@ -628,7 +642,8 @@ def list_event_letter_requests(event_id: int):
             return err
 
         rows = (
-            db.query(EventLetterRequest)
+            db.query(EventLetterRequest, Salutation)
+            .join(Salutation, EventLetterRequest.salutation_id == Salutation.id)
             .filter(EventLetterRequest.event_id == event_id)
             .order_by(EventLetterRequest.created_at.desc())
             .all()
@@ -639,7 +654,10 @@ def list_event_letter_requests(event_id: int):
                 "event_id": event.id,
                 "event_title": event.title,
                 "total": len(rows),
-                "requests": [_letter_request_to_dict(r) for r in rows],
+                "requests": [
+                    letter_request_to_dict(req, salutation=salutation)
+                    for req, salutation in rows
+                ],
             },
         })
     except Exception as e:
@@ -655,26 +673,20 @@ def request_event_letter(event_id: int):
     Generate and download a personalized invitation letter PDF (no authentication).
 
     Body: {
-      "full_name": "...",
+      "first_name": "...",
+      "middle_name": "...",   // optional
+      "last_name": "...",
+      "salutation_id": 4,
       "organization": "...",
       "address": "...",
-      "email": "..."   // optional
+      "email": "...",
+      "phone": "..."
     }
     """
     data = request.get_json(silent=True) or {}
-    full_name = (data.get("full_name") or "").strip()
-    organization = (data.get("organization") or "").strip()
-    address = (data.get("address") or "").strip()
-    email = (data.get("email") or "").strip() or None
-
-    if not full_name:
-        return jsonify({"status": "error", "message": "full_name is required"}), 400
-    if not organization:
-        return jsonify({"status": "error", "message": "organization is required"}), 400
-    if not address:
-        return jsonify({"status": "error", "message": "address is required"}), 400
-    if email and not EMAIL_RE.match(email):
-        return jsonify({"status": "error", "message": "Invalid email address"}), 400
+    payload, validation_error = validate_letter_request_payload(data)
+    if validation_error:
+        return jsonify({"status": "error", "message": validation_error}), 400
 
     db = get_db()
     try:
@@ -688,31 +700,91 @@ def request_event_letter(event_id: int):
         if event.end_date < date.today():
             return jsonify({"status": "error", "message": "This event has already ended"}), 410
 
-        db.add(
-            EventLetterRequest(
-                event_id=event.id,
-                full_name=full_name,
-                organization=organization,
-                address=address,
-                email=email,
-            )
-        )
-        db.commit()
+        salutation, salutation_error = get_salutation_or_error(db, payload["salutation_id"])
+        if salutation_error:
+            return jsonify({"status": "error", "message": salutation_error}), 400
 
+        existing = find_existing_letter_request(
+            db,
+            event.id,
+            payload["email"],
+            payload["phone"],
+        )
+        letter_request = existing
+        if not letter_request:
+            try:
+                letter_request = EventLetterRequest(
+                    event_id=event.id,
+                    first_name=payload["first_name"],
+                    middle_name=payload["middle_name"],
+                    last_name=payload["last_name"],
+                    salutation_id=payload["salutation_id"],
+                    organization=payload["organization"],
+                    address=payload["address"],
+                    email=payload["email"],
+                    phone=payload["phone"],
+                    phone_verification_code=generate_verification_code(),
+                    email_verification_code=generate_verification_code(),
+                    phone_verified=False,
+                    email_verified=False,
+                )
+                db.add(letter_request)
+                db.commit()
+                db.refresh(letter_request)
+            except IntegrityError:
+                db.rollback()
+                letter_request = find_existing_letter_request(
+                    db,
+                    event.id,
+                    payload["email"],
+                    payload["phone"],
+                )
+
+        if not letter_request:
+            return jsonify({
+                "status": "error",
+                "message": "Unable to process letter request",
+            }), 500
+
+        if is_verification_required(letter_request):
+            letter_request.phone_verification_code = generate_verification_code()
+            db.commit()
+            sms_ok, sms_message = send_phone_verification_sms(
+                letter_request.phone,
+                letter_request.phone_verification_code,
+                event.title,
+            )
+            if not sms_ok:
+                return jsonify({
+                    "status": "error",
+                    "message": sms_message,
+                }), 502
+            return jsonify({
+                "status": "success",
+                "id": letter_request.id,
+                "verification_required": True,
+                "phone_verification_sent": True,
+                "phone_verified": False,
+                "email_verified": False,
+                "message": (
+                    "Verification code sent to your phone. "
+                    "Verify your phone before downloading the invitation letter."
+                ),
+            }), 200
+
+        full_name = build_letter_invitee_full_name(
+            payload["first_name"],
+            payload["middle_name"],
+            payload["last_name"],
+            salutation,
+        )
         invitee = {
             "full_name": full_name,
-            "organization": organization,
-            "address": address,
-            "email": email or "",
+            "organization": payload["organization"],
+            "address": payload["address"],
+            "email": payload["email"],
         }
-        trainers = _trainers_for_event(event, db, public=True)
-        pdf_bytes, filename = render_event_invitation_pdf_bytes(event, invitee, trainers)
-        return send_file(
-            BytesIO(pdf_bytes),
-            mimetype="application/pdf",
-            as_attachment=True,
-            download_name=filename,
-        )
+        return _send_event_letter_pdf(event, invitee, db)
     except RuntimeError as e:
         db.rollback()
         logger.exception("request_event_letter pdf: %s", e)
@@ -720,6 +792,72 @@ def request_event_letter(event_id: int):
     except Exception as e:
         db.rollback()
         logger.exception("request_event_letter: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/public/<int:event_id>/letter/verify-phone", methods=["POST"])
+def verify_event_letter_phone(event_id: int):
+    """
+    Verify phone and download the invitation letter PDF (no authentication).
+
+    Body: { "id": 12, "verification_code": "123456" }
+    """
+    data = request.get_json(silent=True) or {}
+    payload, validation_error = validate_phone_verification_payload(data, require_code=False)
+    if validation_error:
+        return jsonify({"status": "error", "message": validation_error}), 400
+
+    db = get_db()
+    try:
+        event, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+
+        if not event.is_published:
+            return jsonify({"status": "error", "message": "Event is not available"}), 404
+
+        if event.end_date < date.today():
+            return jsonify({"status": "error", "message": "This event has already ended"}), 410
+
+        letter_request = find_letter_request_by_id(db, event.id, payload["id"])
+        if not letter_request:
+            return jsonify({
+                "status": "error",
+                "message": "Letter request not found for this event",
+            }), 404
+
+        if not letter_request.phone_verified:
+            if not payload.get("verification_code"):
+                return jsonify({
+                    "status": "error",
+                    "message": "verification_code must be a 6-digit number",
+                }), 400
+            if not verification_codes_match(
+                letter_request.phone_verification_code,
+                payload["verification_code"],
+            ):
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid verification code",
+                }), 400
+            letter_request.phone_verified = True
+            db.commit()
+
+        salutation, salutation_error = get_salutation_or_error(db, letter_request.salutation_id)
+        if salutation_error:
+            return jsonify({"status": "error", "message": salutation_error}), 400
+
+        invitee = build_invitee_from_letter_request(letter_request, salutation)
+        return _send_event_letter_pdf(event, invitee, db)
+    except RuntimeError as e:
+        db.rollback()
+        logger.exception("verify_event_letter_phone pdf: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e:
+        db.rollback()
+        logger.exception("verify_event_letter_phone: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()

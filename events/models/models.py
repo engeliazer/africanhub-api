@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Integer, Text, Date, Time, ForeignKey, Numeric
+from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Integer, Text, Date, Time, ForeignKey, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.base import Base
@@ -79,6 +79,10 @@ class EventLetterRequest(Base):
     """Audit log when a visitor downloads a personalized invitation letter."""
 
     __tablename__ = "event_letter_requests"
+    __table_args__ = (
+        UniqueConstraint("event_id", "phone", name="uq_event_letter_requests_event_phone"),
+        UniqueConstraint("event_id", "email", name="uq_event_letter_requests_event_email"),
+    )
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     event_id = Column(
@@ -87,10 +91,23 @@ class EventLetterRequest(Base):
         nullable=False,
         index=True,
     )
-    full_name = Column(String(255), nullable=False)
+    first_name = Column(String(100), nullable=False)
+    middle_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=False)
+    salutation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("salutations.id"),
+        nullable=False,
+        index=True,
+    )
     organization = Column(String(255), nullable=False)
     address = Column(Text, nullable=False)
-    email = Column(String(255), nullable=True)
+    email = Column(String(255), nullable=False)
+    phone = Column(String(50), nullable=False)
+    phone_verification_code = Column(String(6), nullable=True)
+    email_verification_code = Column(String(6), nullable=True)
+    phone_verified = Column(Boolean, nullable=False, default=False, server_default="0")
+    email_verified = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
 
 
