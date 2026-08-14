@@ -3,52 +3,34 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
-class EventParticipantUserInput(BaseModel):
-    user_id: int
-    organization: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    notes: Optional[str] = None
-
-
-class EventParticipantGuestInput(BaseModel):
-    full_name: str
-    salutation_id: Optional[int] = None
-    organization: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    notes: Optional[str] = None
-
-    @field_validator("full_name")
-    @classmethod
-    def validate_full_name(cls, value: str) -> str:
-        normalized = (value or "").strip()
-        if not normalized:
-            raise ValueError("full_name is required for walk-in participants")
-        return normalized
+from events.services.phone_utils import normalize_phone
 
 
 class EventParticipantInput(BaseModel):
-    user_id: Optional[int] = None
+    phone: str
     full_name: Optional[str] = None
     salutation_id: Optional[int] = None
     organization: Optional[str] = None
     email: Optional[str] = None
-    phone: Optional[str] = None
     notes: Optional[str] = None
 
-    @model_validator(mode="after")
-    def validate_identity(self):
-        has_user = self.user_id is not None
-        has_guest_name = bool((self.full_name or "").strip())
-        if has_user and has_guest_name:
-            raise ValueError("Provide either user_id or full_name, not both")
-        if not has_user and not has_guest_name:
-            raise ValueError("Either user_id or full_name is required")
-        if has_guest_name:
-            self.full_name = self.full_name.strip()
-        return self
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        normalized = normalize_phone(value)
+        if not normalized:
+            raise ValueError("phone is required and must be a valid Tanzania mobile number")
+        return normalized
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("full_name cannot be empty")
+        return normalized
 
 
 class EventParticipantBulkInput(BaseModel):
@@ -71,6 +53,16 @@ class EventParticipantUpdateInput(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("full_name cannot be empty")
+        return normalized
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = normalize_phone(value)
+        if not normalized:
+            raise ValueError("Invalid phone number")
         return normalized
 
 

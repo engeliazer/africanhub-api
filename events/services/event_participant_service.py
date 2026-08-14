@@ -12,6 +12,7 @@ from certificates.services.participant_service import (
     get_user_or_error,
 )
 from events.models.models import Event, EventParticipant
+from events.services.phone_utils import normalize_phone
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -48,6 +49,22 @@ def validate_email(email: Optional[str]) -> Optional[str]:
     return None
 
 
+def find_user_by_phone(db: Session, phone: str) -> Optional[User]:
+    normalized = normalize_phone(phone)
+    if not normalized:
+        return None
+    last_nine = normalized[-9:]
+    candidates = (
+        db.query(User)
+        .filter(User.phone.isnot(None), User.phone.like(f"%{last_nine}"))
+        .all()
+    )
+    for user in candidates:
+        if normalize_phone(user.phone) == normalized:
+            return user
+    return None
+
+
 def participant_display_names(
     participant: EventParticipant,
     user: Optional[User],
@@ -66,30 +83,16 @@ def participant_display_names(
     return core_name, display_name
 
 
-def existing_user_ids(db: Session, event_id: int) -> Set[int]:
+def existing_phones(db: Session, event_id: int) -> Set[str]:
     rows = (
-        db.query(EventParticipant.user_id)
+        db.query(EventParticipant.phone)
         .filter(
             EventParticipant.event_id == event_id,
-            EventParticipant.user_id.isnot(None),
             EventParticipant.deleted_at.is_(None),
         )
         .all()
     )
-    return {row[0] for row in rows}
-
-
-def existing_guest_keys(db: Session, event_id: int) -> Set[Tuple[str, Optional[int]]]:
-    rows = (
-        db.query(EventParticipant.full_name, EventParticipant.salutation_id)
-        .filter(
-            EventParticipant.event_id == event_id,
-            EventParticipant.user_id.is_(None),
-            EventParticipant.deleted_at.is_(None),
-        )
-        .all()
-    )
-    return {(normalize_guest_name(name), salutation_id) for name, salutation_id in rows}
+    return {row[0] for row in rows if row[0]}
 
 
 def build_participant_view(db: Session, participant: EventParticipant) -> Dict[str, Any]:
@@ -119,58 +122,56 @@ def create_participant_row(
     data: Dict[str, Any],
     current_user_id: int,
     *,
-    seen_user_ids: Set[int],
-    seen_guest_keys: Set[Tuple[str, Optional[int]]],
+    seen_phones: Set[str],
 ) -> Tuple[Optional[EventParticipant], Optional[str]]:
-    user_id = data.get("user_id")
-    full_name = data.get("full_name")
+    phone = normalize_phone(data.get("phone") or "")
+    if not phone:
+        return None, "phone is required and must be a valid Tanzania mobile number"
+    if phone in seen_phones:
+        return None, f"Phone {phone} is already on this event roster"
 
     email_error = validate_email(data.get("email"))
     if email_error:
         return None, email_error
 
-    if user_id is not None:
-        if user_id in seen_user_ids:
-            return None, f"User {user_id} is already on this event roster"
-        _, user_error = get_user_or_error(db, user_id)
-        if user_error:
-            return None, user_error
-
+    user = find_user_by_phone(db, phone)
+    if user is not None:
         row = EventParticipant(
             event_id=event_id,
-            user_id=user_id,
+            user_id=user.id,
+            phone=phone,
             organization=_optional_text(data.get("organization")),
-            email=_optional_text(data.get("email")),
-            phone=_optional_text(data.get("phone")),
+            email=_optional_text(data.get("email")) or _optional_text(user.email),
             notes=_optional_text(data.get("notes")),
             created_by=current_user_id,
             updated_by=current_user_id,
         )
-        seen_user_ids.add(user_id)
+        seen_phones.add(phone)
         return row, None
+
+    full_name = (data.get("full_name") or "").strip()
+    if not full_name:
+        return None, (
+            "full_name is required when phone is not registered to a system user"
+        )
 
     salutation_id = data.get("salutation_id")
     _, salutation_error = get_salutation_or_error(db, salutation_id)
     if salutation_error:
         return None, salutation_error
 
-    guest_key = (normalize_guest_name(full_name), salutation_id)
-    if guest_key in seen_guest_keys:
-        label = full_name
-        return None, f"Walk-in participant '{label}' is already on this event roster"
-
     row = EventParticipant(
         event_id=event_id,
-        full_name=full_name.strip(),
+        full_name=full_name,
         salutation_id=salutation_id,
+        phone=phone,
         organization=_optional_text(data.get("organization")),
         email=_optional_text(data.get("email")),
-        phone=_optional_text(data.get("phone")),
         notes=_optional_text(data.get("notes")),
         created_by=current_user_id,
         updated_by=current_user_id,
     )
-    seen_guest_keys.add(guest_key)
+    seen_phones.add(phone)
     return row, None
 
 

@@ -112,9 +112,12 @@ class EventLetterRequest(Base):
 
 
 class EventParticipant(Base):
-    """Attendance roster for a training calendar event — system users or walk-in guests."""
+    """Attendance roster for a training calendar event — linked users or walk-in guests."""
 
     __tablename__ = "event_participants"
+    __table_args__ = (
+        UniqueConstraint("event_id", "phone", name="uq_event_participants_event_phone"),
+    )
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     event_id = Column(
@@ -127,7 +130,7 @@ class EventParticipant(Base):
         BigInteger().with_variant(Integer, "sqlite"),
         nullable=True,
         index=True,
-        comment="users.id when linked; NULL for walk-in guests",
+        comment="users.id when phone matches a registered user; NULL for walk-in guests",
     )
     full_name = Column(
         String(255),
@@ -142,7 +145,7 @@ class EventParticipant(Base):
     )
     organization = Column(String(255), nullable=True)
     email = Column(String(255), nullable=True)
-    phone = Column(String(50), nullable=True)
+    phone = Column(String(50), nullable=False, index=True)
     notes = Column(Text, nullable=True)
     created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)

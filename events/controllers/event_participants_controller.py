@@ -16,8 +16,7 @@ from events.models.schemas import EventParticipantBulkInput, EventParticipantUpd
 from events.services.event_participant_service import (
     build_participant_view,
     create_participant_row,
-    existing_guest_keys,
-    existing_user_ids,
+    existing_phones,
     get_event_or_error,
     get_salutation_or_error,
     list_event_participants,
@@ -76,12 +75,15 @@ def add_participants(event_id: int):
     """
     Bulk add participants to a training calendar event.
 
-    Each entry is either a system user or a walk-in guest:
+    Each entry is identified by phone (stored as 255 + last 9 digits).
+    If the phone matches a registered user, they are linked automatically.
+    Otherwise provide full_name (and optional salutation_id) for walk-in guests.
 
     {
       "participants": [
-        { "user_id": 42 },
+        { "phone": "0712345678" },
         {
+          "phone": "0755123456",
           "full_name": "John Doe",
           "salutation_id": 4,
           "organization": "ACME Ltd",
@@ -103,8 +105,7 @@ def add_participants(event_id: int):
         except Exception as exc:
             return jsonify({"status": "error", "message": str(exc)}), 400
 
-        seen_user_ids = existing_user_ids(db, event_id)
-        seen_guest_keys = existing_guest_keys(db, event_id)
+        seen_phones = existing_phones(db, event_id)
         created = []
 
         for item in parsed.participants:
@@ -113,8 +114,7 @@ def add_participants(event_id: int):
                 event_id,
                 item.model_dump(),
                 current_user_id,
-                seen_user_ids=seen_user_ids,
-                seen_guest_keys=seen_guest_keys,
+                seen_phones=seen_phones,
             )
             if row_error:
                 return jsonify({"status": "error", "message": row_error}), 400
