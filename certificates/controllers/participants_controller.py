@@ -6,6 +6,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from certificates.models.models import CertificateParticipant
 from certificates.models.schemas import (
     ParticipantBulkInput,
+    ParticipantNotifyAttendanceInput,
     ParticipantUpdateInput,
     participant_payload,
 )
@@ -18,6 +19,10 @@ from certificates.services.participant_service import (
     get_training_context_or_error,
     get_user_or_error,
     is_guest_participant,
+)
+from certificates.services.participant_attendance_notify_service import (
+    notify_context_participants_attendance,
+    notify_single_participant_attendance,
 )
 from certificates.services.serial_no_service import assign_participant_serial_no
 from database.db_connector import get_db
@@ -207,6 +212,106 @@ def import_event_roster(context_id: int):
     except Exception as exc:
         db.rollback()
         return jsonify({"status": "error", "message": str(exc)}), 400
+    finally:
+        db.close()
+
+
+@certificate_participants_bp.route(
+    "/certificate-training-contexts/<int:context_id>/participants/notify-attendance",
+    methods=["POST"],
+)
+@jwt_required()
+def notify_participants_attendance(context_id: int):
+    """
+    SMS thank-you with each participant's attendance number (serial_no).
+
+    Optional body: { "participant_ids": [1, 2] } — omit to notify all roster rows.
+    """
+    db = get_db()
+    try:
+        context, error = get_training_context_or_error(db, context_id)
+        if error:
+            return jsonify({"status": "error", "message": error}), 404
+
+        body = request.get_json(silent=True) or {}
+        try:
+            parsed = ParticipantNotifyAttendanceInput(**body)
+        except Exception as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+
+        results, counts = notify_context_participants_attendance(
+            db,
+            context,
+            participant_ids=parsed.participant_ids,
+        )
+
+        db.commit()
+
+        sent = counts.get("sent", 0)
+        skipped = counts.get("skipped", 0)
+        failed = counts.get("failed", 0)
+        return jsonify({
+            "status": "success",
+            "message": (
+                f"{sent} notification(s) sent, {skipped} skipped, {failed} failed"
+            ),
+            "data": {
+                "training_context_id": context_id,
+                "sent_count": sent,
+                "skipped_count": skipped,
+                "failed_count": failed,
+                "results": results,
+            },
+        })
+    except Exception as exc:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
+@certificate_participants_bp.route(
+    "/certificate-training-contexts/<int:context_id>/participants/<int:participant_id>/notify-attendance",
+    methods=["POST"],
+)
+@jwt_required()
+def notify_participant_attendance(context_id: int, participant_id: int):
+    """SMS thank-you with attendance number (serial_no) for one roster participant."""
+    db = get_db()
+    try:
+        context, error = get_training_context_or_error(db, context_id)
+        if error:
+            return jsonify({"status": "error", "message": error}), 404
+
+        row = (
+            db.query(CertificateParticipant)
+            .filter(
+                CertificateParticipant.id == participant_id,
+                CertificateParticipant.training_context_id == context_id,
+                CertificateParticipant.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if not row:
+            return jsonify({"status": "error", "message": "Participant not found"}), 404
+
+        result = notify_single_participant_attendance(db, context, row)
+        db.commit()
+
+        outcome_messages = {
+            "sent": "Attendance notification sent",
+            "skipped": result.get("reason", "Notification skipped"),
+            "failed": result.get("reason", "Failed to send notification"),
+        }
+
+        return jsonify({
+            "status": "success" if result["status"] == "sent" else "error",
+            "message": outcome_messages.get(result["status"], "Notification processed"),
+            "data": result,
+        }), 200 if result["status"] == "sent" else 400
+    except Exception as exc:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
     finally:
         db.close()
 

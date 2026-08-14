@@ -222,6 +222,10 @@ class ParticipantBulkInput(BaseModel):
     participants: List[ParticipantInput] = Field(min_length=1)
 
 
+class ParticipantNotifyAttendanceInput(BaseModel):
+    participant_ids: Optional[List[int]] = None
+
+
 class ParticipantUpdateInput(BaseModel):
     qualifies_for_cpd_override: Optional[bool] = None
     confirmation_status: Optional[str] = None
