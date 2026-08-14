@@ -752,7 +752,7 @@ def request_event_letter(event_id: int):
             sms_ok, sms_message = send_phone_verification_sms(
                 letter_request.phone,
                 letter_request.phone_verification_code,
-                event.title,
+                payload["first_name"],
             )
             if not sms_ok:
                 return jsonify({

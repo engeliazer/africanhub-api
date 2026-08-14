@@ -175,9 +175,10 @@ def find_letter_request_by_id(
     )
 
 
-def send_phone_verification_sms(phone: str, code: str, event_title: str) -> Tuple[bool, str]:
+def send_phone_verification_sms(phone: str, code: str, first_name: str) -> Tuple[bool, str]:
     message = (
-        f"Your African Hub verification code for {event_title} is {code}. "
+        f"Dear {first_name},\n"
+        f"Your African Hub verification code for course invitation letter is {code}. "
         "Do not share this code."
     )
     result = SMSService.send_message(
