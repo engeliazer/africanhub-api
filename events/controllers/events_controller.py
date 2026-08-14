@@ -35,6 +35,7 @@ from events.services.event_letter_request_service import (
     validate_phone_verification_payload,
     verification_codes_match,
 )
+from events.services.event_setup_service import build_event_setup
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_campaign_pdf_service import render_event_invitation_pdf_bytes
 from public.services.invitation_template_service import (
