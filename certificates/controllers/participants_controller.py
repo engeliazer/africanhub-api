@@ -10,10 +10,14 @@ from certificates.models.schemas import (
     ParticipantUpdateInput,
     participant_payload,
 )
-from certificates.services.certificate_issue_service import issue_certificate_for_participant
+from certificates.services.certificate_issue_service import (
+    get_participant_certificate,
+    issue_certificate_for_participant,
+)
 from certificates.services.event_roster_import_service import import_event_participants_to_context
 from certificates.services.participant_create_service import create_certificate_participant
 from certificates.services.participant_service import (
+    get_salutation_by_id,
     get_salutation_for_participant,
     get_salutation_for_user,
     get_training_context_or_error,
@@ -322,6 +326,16 @@ def notify_participant_attendance(context_id: int, participant_id: int):
 )
 @jwt_required()
 def update_participant(context_id: int, participant_id: int):
+    """
+    Update a certificate roster participant.
+
+    Name corrections:
+      - full_name — guest participants only (user_id is null)
+      - salutation_id — guest row or linked user's salutation
+
+    Also supports confirmation_status and qualifies_for_cpd_override.
+    Regenerates the certificate PDF when the name or salutation changes.
+    """
     db = get_db()
     try:
         current_user_id = int(get_jwt_identity())
@@ -351,8 +365,40 @@ def update_participant(context_id: int, participant_id: int):
         if not updates:
             return jsonify({"status": "error", "message": "No fields to update"}), 400
 
-        for field, value in updates.items():
-            setattr(row, field, value)
+        name_updated = False
+
+        if "full_name" in updates:
+            if not is_guest_participant(row):
+                return jsonify({
+                    "status": "error",
+                    "message": (
+                        "full_name can only be updated for guest participants. "
+                        "Update the linked user profile for system users."
+                    ),
+                }), 400
+            row.full_name = updates["full_name"]
+            name_updated = True
+
+        if "salutation_id" in updates:
+            salutation_id = updates["salutation_id"]
+            if salutation_id is not None and not get_salutation_by_id(db, salutation_id):
+                return jsonify({
+                    "status": "error",
+                    "message": f"Salutation {salutation_id} not found or inactive",
+                }), 404
+            if is_guest_participant(row):
+                row.salutation_id = salutation_id
+            else:
+                user, user_error = get_user_or_error(db, row.user_id)
+                if user_error:
+                    return jsonify({"status": "error", "message": user_error}), 404
+                user.salutation_id = salutation_id
+            name_updated = True
+
+        for field in ("qualifies_for_cpd_override", "confirmation_status"):
+            if field in updates:
+                setattr(row, field, updates[field])
+
         row.updated_by = current_user_id
 
         if (
@@ -361,7 +407,19 @@ def update_participant(context_id: int, participant_id: int):
         ):
             assign_participant_serial_no(db, row, context)
 
-        if row.confirmation_status == "confirmed" and not row.certificate_id:
+        if name_updated and (row.confirmation_status or "").strip().lower() == "confirmed":
+            existing_certificate = get_participant_certificate(db, row)
+            _, _, issue_error = issue_certificate_for_participant(
+                db,
+                context,
+                row,
+                current_user_id,
+                regenerate=existing_certificate is not None,
+            )
+            if issue_error:
+                db.rollback()
+                return jsonify({"status": "error", "message": issue_error}), 400
+        elif row.confirmation_status == "confirmed" and not row.certificate_id:
             _, _, issue_error = issue_certificate_for_participant(
                 db,
                 context,
