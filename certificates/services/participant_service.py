@@ -31,11 +31,19 @@ def get_salutation_for_participant(
     return None
 
 
+def format_certificate_person_name(name: str) -> str:
+    """Title-case person names for certificates (e.g. HAMIS -> Hamis)."""
+    normalized = (name or "").strip()
+    if not normalized:
+        return normalized
+    return " ".join(word.capitalize() for word in normalized.split())
+
+
 def format_guest_full_name(
     core_name: str,
     salutation: Optional[Salutation],
 ) -> str:
-    name = (core_name or "").strip()
+    name = format_certificate_person_name(core_name)
     if salutation and salutation.label and salutation.label.lower() != "none":
         return f"{salutation.label} {name}".strip()
     return name
@@ -138,7 +146,8 @@ def format_user_core_name(user: User) -> str:
     if user.middle_name:
         name_parts.append(user.middle_name)
     name_parts.append(user.last_name)
-    return " ".join(part.strip() for part in name_parts if part and part.strip())
+    core_name = " ".join(part.strip() for part in name_parts if part and part.strip())
+    return format_certificate_person_name(core_name)
 
 
 def split_certificate_participant_name(
@@ -149,8 +158,9 @@ def split_certificate_participant_name(
     label = participant_salutation_label(salutation)
     normalized = (display_name or "").strip()
     if label and normalized.startswith(f"{label} "):
-        return label, normalized[len(label) :].strip()
-    return label, normalized
+        core = format_certificate_person_name(normalized[len(label) :].strip())
+        return label, core
+    return label, format_certificate_person_name(normalized)
 
 
 def compute_qualifies_for_cpd(
