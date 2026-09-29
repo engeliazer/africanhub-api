@@ -34,6 +34,13 @@ JWT_SECRET_KEY=your-secret-key-here
 # VdoCipher
 VDOCIPHER_API_SECRET=your-vdocipher-api-secret
 
+# LMS (Books / Library Management System)
+LMS_BASE_URL=https://your-lms.example.com
+LMS_CLIENT_ID=your-lms-client-id
+LMS_CLIENT_SECRET=your-lms-client-secret
+# Optional: reading session token TTL in seconds (default 1800 = 30 min)
+# LMS_ACCESS_TOKEN_TTL_SECONDS=1800
+
 # File Access
 FILE_ACCESS_SECRET=your-file-access-secret
 

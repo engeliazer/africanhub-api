@@ -43,16 +43,19 @@ def get_courses_public():
             for t in s.topics:
                 if not t.is_active:
                     continue
+                active_subtopics = [
+                    {"id": st.id, "name": st.name, "code": st.code, "description": st.description}
+                    for st in t.sub_topics
+                    if st.is_active
+                ]
+                if not active_subtopics:
+                    continue
                 topics_data.append({
                     "id": t.id,
                     "name": t.name,
                     "code": t.code,
                     "description": t.description,
-                    "subtopics": [
-                        {"id": st.id, "name": st.name, "code": st.code, "description": st.description}
-                        for st in t.sub_topics
-                        if st.is_active
-                    ],
+                    "subtopics": active_subtopics,
                 })
             result.append({
                 "id": s.id,
@@ -217,6 +220,10 @@ def get_approved_courses():
                 for subtopic in topic["subtopics"]:
                     subtopic["materials"] = list(subtopic["materials"].values())
 
+            subjects[subject_id]["topics"] = [
+                topic for topic in subjects[subject_id]["topics"] if topic["subtopics"]
+            ]
+
             subjects[subject_id]["summary"] = derive_subject_summary(
                 collect_video_entries_from_subject_tree(subjects[subject_id])
             )
@@ -319,9 +326,12 @@ def get_subject_structure():
                     **subject_badge_fields(subject),
                 }
                 
-                # Add topics with subtopics
+                # Add topics with subtopics (skip topics that have none)
                 for topic in topics_dict.get(subject.id, []):
-                    topic["subtopics"] = subtopics_dict.get(int(topic["id"]), [])
+                    topic_subtopics = subtopics_dict.get(int(topic["id"]), [])
+                    if not topic_subtopics:
+                        continue
+                    topic["subtopics"] = topic_subtopics
                     subject_data["topics"].append(topic)
                 
                 nested_subjects.append(subject_data)
@@ -330,6 +340,7 @@ def get_subject_structure():
                 "subjects": nested_subjects
             }
         else:
+            topic_ids_with_subtopics = {subtopic.topic_id for subtopic in subtopics}
             response = {
                 "subjects": [
                     {
@@ -358,6 +369,7 @@ def get_subject_structure():
                         "updated_at": topic.updated_at.isoformat() if topic.updated_at else None
                     }
                     for topic in topics
+                    if topic.id in topic_ids_with_subtopics
                 ],
                 "subtopics": [
                     {

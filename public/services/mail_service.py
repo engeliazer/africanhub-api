@@ -1,8 +1,8 @@
 """
 Mail sending for batch campaigns.
 
-Preferred on cloud VPS (DigitalOcean etc.): SendGrid API over HTTPS (port 443).
-Fallback: Zoho SMTP via MAIL_SMTP_* variables.
+Preferred: Amazon SES API over HTTPS (port 443), MAIL_TRANSPORT=ses.
+Fallback: SendGrid API, then Zoho SMTP via MAIL_SMTP_* variables.
 """
 
 import base64
@@ -11,9 +11,11 @@ import os
 import smtplib
 import socket
 from email import encoders
+from email.message import Message
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -48,7 +50,9 @@ def personalize_message(message_body: str, full_name: str) -> str:
 
 
 def _html_enabled() -> bool:
-    return os.getenv("MAIL_HTML_ENABLED", "true").lower() in ("1", "true", "yes")
+    # Plain text by default. HTML wrappers (logo, styled layout, footer links)
+    # make inbox providers classify batch mail as promotions.
+    return os.getenv("MAIL_HTML_ENABLED", "false").lower() in ("1", "true", "yes")
 
 
 def _build_html_body(
@@ -68,12 +72,33 @@ def _build_html_body(
 
 
 def _mail_transport() -> str:
-    """api | smtp | auto (default: api if key present, else smtp)."""
+    """ses | api | smtp | auto (ses when AWS keys and region are set, else SendGrid, else SMTP)."""
     mode = (os.getenv("MAIL_TRANSPORT") or "auto").strip().lower()
-    if mode in ("api", "smtp"):
+    if mode in ("api", "smtp", "ses"):
         return mode
+    if _ses_ready():
+        return "ses"
     api_key = os.getenv("MAIL_SENDGRID_API_KEY") or os.getenv("SENDGRID_API_KEY")
     return "api" if api_key and SENDGRID_AVAILABLE else "smtp"
+
+
+def _ses_credentials() -> Tuple[str, str, str]:
+    key = (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+    secret = (os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+    region = (os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "").strip()
+    if not key or not secret:
+        raise ValueError("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required for SES")
+    if not region:
+        raise ValueError("AWS_DEFAULT_REGION is required for SES")
+    return key, secret, region
+
+
+def _ses_ready() -> bool:
+    return bool(
+        (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+        and (os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+        and (os.getenv("AWS_DEFAULT_REGION") or os.getenv("AWS_REGION") or "").strip()
+    )
 
 
 def _default_from_email() -> str:
@@ -226,22 +251,20 @@ def _send_via_sendgrid(
         return False, f"SendGrid send failed: {e}"
 
 
-def _build_body_multipart(
+def _build_body_part(
     plain_body: str,
     subject: str,
     *,
     use_html: Optional[bool] = None,
-) -> MIMEMultipart:
-    """Plain text, optionally with HTML alternative parts."""
+):
+    """Plain text, or multipart/alternative when the HTML wrapper is enabled."""
     html_body = _build_html_body(plain_body, subject, use_html=use_html)
-    if html_body:
-        alternative = MIMEMultipart("alternative")
-        alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
-        alternative.attach(MIMEText(html_body, "html", "utf-8"))
-        return alternative
-    wrapper = MIMEMultipart("alternative")
-    wrapper.attach(MIMEText(plain_body, "plain", "utf-8"))
-    return wrapper
+    if not html_body:
+        return MIMEText(plain_body, "plain", "utf-8")
+    alternative = MIMEMultipart("alternative")
+    alternative.attach(MIMEText(plain_body, "plain", "utf-8"))
+    alternative.attach(MIMEText(html_body, "html", "utf-8"))
+    return alternative
 
 
 def _build_smtp_message(
@@ -254,9 +277,9 @@ def _build_smtp_message(
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
     use_html: Optional[bool] = None,
-) -> MIMEMultipart:
+):
     attachment = _load_attachment(attachment_path, attachment_filename)
-    body_part = _build_body_multipart(body, subject, use_html=use_html)
+    body_part = _build_body_part(body, subject, use_html=use_html)
     if attachment:
         msg = MIMEMultipart("mixed")
         msg.attach(body_part)
@@ -276,7 +299,7 @@ def _build_smtp_message(
     return msg
 
 
-def _send_smtp_message(cfg: dict, msg: MIMEMultipart) -> None:
+def _send_smtp_message(cfg: dict, msg: Message) -> None:
     if cfg["use_ssl"]:
         server = smtplib.SMTP_SSL(
             cfg["host"], cfg["port"], timeout=cfg["timeout"]
@@ -352,6 +375,69 @@ def _send_via_smtp(
         return False, str(e)
 
 
+def _send_via_ses(
+    *,
+    from_email: str,
+    to_email: str,
+    subject: str,
+    body: str,
+    attachment_path: Optional[str] = None,
+    attachment_filename: Optional[str] = None,
+    use_html: Optional[bool] = None,
+) -> Tuple[bool, Optional[str]]:
+    try:
+        import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError:
+        return False, "boto3 is not installed"
+
+    try:
+        send_from = _resolve_sender_email(from_email)
+        reply_to = _reply_to_email()
+        key, secret, region = _ses_credentials()
+    except ValueError as e:
+        return False, str(e)
+
+    try:
+        msg = _build_smtp_message(
+            send_from=send_from,
+            reply_to=reply_to,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path,
+            attachment_filename=attachment_filename,
+            use_html=use_html,
+        )
+        msg.replace_header("From", formataddr((_from_display_name(), send_from)))
+        client = boto3.client(
+            "ses",
+            region_name=region,
+            aws_access_key_id=key,
+            aws_secret_access_key=secret,
+        )
+        client.send_raw_email(
+            Source=send_from,
+            Destinations=[to_email],
+            RawMessage={"Data": msg.as_bytes()},
+        )
+        return True, None
+    except FileNotFoundError as e:
+        return False, str(e)
+    except ClientError as e:
+        err = e.response.get("Error", {}) if getattr(e, "response", None) else {}
+        code = err.get("Code", "ClientError")
+        message = err.get("Message", str(e))
+        logger.error("SES error sending to %s: %s %s", to_email, code, message)
+        return False, f"SES {code}: {message}"
+    except BotoCoreError as e:
+        logger.exception("SES connection error sending to %s", to_email)
+        return False, f"SES send failed: {e}"
+    except Exception as e:
+        logger.exception("Unexpected SES error sending to %s", to_email)
+        return False, str(e)
+
+
 def send_batch_email(
     *,
     from_email: str,
@@ -365,13 +451,23 @@ def send_batch_email(
     """
     Send email with optional PDF attachment.
 
-    By default wraps body in branded HTML when MAIL_HTML_ENABLED is true.
-    Pass use_html=False for plain-text-only (recommended for invitation campaigns).
+    Body is sent as plain text. Set MAIL_HTML_ENABLED=true to also attach the
+    branded HTML wrapper (that layout is what inboxes tend to file as promotions).
 
-    Uses SendGrid API when MAIL_TRANSPORT=api (or auto + API key set),
-    otherwise SMTP.
+    Uses Amazon SES when MAIL_TRANSPORT=ses (or auto when AWS keys and region are set).
+    SendGrid is used when MAIL_TRANSPORT=api. Otherwise SMTP.
     """
     transport = _mail_transport()
+    if transport == "ses":
+        return _send_via_ses(
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path,
+            attachment_filename=attachment_filename,
+            use_html=use_html,
+        )
     if transport == "api":
         return _send_via_sendgrid(
             from_email=from_email,
