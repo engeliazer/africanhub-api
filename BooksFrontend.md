@@ -56,7 +56,7 @@ Errors:
 |------------|--------|
 | `SYSADMIN`, `SUPADM` | Admin book links, sales pricing, listings, all orders |
 | Authenticated student | Own books, reading, store checkout, own orders |
-| Anonymous | Public store catalog only (`GET /api/store/books`) |
+| Anonymous | Public store catalog (`GET /api/public/store/books`; no JWT) |
 
 ---
 
@@ -257,11 +257,21 @@ Store flows use **edition reference ids** (UUIDs from LMS). `GET /api/store/book
 
 ### B.1 Public store catalog (listed editions + list prices)
 
+**Visitors (recommended for landing pages):**
+
 ```http
-GET /api/store/books
+GET /api/public/store/books
+GET /api/public/store/books/{editionReferenceId}
 ```
 
-No auth required.
+No auth; JWT is not read (always guest catalog).
+
+**Logged-in store (optional JWT on same response shape):**
+
+```http
+GET /api/store/books
+GET /api/store/books/{editionReferenceId}
+```
 
 **Response `200`**
 
@@ -660,7 +670,7 @@ Authorization: Bearer <admin_jwt>
 
 ### Store browse → checkout
 
-1. `GET /api/store/books`
+1. Visitors: `GET /api/public/store/books` (or logged-in: `GET /api/store/books` with JWT)
 2. Load edition/book metadata from existing LMS catalog UI data layer (keyed by `edition_reference_id` / book reference).
 3. On product page (logged in): `GET /api/store/books/{editionRef}/price` → show `price` and `customer_type`.
 4. `POST /api/orders` with selected editions.
@@ -685,7 +695,7 @@ Authorization: Bearer <admin_jwt>
 
 # Frontend checklist
 
-- [ ] Use **user JWT** for all `/api/*` calls except public `GET /api/store/books`.
+- [ ] Use **user JWT** for all `/api/*` calls except public `GET /api/public/store/books` (and edition cover proxy when listed).
 - [ ] Use **numeric `book_id`** for reading; **string `edition_reference_id`** for store.
 - [ ] Never compute new vs previous buyer price in the client — use `GET .../price`.
 - [ ] Never expose or log LMS **content** JWT from reading grants.

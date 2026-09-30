@@ -73,13 +73,29 @@ stateDiagram-v2
 
 ---
 
-## 1. Store browse (no login)
+## 1. Store browse
 
-Listed editions and **list** prices (not necessarily the logged-in user’s checkout price):
+### Visitors (no account, no JWT)
+
+Use the **public** catalog on marketing / landing pages. No `Authorization` header; invalid tokens are ignored if a client sends them anyway.
+
+```http
+GET /api/public/store/books
+GET /api/public/store/books/{editionReferenceId}
+```
+
+Each row includes **`new_buyer_price`**, **`previous_buyer_price`**, **`currency`**, plus LMS **`title`**, **`cover_url`**, etc. Flags are guest mode: `store_presentation: "GUEST"`, `pricing_for_user: false`. Show list prices and route **Buy** → register / login.
+
+Response **`meta.public_catalog`**: `true` on the public list route.
+
+### Logged-in store (optional JWT)
+
+Same catalog shape with **your** price and ownership when the Hub login JWT is sent:
 
 ```http
 GET /api/store/books
-Authorization: Bearer <user_jwt>   ← optional; include on store when user is logged in
+Authorization: Bearer <user_jwt>   ← optional
+GET /api/store/books/{editionReferenceId}
 ```
 
 When the JWT is present, each store row includes ownership and pricing hints. Prefer **`user_owns_edition`** (and **`store_presentation`**) to drive buttons and badges.
@@ -583,7 +599,8 @@ More detail on course-library grants (same response shape): [`BooksFrontend.md`]
 
 | Screen | APIs | Notes |
 |--------|------|--------|
-| Book store | `GET /api/store/books` + LMS metadata | Public |
+| Book store (visitors) | `GET /api/public/store/books` + LMS metadata | No JWT |
+| Book store (logged in) | `GET /api/store/books` + optional JWT | Optional JWT |
 | Edition detail | Store detail + `GET .../price` when logged in | Show server `price` |
 | Cart / checkout review | `GET .../price` per line | Sum `price` fields |
 | Pay for order | `GET /api/accounting/payment-methods`, `POST .../payment` | Clone application payment form |
@@ -624,7 +641,7 @@ Role codes with access: `SYSADMIN`, `SUPADM` (same as other accounting flows).
 
 ## 11. Frontend checklist
 
-- [ ] Public store uses `GET /api/store/books`; checkout uses **per-edition** `GET .../price` with user JWT.
+- [ ] Visitor catalog uses `GET /api/public/store/books`; logged-in store may use `GET /api/store/books` with JWT; checkout uses **per-edition** `GET .../price` with user JWT.
 - [ ] Cart checkout calls `POST /api/book-orders`, then payment on **`/api/book-orders/{id}/payment`**.
 - [ ] Payment UI reuses **application** fields: provider id, reference, mobile — no file upload.
 - [ ] After payment submit, show **pending approval**; disable reader until `GET /api/my/books` includes the edition.

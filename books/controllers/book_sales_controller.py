@@ -22,24 +22,14 @@ from books.services.listing_service import (
     get_listing,
     list_edition,
     unlist_edition,
-    list_listed_editions,
     listing_to_response,
 )
 from books.services.pricing_service import create_edition_price, get_active_edition_price, price_to_response
 from books.services.price_resolution_service import (
     resolve_customer_price,
-    build_store_edition_payload,
-    attach_store_user_pricing,
-    load_user_paid_purchase_sets,
     PriceResolutionError,
 )
-from books.services.lms_edition_helpers import attach_store_catalog_metadata, book_reference_id
-from books.services.store_visibility_service import (
-    filter_store_rows_for_visibility,
-    is_edition_visible_in_store,
-    listed_edition_refs_for_book,
-    pick_current_edition_reference,
-)
+from books.services.store_catalog_service import build_store_books_list, build_store_book_detail
 from books.services.order_service import create_book_order, order_to_response, OrderServiceError
 from database.db_connector import get_db
 from services.lms_client import get_lms_client, LMSClientError
@@ -269,61 +259,38 @@ def update_listing_by_id(listing_id):
 # --- Store (public catalog + authenticated pricing) ---
 
 
+@book_sales_bp.route("/public/store/books", methods=["GET"])
+def public_store_list_books():
+    """Visitor catalog: no login, no JWT. List prices + LMS metadata."""
+    db = get_db()
+    try:
+        body = build_store_books_list(db, user_id=None)
+        body["meta"]["public_catalog"] = True
+        return jsonify(body)
+    finally:
+        db.close()
+
+
+@book_sales_bp.route("/public/store/books/<edition_reference_id>", methods=["GET"])
+def public_store_get_book(edition_reference_id):
+    """Single listed edition for visitors (no JWT)."""
+    db = get_db()
+    try:
+        body, err = build_store_book_detail(db, edition_reference_id, user_id=None)
+        if err:
+            return jsonify(err[0]), err[1]
+        return jsonify(body)
+    finally:
+        db.close()
+
+
 @book_sales_bp.route("/store/books", methods=["GET"])
 def store_list_books():
     """Listed editions with prices and LMS metadata; user-specific price when JWT sent."""
     db = get_db()
     try:
         user_id = optional_authenticated_user_id()
-        owned_editions: set = set()
-        owned_books: set = set()
-        owned_by_book: dict = {}
-        if user_id is not None:
-            owned_editions, owned_books, owned_by_book = load_user_paid_purchase_sets(db, user_id)
-
-        listings = list_listed_editions(db)
-        client = get_lms_client()
-        edition_index = {}
-        if client:
-            try:
-                edition_index = client.build_edition_index(published_only=False)
-            except LMSClientError:
-                edition_index = {}
-
-        data = []
-        for listing in listings:
-            payload = build_store_edition_payload(db, listing)
-            if payload:
-                edition = edition_index.get(listing.edition_reference_id)
-                row = attach_store_catalog_metadata(payload, edition, client)
-                row = attach_store_user_pricing(
-                    row,
-                    user_id,
-                    owned_editions=owned_editions,
-                    owned_books=owned_books,
-                    edition_lms=edition,
-                )
-                data.append(row)
-
-        data = filter_store_rows_for_visibility(
-            data,
-            edition_index,
-            owned_editions,
-            owned_by_book,
-        )
-
-        body = {"status": "success", "data": data}
-        body["meta"] = {
-            "authenticated": user_id is not None,
-            "store_edition_policy": (
-                "OWNED_AND_CURRENT_FOR_RETURNING_BUYERS"
-                if user_id is not None and owned_books
-                else "CURRENT_EDITION_ONLY"
-            ),
-        }
-        if user_id is not None:
-            body["meta"]["user_owned_edition_ids"] = sorted(owned_editions)
-        return jsonify(body)
+        return jsonify(build_store_books_list(db, user_id))
     finally:
         db.close()
 
@@ -332,75 +299,11 @@ def store_list_books():
 def store_get_book(edition_reference_id):
     db = get_db()
     try:
-        listing = get_listing(db, edition_reference_id)
-        if not listing or listing.status != ListingStatus.LISTED.value:
-            return jsonify({"status": "error", "message": "Edition is not listed for sale"}), 404
-
-        payload = build_store_edition_payload(db, listing)
-        if not payload:
-            return jsonify({"status": "error", "message": "No active price for this edition"}), 409
-
         user_id = optional_authenticated_user_id()
-        owned_editions: set = set()
-        owned_by_book: dict = {}
-        if user_id is not None:
-            owned_editions, _, owned_by_book = load_user_paid_purchase_sets(db, user_id)
-
-        client = get_lms_client()
-        edition_index: dict = {}
-        edition = None
-        if client:
-            try:
-                edition_index = client.build_edition_index(published_only=False)
-            except LMSClientError:
-                edition_index = {}
-            edition = edition_index.get(edition_reference_id)
-            if edition is None:
-                try:
-                    edition = client.get_edition(edition_reference_id)
-                except LMSClientError:
-                    edition = None
-
-        book_ref = book_reference_id(edition) if edition else None
-        listed_for_book: list = []
-        current_ref = None
-
-        if book_ref:
-            all_listed_refs = [lst.edition_reference_id for lst in list_listed_editions(db)]
-            listed_for_book = listed_edition_refs_for_book(book_ref, all_listed_refs, edition_index)
-            if not is_edition_visible_in_store(
-                edition_reference_id,
-                book_ref,
-                listed_for_book,
-                edition_index,
-                owned_by_book,
-            ):
-                return jsonify({
-                    "status": "error",
-                    "message": "This edition is not shown in the store for your account. Open the current or your owned edition from the catalog.",
-                }), 404
-            current_ref = pick_current_edition_reference(listed_for_book, edition_index)
-
-        row = attach_store_catalog_metadata(payload, edition, client)
-        row = attach_store_user_pricing(
-            row,
-            user_id,
-            owned_editions=owned_editions,
-            owned_books=set(owned_by_book.keys()),
-            edition_lms=edition,
-        )
-        ref = str(edition_reference_id)
-        owns = ref in owned_editions
-        is_current = bool(current_ref and ref == current_ref)
-        row["is_current_edition"] = is_current if book_ref else None
-        if book_ref:
-            row["edition_display_role"] = (
-                "OWNED_CURRENT" if owns and is_current else ("OWNED" if owns else "CURRENT")
-            )
-        else:
-            row["edition_display_role"] = "CURRENT"
-        row["show_in_store"] = True
-        return jsonify({"status": "success", "data": row})
+        body, err = build_store_book_detail(db, edition_reference_id, user_id)
+        if err:
+            return jsonify(err[0]), err[1]
+        return jsonify(body)
     finally:
         db.close()
 
