@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -78,6 +78,84 @@ def resolve_customer_price(
         "book_reference_id": parent_book_ref,
         "unit_price_decimal": Decimal(str(amount)),
     }
+
+
+def load_user_paid_purchase_sets(
+    db: Session,
+    user_id: int,
+) -> Tuple[Set[str], Set[str]]:
+    """Return (owned_edition_reference_ids, owned_book_reference_ids) for approved purchases."""
+    rows = (
+        db.query(
+            UserPaidBookEdition.edition_reference_id,
+            UserPaidBookEdition.book_reference_id,
+        )
+        .filter(UserPaidBookEdition.user_id == user_id)
+        .all()
+    )
+    editions: Set[str] = set()
+    books: Set[str] = set()
+    for edition_ref, book_ref in rows:
+        if edition_ref:
+            editions.add(str(edition_ref))
+        if book_ref:
+            books.add(str(book_ref))
+    return editions, books
+
+
+def attach_store_user_pricing(
+    store_payload: Dict[str, Any],
+    user_id: Optional[int],
+    owned_editions: Optional[Set[str]] = None,
+    owned_books: Optional[Set[str]] = None,
+    edition_lms: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    When the caller is authenticated, add purchase flags and the price this user would pay.
+
+    - already_purchased: user owns this edition (approved payment)
+    - is_previous_buyer: user owns another edition of the same book (for messaging)
+    - customer_type: NEW_BUYER | PREVIOUS_BUYER | null if already_purchased
+    - your_price: applicable checkout price, null if already_purchased
+    """
+    out = dict(store_payload)
+    if user_id is None:
+        out["pricing_for_user"] = False
+        out["already_purchased"] = None
+        out["is_previous_buyer"] = None
+        out["customer_type"] = None
+        out["your_price"] = None
+        return out
+
+    edition_ref = str(out.get("edition_reference_id") or "")
+    parent_ref = out.get("book_reference_id")
+    if not parent_ref and edition_lms:
+        parent_ref = book_reference_id(edition_lms)
+    parent_ref = str(parent_ref) if parent_ref else None
+
+    owned_editions = owned_editions or set()
+    owned_books = owned_books or set()
+
+    already = edition_ref in owned_editions if edition_ref else False
+    previous = bool(parent_ref and parent_ref in owned_books and not already)
+
+    out["pricing_for_user"] = True
+    out["already_purchased"] = already
+    out["is_previous_buyer"] = previous
+
+    if already:
+        out["customer_type"] = None
+        out["your_price"] = None
+        return out
+
+    if previous:
+        out["customer_type"] = "PREVIOUS_BUYER"
+        out["your_price"] = out.get("previous_buyer_price")
+    else:
+        out["customer_type"] = "NEW_BUYER"
+        out["your_price"] = out.get("new_buyer_price")
+
+    return out
 
 
 def build_store_edition_payload(db: Session, listing: BookListing) -> Optional[dict]:

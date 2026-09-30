@@ -79,7 +79,10 @@ Listed editions and **list** prices (not necessarily the logged-in user’s chec
 
 ```http
 GET /api/store/books
+Authorization: Bearer <user_jwt>   ← optional; include on store when user is logged in
 ```
+
+When the JWT is present, each item adds **`already_purchased`**, **`customer_type`**, and **`your_price`** so cards can show the correct price and hide “Buy” for owned editions.
 
 Optional detail:
 

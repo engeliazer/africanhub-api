@@ -292,7 +292,17 @@ No auth required.
 | `title`, `author`, `cover_url`, `edition_label` | Convenience fields from LMS for store cards |
 | `book`, `edition` | Full LMS payloads when catalog sync succeeds; may be `null` if LMS is down |
 
-**Frontend:** Prefer `cover_url` / `title` on each row for the store grid. Do **not** show checkout totals using list prices alone for logged-in users — use **B.3**.
+**Optional auth:** Send `Authorization: Bearer <user_jwt>` on the same request to get per-user fields (one round trip for the store grid):
+
+| Field | Logged in | Guest |
+|-------|-----------|--------|
+| `pricing_for_user` | `true` | `false` |
+| `already_purchased` | `true` / `false` (this edition) | `null` |
+| `is_previous_buyer` | `true` if another edition of same book owned | `null` |
+| `customer_type` | `NEW_BUYER` / `PREVIOUS_BUYER`, or `null` if already purchased | `null` |
+| `your_price` | Price this user would pay, or `null` if already purchased | `null` |
+
+**Frontend:** When `pricing_for_user` is true, display `your_price` (not `new_buyer_price`). Hide “Buy” when `already_purchased`; show “Open in My Books”. Checkout can still call **B.3** to re-verify before order create.
 
 ### B.2 Store edition detail
 

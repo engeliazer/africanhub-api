@@ -28,6 +28,8 @@ from books.services.pricing_service import create_edition_price, get_active_edit
 from books.services.price_resolution_service import (
     resolve_customer_price,
     build_store_edition_payload,
+    attach_store_user_pricing,
+    load_user_paid_purchase_sets,
     PriceResolutionError,
 )
 from books.services.order_service import create_book_order, order_to_response, OrderServiceError
@@ -260,11 +262,18 @@ def update_listing_by_id(listing_id):
 
 
 @book_sales_bp.route("/store/books", methods=["GET"])
+@jwt_required(optional=True)
 def store_list_books():
-    """Listed editions with prices and LMS book/edition metadata (title, cover, etc.)."""
+    """Listed editions with prices and LMS metadata; user-specific price when JWT sent."""
     db = get_db()
     try:
         from books.services.lms_edition_helpers import attach_store_catalog_metadata
+
+        identity = get_jwt_identity()
+        user_id = int(identity) if identity is not None else None
+        owned_editions = owned_books = None
+        if user_id is not None:
+            owned_editions, owned_books = load_user_paid_purchase_sets(db, user_id)
 
         listings = list_listed_editions(db)
         client = get_lms_client()
@@ -280,13 +289,22 @@ def store_list_books():
             payload = build_store_edition_payload(db, listing)
             if payload:
                 edition = edition_index.get(listing.edition_reference_id)
-                data.append(attach_store_catalog_metadata(payload, edition, client))
+                row = attach_store_catalog_metadata(payload, edition, client)
+                row = attach_store_user_pricing(
+                    row,
+                    user_id,
+                    owned_editions=owned_editions,
+                    owned_books=owned_books,
+                    edition_lms=edition,
+                )
+                data.append(row)
         return jsonify({"status": "success", "data": data})
     finally:
         db.close()
 
 
 @book_sales_bp.route("/store/books/<edition_reference_id>", methods=["GET"])
+@jwt_required(optional=True)
 def store_get_book(edition_reference_id):
     db = get_db()
     try:
@@ -300,6 +318,12 @@ def store_get_book(edition_reference_id):
 
         from books.services.lms_edition_helpers import attach_store_catalog_metadata
 
+        identity = get_jwt_identity()
+        user_id = int(identity) if identity is not None else None
+        owned_editions = owned_books = None
+        if user_id is not None:
+            owned_editions, owned_books = load_user_paid_purchase_sets(db, user_id)
+
         client = get_lms_client()
         edition = None
         if client:
@@ -308,10 +332,15 @@ def store_get_book(edition_reference_id):
             except LMSClientError:
                 edition = None
 
-        return jsonify({
-            "status": "success",
-            "data": attach_store_catalog_metadata(payload, edition, client),
-        })
+        row = attach_store_catalog_metadata(payload, edition, client)
+        row = attach_store_user_pricing(
+            row,
+            user_id,
+            owned_editions=owned_editions,
+            owned_books=owned_books,
+            edition_lms=edition,
+        )
+        return jsonify({"status": "success", "data": row})
     finally:
         db.close()
 
