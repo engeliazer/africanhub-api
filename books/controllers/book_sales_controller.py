@@ -3,6 +3,7 @@ Book sales: edition pricing, listings, store catalog, and customer price resolut
 """
 
 import logging
+import os
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -44,11 +45,30 @@ def _require_admin(db, user_id: int):
     return None
 
 
+def _lms_config_hint() -> dict:
+    missing = []
+    if not os.getenv("LMS_BASE_URL"):
+        missing.append("LMS_BASE_URL")
+    if not os.getenv("LMS_CLIENT_ID"):
+        missing.append("LMS_CLIENT_ID")
+    if not os.getenv("LMS_CLIENT_SECRET"):
+        missing.append("LMS_CLIENT_SECRET")
+    return {"missing_env": missing} if missing else {}
+
+
 def _lms_unavailable():
-    return jsonify({
+    body = {
         "status": "error",
         "message": "LMS service not configured",
-    }), 503
+    }
+    hint = _lms_config_hint()
+    if hint:
+        body["details"] = hint
+        body["message"] = (
+            "LMS service not configured on this server. "
+            "Set LMS_BASE_URL, LMS_CLIENT_ID, and LMS_CLIENT_SECRET, then restart the API."
+        )
+    return jsonify(body), 503
 
 
 # --- Edition pricing (admin) ---
@@ -65,15 +85,22 @@ def set_edition_price(edition_reference_id):
             return denied
 
         payload = EditionPriceCreate(**(request.get_json() or {}))
+        require_lms = request.args.get("validate_lms", "false").lower() in ("1", "true", "yes")
         client = get_lms_client()
-        if not client:
+        if client:
+            try:
+                client.get_edition(edition_reference_id)
+            except LMSClientError as exc:
+                if exc.status_code == 404:
+                    return jsonify({"status": "error", "message": "Edition not found in LMS"}), 404
+                return jsonify({"status": "error", "message": "Failed to validate edition with LMS"}), 502
+        elif require_lms:
             return _lms_unavailable()
-        try:
-            client.get_edition(edition_reference_id)
-        except LMSClientError as exc:
-            if exc.status_code == 404:
-                return jsonify({"status": "error", "message": "Edition not found in LMS"}), 404
-            return jsonify({"status": "error", "message": "Failed to validate edition with LMS"}), 502
+        else:
+            logger.info(
+                "Saving edition price for %s without LMS validation (LMS not configured on server)",
+                edition_reference_id,
+            )
 
         price = create_edition_price(
             db,
