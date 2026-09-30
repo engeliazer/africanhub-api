@@ -524,14 +524,15 @@ If you see LMS `"Book version not found"` (status 105), the edition UUID in the 
     "reader": {
       "edition_reference_id": "bca85208-74ba-49e1-8c0e-9fa75e9a09de",
       "first_page_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/pages/1",
-      "cover_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover",
+      "cover_url": "https://africanhub-api.africanhub.ac.tz/api/books/editions/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover",
       "search_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/search"
     },
     "lms_base_url": "https://lms-api.africanhub.ac.tz",
     "parent_book_reference_id": "20b0c49e-2a91-482a-aa8d-593f5813d96c",
     "title": "The Complete NBAA A4 Examination Review and Solution Guide",
     "author": "...",
-    "cover_url": "https://lms-api.africanhub.ac.tz/books/bca85208-.../cover",
+    "cover_url": "https://africanhub-api.africanhub.ac.tz/api/books/editions/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover",
+    "edition_cover_url": "https://africanhub-api.africanhub.ac.tz/api/books/editions/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover",
     "edition_label": "1.1",
     "book": { },
     "edition": { },
@@ -543,7 +544,14 @@ If you see LMS `"Book version not found"` (status 105), the edition UUID in the 
 
 Top-level **`title`**, **`author`**, **`cover_url`**, **`edition_label`**, and nested **`book`** / **`edition`** come from the LMS catalog (same enrichment as My Books). Use them for the reader chrome; use **`reader.first_page_url`** + **`access_token`** for page loads.
 
-**Covers and CORS:** Do **not** load covers from `lms-api.africanhub.ac.tz` in the browser (CORS). Use **`cover_url`** pointing at this API, e.g. `GET https://africanhub-api.africanhub.ac.tz/api/books/editions/{editionUuid}/cover` — always the **edition UUID**, not `parent_book_reference_id`. Listed editions: no auth. Purchased-only: send user JWT (or use in `<img>` only when the edition is still listed publicly).
+**Covers and CORS:** Always use **per-edition** hub URLs (same UUID as in the access path):
+
+- `data.cover_url` and `data.edition_cover_url` (aliases)
+- `data.reader.cover_url`
+
+Example: `https://africanhub-api.africanhub.ac.tz/api/books/editions/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover`
+
+Do **not** build covers from `parent_book_reference_id` or `lms-api.africanhub.ac.tz`. Listed editions: no auth on cover GET. Purchased-only unlisted: send user JWT if needed.
 
 **Reader responsibilities**
 

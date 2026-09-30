@@ -411,17 +411,16 @@ def enrich_access_grant_with_lms_metadata(
 ) -> Dict[str, Any]:
     """Attach LMS book/edition metadata to a reading access grant response."""
     from books.services.lms_edition_helpers import attach_store_catalog_metadata
-    from config import hub_edition_cover_url
+    from config import apply_per_edition_cover_urls
 
     out = dict(grant_data)
-    out["cover_url"] = hub_edition_cover_url(edition_reference_id)
     if entitlement:
         out["paid_amount"] = float(entitlement.paid_amount)
         out["currency"] = entitlement.currency
         out["paid_at"] = entitlement.paid_at.isoformat() if entitlement.paid_at else None
 
     if not lms_client:
-        return out
+        return apply_per_edition_cover_urls(out, edition_reference_id)
 
     hint = entitlement.book_reference_id if entitlement else out.get("parent_book_reference_id")
     try:
@@ -432,7 +431,7 @@ def enrich_access_grant_with_lms_metadata(
     except Exception:
         out.setdefault("book", None)
         out.setdefault("edition", None)
-        return out
+        return apply_per_edition_cover_urls(out, edition_reference_id)
 
     catalog = attach_store_catalog_metadata(
         {"edition_reference_id": edition_reference_id},
@@ -442,7 +441,6 @@ def enrich_access_grant_with_lms_metadata(
     for key in (
         "title",
         "author",
-        "cover_url",
         "edition_label",
         "description",
         "book_reference_id",
@@ -451,7 +449,7 @@ def enrich_access_grant_with_lms_metadata(
             out[key] = catalog[key]
     out["book"] = catalog.get("book")
     out["edition"] = catalog.get("edition")
-    return out
+    return apply_per_edition_cover_urls(out, edition_reference_id)
 
 
 def enrich_paid_edition(

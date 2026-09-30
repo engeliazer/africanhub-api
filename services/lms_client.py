@@ -494,7 +494,10 @@ class LMSClient:
         grant["lms_base_url"] = self.base_url
         if parent_book_ref:
             grant["parent_book_reference_id"] = parent_book_ref
-        return grant
+
+        from config import apply_per_edition_cover_urls
+
+        return apply_per_edition_cover_urls(grant, edition_id)
 
     def _parent_book_ref_for_edition(self, edition_reference_id: str) -> Optional[str]:
         try:

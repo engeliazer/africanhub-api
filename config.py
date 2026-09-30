@@ -43,5 +43,20 @@ def hub_edition_cover_url(edition_reference_id: str) -> str:
     return f"{API_BASE_URL}/api/books/editions/{ref}/cover"
 
 
+def apply_per_edition_cover_urls(payload: dict, edition_reference_id: str) -> dict:
+    """Ensure access/store payloads never point covers at parent book or LMS (CORS)."""
+    hub = hub_edition_cover_url(edition_reference_id)
+    out = dict(payload)
+    out["cover_url"] = hub
+    out["edition_cover_url"] = hub
+    reader = out.get("reader")
+    if isinstance(reader, dict):
+        reader = dict(reader)
+        reader["cover_url"] = hub
+        reader["edition_reference_id"] = str(edition_reference_id)
+        out["reader"] = reader
+    return out
+
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS 
