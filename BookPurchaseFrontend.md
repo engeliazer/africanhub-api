@@ -522,15 +522,26 @@ If you see LMS `"Book version not found"` (status 105), the edition UUID in the 
       "expires_at": "..."
     },
     "reader": {
-      "book_id": "book-reference-uuid",
-      "cover_url": "https://lms-api.example.com/books/.../cover",
+      "edition_reference_id": "bca85208-74ba-49e1-8c0e-9fa75e9a09de",
       "first_page_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/pages/1",
-      "search_url": "https://lms-api.example.com/books/.../search"
+      "cover_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/cover",
+      "search_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/search"
     },
-    "lms_base_url": "https://lms-api.example.com"
+    "lms_base_url": "https://lms-api.africanhub.ac.tz",
+    "parent_book_reference_id": "20b0c49e-2a91-482a-aa8d-593f5813d96c",
+    "title": "The Complete NBAA A4 Examination Review and Solution Guide",
+    "author": "...",
+    "cover_url": "https://lms-api.africanhub.ac.tz/books/bca85208-.../cover",
+    "edition_label": "1.1",
+    "book": { },
+    "edition": { },
+    "paid_amount": 55000,
+    "currency": "TZS"
   }
 }
 ```
+
+Top-level **`title`**, **`author`**, **`cover_url`**, **`edition_label`**, and nested **`book`** / **`edition`** come from the LMS catalog (same enrichment as My Books). Use them for the reader chrome; use **`reader.first_page_url`** + **`access_token`** for page loads.
 
 **Reader responsibilities**
 

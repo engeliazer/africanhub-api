@@ -403,6 +403,55 @@ def get_paid_edition_for_user(
     )
 
 
+def enrich_access_grant_with_lms_metadata(
+    grant_data: Dict[str, Any],
+    lms_client: Optional[LMSClient],
+    edition_reference_id: str,
+    entitlement: Optional[UserPaidBookEdition] = None,
+) -> Dict[str, Any]:
+    """Attach LMS book/edition metadata to a reading access grant response."""
+    from books.services.lms_edition_helpers import attach_store_catalog_metadata
+
+    out = dict(grant_data)
+    if entitlement:
+        out["paid_amount"] = float(entitlement.paid_amount)
+        out["currency"] = entitlement.currency
+        out["paid_at"] = entitlement.paid_at.isoformat() if entitlement.paid_at else None
+
+    if not lms_client:
+        return out
+
+    hint = entitlement.book_reference_id if entitlement else out.get("parent_book_reference_id")
+    try:
+        edition = lms_client.get_edition(
+            edition_reference_id,
+            book_reference_id_hint=hint,
+        )
+    except Exception:
+        out.setdefault("book", None)
+        out.setdefault("edition", None)
+        return out
+
+    catalog = attach_store_catalog_metadata(
+        {"edition_reference_id": edition_reference_id},
+        edition,
+        lms_client,
+    )
+    for key in (
+        "title",
+        "author",
+        "cover_url",
+        "edition_label",
+        "description",
+        "book_reference_id",
+    ):
+        if catalog.get(key) is not None:
+            out[key] = catalog[key]
+    out["book"] = catalog.get("book")
+    out["edition"] = catalog.get("edition")
+    return out
+
+
 def enrich_paid_edition(
     entitlement: UserPaidBookEdition,
     lms_client: Optional[LMSClient],

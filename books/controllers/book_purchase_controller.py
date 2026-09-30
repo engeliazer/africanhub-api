@@ -19,6 +19,7 @@ from books.services.book_purchase_service import (
     list_paid_editions_for_user,
     get_paid_edition_for_user,
     enrich_paid_edition,
+    enrich_access_grant_with_lms_metadata,
     resolve_book_payment_method,
 )
 from books.services.entitlement_service import (
@@ -95,6 +96,12 @@ def _issue_paid_edition_access(db, user: User, ent, edition_reference_id: str, t
         or ent.book_reference_id
     )
     record_grant_log(db, user.id, book_ref_for_log, grant_data)
+    grant_data = enrich_access_grant_with_lms_metadata(
+        grant_data,
+        client,
+        edition_reference_id,
+        entitlement=ent,
+    )
     return grant_data, None
 
 
