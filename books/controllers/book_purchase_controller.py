@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request, Response
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.orm import joinedload
 
+from auth.jwt_optional import optional_authenticated_user_id
 from auth.models.models import User
 from books.services.book_purchase_service import (
     BookPurchaseError,
@@ -347,7 +348,6 @@ def _edition_cover_allowed(db, edition_reference_id: str, user_id) -> bool:
 
 
 @book_purchase_bp.route("/books/editions/<edition_reference_id>/cover", methods=["GET"])
-@jwt_required(optional=True)
 def proxy_edition_cover(edition_reference_id):
     """
     Proxy LMS cover images through this API to avoid browser CORS against lms-api.
@@ -355,8 +355,7 @@ def proxy_edition_cover(edition_reference_id):
     """
     db = get_db()
     try:
-        identity = get_jwt_identity()
-        user_id = int(identity) if identity is not None else None
+        user_id = optional_authenticated_user_id()
         if not _edition_cover_allowed(db, edition_reference_id, user_id):
             return jsonify({"status": "error", "message": "Not authorized to view this cover"}), 403
 

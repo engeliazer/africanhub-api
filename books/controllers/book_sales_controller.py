@@ -9,6 +9,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+from auth.jwt_optional import optional_authenticated_user_id
 from books.models.sales_models import BookListing, BookOrder, BookOrderStatus, ListingStatus
 from books.models.sales_schemas import (
     EditionPriceCreate,
@@ -269,13 +270,11 @@ def update_listing_by_id(listing_id):
 
 
 @book_sales_bp.route("/store/books", methods=["GET"])
-@jwt_required(optional=True)
 def store_list_books():
     """Listed editions with prices and LMS metadata; user-specific price when JWT sent."""
     db = get_db()
     try:
-        identity = get_jwt_identity()
-        user_id = int(identity) if identity is not None else None
+        user_id = optional_authenticated_user_id()
         owned_editions: set = set()
         owned_books: set = set()
         owned_by_book: dict = {}
@@ -330,7 +329,6 @@ def store_list_books():
 
 
 @book_sales_bp.route("/store/books/<edition_reference_id>", methods=["GET"])
-@jwt_required(optional=True)
 def store_get_book(edition_reference_id):
     db = get_db()
     try:
@@ -342,8 +340,7 @@ def store_get_book(edition_reference_id):
         if not payload:
             return jsonify({"status": "error", "message": "No active price for this edition"}), 409
 
-        identity = get_jwt_identity()
-        user_id = int(identity) if identity is not None else None
+        user_id = optional_authenticated_user_id()
         owned_editions: set = set()
         owned_by_book: dict = {}
         if user_id is not None:

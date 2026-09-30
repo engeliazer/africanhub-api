@@ -553,6 +553,15 @@ Example: `https://africanhub-api.africanhub.ac.tz/api/books/editions/bca85208-74
 
 Do **not** build covers from `parent_book_reference_id` or `lms-api.africanhub.ac.tz`. Listed editions: no auth on cover GET. Purchased-only unlisted: send user JWT if needed.
 
+**Two tokens (do not mix):**
+
+| Token | Use on |
+|--------|--------|
+| Hub login JWT (`POST /api/auth/login`) | `POST .../access`, orders, My Books, optional store pricing, cover when edition is not public |
+| LMS `access_token` from access response | **Only** `GET {lms_base_url}/books/{editionUuid}/pages/...` |
+
+Never send the LMS content JWT as `Authorization: Bearer` to `africanhub-api` — you will get `Signature verification failed`. If a global HTTP client attaches the reader token to every request, exclude hub cover URLs (or use plain `<img src={cover_url}>` with no Authorization header).
+
 **Reader responsibilities**
 
 1. Pass `access_token` on LMS page/search/render calls only.
