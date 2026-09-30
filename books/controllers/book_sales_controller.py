@@ -298,7 +298,16 @@ def store_list_books():
                     edition_lms=edition,
                 )
                 data.append(row)
-        return jsonify({"status": "success", "data": data})
+
+        body = {"status": "success", "data": data}
+        if user_id is not None and owned_editions is not None:
+            body["meta"] = {
+                "authenticated": True,
+                "user_owned_edition_ids": sorted(owned_editions),
+            }
+        else:
+            body["meta"] = {"authenticated": False}
+        return jsonify(body)
     finally:
         db.close()
 

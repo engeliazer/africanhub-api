@@ -113,15 +113,23 @@ def attach_store_user_pricing(
     """
     When the caller is authenticated, add purchase flags and the price this user would pay.
 
-    - already_purchased: user owns this edition (approved payment)
-    - is_previous_buyer: user owns another edition of the same book (for messaging)
-    - customer_type: NEW_BUYER | PREVIOUS_BUYER | null if already_purchased
-    - your_price: applicable checkout price, null if already_purchased
+    Ownership (edition-level, approved payment only):
+    - user_owns_edition / already_purchased: true if this exact edition is in the library
+    - can_purchase: false when user_owns_edition
+    - store_presentation: OWNED | BUY | BUY_RETURNING | GUEST
+
+    Pricing when not owned:
+    - is_previous_buyer: another edition of the same book is owned
+    - customer_type: NEW_BUYER | PREVIOUS_BUYER
+    - your_price: applicable checkout price
     """
     out = dict(store_payload)
     if user_id is None:
         out["pricing_for_user"] = False
+        out["user_owns_edition"] = None
         out["already_purchased"] = None
+        out["can_purchase"] = None
+        out["store_presentation"] = "GUEST"
         out["is_previous_buyer"] = None
         out["customer_type"] = None
         out["your_price"] = None
@@ -136,22 +144,27 @@ def attach_store_user_pricing(
     owned_editions = owned_editions or set()
     owned_books = owned_books or set()
 
-    already = edition_ref in owned_editions if edition_ref else False
-    previous = bool(parent_ref and parent_ref in owned_books and not already)
+    owns_edition = edition_ref in owned_editions if edition_ref else False
+    previous = bool(parent_ref and parent_ref in owned_books and not owns_edition)
 
     out["pricing_for_user"] = True
-    out["already_purchased"] = already
+    out["user_owns_edition"] = owns_edition
+    out["already_purchased"] = owns_edition
+    out["can_purchase"] = not owns_edition
     out["is_previous_buyer"] = previous
 
-    if already:
+    if owns_edition:
+        out["store_presentation"] = "OWNED"
         out["customer_type"] = None
         out["your_price"] = None
         return out
 
     if previous:
+        out["store_presentation"] = "BUY_RETURNING"
         out["customer_type"] = "PREVIOUS_BUYER"
         out["your_price"] = out.get("previous_buyer_price")
     else:
+        out["store_presentation"] = "BUY"
         out["customer_type"] = "NEW_BUYER"
         out["your_price"] = out.get("new_buyer_price")
 

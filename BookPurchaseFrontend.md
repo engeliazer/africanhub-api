@@ -82,7 +82,39 @@ GET /api/store/books
 Authorization: Bearer <user_jwt>   ← optional; include on store when user is logged in
 ```
 
-When the JWT is present, each item adds **`already_purchased`**, **`customer_type`**, and **`your_price`** so cards can show the correct price and hide “Buy” for owned editions.
+When the JWT is present, each store row includes ownership and pricing hints. Prefer **`user_owns_edition`** (and **`store_presentation`**) to drive buttons and badges.
+
+| Field | Type | UI use |
+|-------|------|--------|
+| `user_owns_edition` | `true` / `false` / `null` | **`true`** = user already bought **this edition** → show “In My Books” / Open, hide Buy |
+| `already_purchased` | same as `user_owns_edition` | Alias; keep for compatibility |
+| `can_purchase` | `false` when owned, else `true` / `null` guest | Disable add-to-cart when `false` |
+| `store_presentation` | `OWNED` \| `BUY` \| `BUY_RETURNING` \| `GUEST` | Single switch for card layout (see below) |
+| `your_price` | number or `null` | Show on card when not `OWNED` |
+| `customer_type` | `NEW_BUYER` / `PREVIOUS_BUYER` / `null` | Optional subtitle (“Returning reader price”) |
+| `is_previous_buyer` | boolean | Same book, different edition owned |
+
+**`store_presentation` → suggested UI**
+
+| Value | Suggested UI |
+|-------|----------------|
+| `GUEST` | Show list prices or “Sign in to see your price”; Buy → login |
+| `OWNED` | Badge “Owned”; primary action → My Books / reader |
+| `BUY` | Show `your_price`; Add to cart / Buy |
+| `BUY_RETURNING` | Show `your_price` + returning-reader label |
+
+List response **`meta`** (logged in):
+
+```json
+{
+  "meta": {
+    "authenticated": true,
+    "user_owned_edition_ids": ["bca85208-74ba-49e1-8c0e-9fa75e9a09de"]
+  }
+}
+```
+
+Use `meta.user_owned_edition_ids` for fast client-side checks without re-reading every row.
 
 Optional detail:
 

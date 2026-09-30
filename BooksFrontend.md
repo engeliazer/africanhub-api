@@ -292,17 +292,19 @@ No auth required.
 | `title`, `author`, `cover_url`, `edition_label` | Convenience fields from LMS for store cards |
 | `book`, `edition` | Full LMS payloads when catalog sync succeeds; may be `null` if LMS is down |
 
-**Optional auth:** Send `Authorization: Bearer <user_jwt>` on the same request to get per-user fields (one round trip for the store grid):
+**Optional auth:** Send `Authorization: Bearer <user_jwt>` on the same request to get per-user fields (one round trip for the store grid).
 
 | Field | Logged in | Guest |
 |-------|-----------|--------|
-| `pricing_for_user` | `true` | `false` |
-| `already_purchased` | `true` / `false` (this edition) | `null` |
-| `is_previous_buyer` | `true` if another edition of same book owned | `null` |
-| `customer_type` | `NEW_BUYER` / `PREVIOUS_BUYER`, or `null` if already purchased | `null` |
-| `your_price` | Price this user would pay, or `null` if already purchased | `null` |
+| `user_owns_edition` | `true` if this **edition** is already purchased | `null` |
+| `already_purchased` | Alias of `user_owns_edition` | `null` |
+| `can_purchase` | `false` when owned, else `true` | `null` |
+| `store_presentation` | `OWNED` \| `BUY` \| `BUY_RETURNING` | `GUEST` |
+| `your_price` | Checkout price, or `null` if owned | `null` |
 
-**Frontend:** When `pricing_for_user` is true, display `your_price` (not `new_buyer_price`). Hide “Buy” when `already_purchased`; show “Open in My Books”. Checkout can still call **B.3** to re-verify before order create.
+List responses also include `meta.authenticated` and `meta.user_owned_edition_ids` when logged in.
+
+**Frontend:** Branch on `store_presentation` or `user_owns_edition`. When `OWNED`, link to My Books; do not show Buy. Checkout can still call **B.3** to re-verify before order create.
 
 ### B.2 Store edition detail
 
