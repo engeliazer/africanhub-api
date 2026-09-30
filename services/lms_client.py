@@ -480,6 +480,64 @@ class LMSClient:
             grant["parent_book_reference_id"] = parent_book_ref
         return grant
 
+    def _parent_book_ref_for_edition(self, edition_reference_id: str) -> Optional[str]:
+        try:
+            edition = self.get_edition(str(edition_reference_id))
+        except LMSClientError:
+            return None
+        parent = edition.get("book_reference_id")
+        if not parent and isinstance(edition.get("book"), dict):
+            parent = self._book_reference_id(edition["book"])
+        if parent and self._is_uuid_reference(parent):
+            return str(parent)
+        return None
+
+    def get_access_status_for_paid_edition(
+        self,
+        user_id: str,
+        edition_reference_id: str,
+    ) -> Dict[str, Any]:
+        edition_id = str(edition_reference_id)
+        try:
+            return self.get_access_status(user_id, edition_id)
+        except LMSClientError as first_error:
+            parent = self._parent_book_ref_for_edition(edition_id)
+            if parent and parent != edition_id:
+                return self.get_access_status(user_id, parent)
+            raise first_error
+
+    def revoke_access_for_paid_edition(
+        self,
+        user_id: str,
+        edition_reference_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Revoke active LMS session token(s) for a purchased edition.
+        Tries edition UUID first (reader path id), then parent book UUID if different.
+        """
+        edition_id = str(edition_reference_id)
+        revoked = []
+        errors: List[str] = []
+
+        for ref in (edition_id, self._parent_book_ref_for_edition(edition_id)):
+            if not ref or ref in revoked:
+                continue
+            try:
+                self.revoke_active_access(user_id, ref)
+                revoked.append(ref)
+            except LMSClientError as exc:
+                if exc.status_code != 404:
+                    errors.append(str(exc))
+
+        if not revoked and errors:
+            raise LMSClientError(errors[0], status_code=502)
+
+        return {
+            "user_id": user_id,
+            "edition_reference_id": edition_id,
+            "revoked_book_reference_ids": revoked,
+        }
+
     def get_access_status(self, user_id: str, book_reference_id: str) -> Dict[str, Any]:
         params = {"user_id": user_id, "book_reference_id": str(book_reference_id)}
         data = self._request_with_retry("GET", "/access-tokens/status", params=params)

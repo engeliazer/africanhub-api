@@ -21,7 +21,11 @@ from books.services.book_purchase_service import (
     enrich_paid_edition,
     resolve_book_payment_method,
 )
-from books.services.entitlement_service import user_has_admin_role, record_grant_log
+from books.services.entitlement_service import (
+    user_has_admin_role,
+    record_grant_log,
+    mark_grant_revoked,
+)
 from books.models.sales_models import BookOrder
 from books.models.schemas import BookAccessRequest
 from database.db_connector import get_db
@@ -37,6 +41,61 @@ def _require_admin(db, user_id: int):
     if not user_has_admin_role(db, user_id):
         return jsonify({"status": "error", "message": "Admin access required"}), 403
     return None
+
+
+def _target_user_for_paid_edition(db) -> tuple:
+    """Return (subject_user_id, actor_user_id). Admins may pass ?user_id=."""
+    actor_id = int(get_jwt_identity())
+    subject_id = actor_id
+    requested = request.args.get("user_id")
+    if requested:
+        if not user_has_admin_role(db, actor_id):
+            raise PermissionError("Not authorized to manage access for other users")
+        subject_id = int(requested)
+    return subject_id, actor_id
+
+
+def _require_paid_entitlement(db, user_id: int, edition_reference_id: str):
+    ent = get_paid_edition_for_user(db, user_id, edition_reference_id)
+    if not ent:
+        return None, (jsonify({"status": "error", "message": "Edition not purchased"}), 403)
+    return ent, None
+
+
+def _issue_paid_edition_access(db, user: User, ent, edition_reference_id: str, ttl_seconds):
+    client = get_lms_client()
+    if not client:
+        return None, (jsonify({"status": "error", "message": "LMS service not configured"}), 503)
+
+    try:
+        grant_data = client.grant_access_for_paid_edition(
+            user_id=str(user.id),
+            edition_reference_id=edition_reference_id,
+            user_email=user.email,
+            ttl_seconds=ttl_seconds,
+        )
+    except LMSClientError as exc:
+        status = exc.status_code or 502
+        if status == 409:
+            return None, (jsonify({
+                "status": "error",
+                "message": "This book is not available for reading right now",
+                "code": "book_unpublished",
+            }), 409)
+        details = exc.response_body if exc.response_body is not None else str(exc)
+        return None, (jsonify({
+            "status": "error",
+            "message": "Failed to grant reading access",
+            "details": details,
+        }), 502 if status >= 500 else status)
+
+    book_ref_for_log = (
+        grant_data.get("edition_reference_id")
+        or grant_data.get("book_reference_id")
+        or ent.book_reference_id
+    )
+    record_grant_log(db, user.id, book_ref_for_log, grant_data)
+    return grant_data, None
 
 
 def _payment_submission_body():
@@ -268,52 +327,161 @@ def get_my_paid_edition(edition_reference_id):
         db.close()
 
 
-@book_purchase_bp.route("/my/paid-editions/<edition_reference_id>/access", methods=["POST"])
+@book_purchase_bp.route("/my/paid-editions/<edition_reference_id>/access/status", methods=["GET"])
 @jwt_required()
-def grant_paid_edition_access(edition_reference_id):
-    """LMS reading token — only after approved purchase."""
+def paid_edition_access_status(edition_reference_id):
+    """LMS active access status for a purchased edition."""
     db = get_db()
     try:
-        user_id = int(get_jwt_identity())
-        user = db.query(User).get(user_id)
-        if not user:
-            return jsonify({"status": "error", "message": "User not found"}), 404
+        try:
+            subject_id, _ = _target_user_for_paid_edition(db)
+        except PermissionError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 403
 
-        ent = get_paid_edition_for_user(db, user_id, edition_reference_id)
-        if not ent:
-            return jsonify({"status": "error", "message": "You have not purchased this edition"}), 403
+        _, denied = _require_paid_entitlement(db, subject_id, edition_reference_id)
+        if denied:
+            return denied
 
         client = get_lms_client()
         if not client:
             return jsonify({"status": "error", "message": "LMS service not configured"}), 503
 
-        payload = request.get_json(silent=True) or {}
-        access_request = BookAccessRequest(**payload)
+        data = client.get_access_status_for_paid_edition(str(subject_id), edition_reference_id)
+        return jsonify({"status": "success", "data": data})
+    except LMSClientError as exc:
+        details = exc.response_body if exc.response_body is not None else str(exc)
+        return jsonify({
+            "status": "error",
+            "message": "Failed to check reading access status",
+            "details": details,
+        }), exc.status_code or 502
+    finally:
+        db.close()
+
+
+@book_purchase_bp.route("/my/paid-editions/<edition_reference_id>/access", methods=["DELETE"])
+@jwt_required()
+def revoke_paid_edition_access(edition_reference_id):
+    """Revoke active LMS reading session for a purchased edition."""
+    db = get_db()
+    try:
+        try:
+            subject_id, _ = _target_user_for_paid_edition(db)
+        except PermissionError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 403
+
+        ent, denied = _require_paid_entitlement(db, subject_id, edition_reference_id)
+        if denied:
+            return denied
+
+        client = get_lms_client()
+        if not client:
+            return jsonify({"status": "error", "message": "LMS service not configured"}), 503
 
         try:
-            grant_data = client.grant_access_for_paid_edition(
-                user_id=str(user.id),
-                edition_reference_id=edition_reference_id,
-                user_email=user.email,
-                ttl_seconds=access_request.ttl_seconds,
-            )
+            result = client.revoke_access_for_paid_edition(str(subject_id), edition_reference_id)
         except LMSClientError as exc:
-            status = exc.status_code or 502
-            if status == 409:
-                return jsonify({
-                    "status": "error",
-                    "message": "This book is not available for reading right now",
-                    "code": "book_unpublished",
-                }), 409
             details = exc.response_body if exc.response_body is not None else str(exc)
             return jsonify({
                 "status": "error",
-                "message": "Failed to grant reading access",
+                "message": "Failed to revoke reading access",
                 "details": details,
-            }), 502 if status >= 500 else status
+            }), exc.status_code or 502
 
-        book_ref_for_log = grant_data.get("book_reference_id") or ent.book_reference_id
-        record_grant_log(db, user.id, book_ref_for_log, grant_data)
+        mark_grant_revoked(db, subject_id, edition_reference_id)
+        if ent.book_reference_id and str(ent.book_reference_id) != str(edition_reference_id):
+            mark_grant_revoked(db, subject_id, ent.book_reference_id)
+
+        return jsonify({
+            "status": "success",
+            "message": "Reading access revoked",
+            "data": result,
+        })
+    finally:
+        db.close()
+
+
+@book_purchase_bp.route("/my/paid-editions/<edition_reference_id>/access/reissue", methods=["POST"])
+@jwt_required()
+def reissue_paid_edition_access(edition_reference_id):
+    """Revoke any active LMS token, then issue a fresh reading session."""
+    db = get_db()
+    try:
+        try:
+            subject_id, _ = _target_user_for_paid_edition(db)
+        except PermissionError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 403
+
+        ent, denied = _require_paid_entitlement(db, subject_id, edition_reference_id)
+        if denied:
+            return denied
+
+        user = db.query(User).get(subject_id)
+        if not user:
+            return jsonify({"status": "error", "message": "User not found"}), 404
+
+        client = get_lms_client()
+        if client:
+            try:
+                client.revoke_access_for_paid_edition(str(subject_id), edition_reference_id)
+            except LMSClientError:
+                pass
+            mark_grant_revoked(db, subject_id, edition_reference_id)
+
+        payload = request.get_json(silent=True) or {}
+        access_request = BookAccessRequest(**payload)
+        grant_data, err = _issue_paid_edition_access(
+            db,
+            user,
+            ent,
+            edition_reference_id,
+            access_request.ttl_seconds,
+        )
+        if err:
+            return err
+
+        return jsonify({
+            "status": "success",
+            "message": "Reading access re-issued",
+            "data": grant_data,
+        })
+    except Exception as exc:
+        logger.error("reissue_paid_edition_access: %s", exc, exc_info=True)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
+@book_purchase_bp.route("/my/paid-editions/<edition_reference_id>/access", methods=["POST"])
+@jwt_required()
+def grant_paid_edition_access(edition_reference_id):
+    """LMS reading token — only after approved purchase (issue or refresh)."""
+    db = get_db()
+    try:
+        try:
+            subject_id, _ = _target_user_for_paid_edition(db)
+        except PermissionError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 403
+
+        ent, denied = _require_paid_entitlement(db, subject_id, edition_reference_id)
+        if denied:
+            return denied
+
+        user = db.query(User).get(subject_id)
+        if not user:
+            return jsonify({"status": "error", "message": "User not found"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        access_request = BookAccessRequest(**payload)
+        grant_data, err = _issue_paid_edition_access(
+            db,
+            user,
+            ent,
+            edition_reference_id,
+            access_request.ttl_seconds,
+        )
+        if err:
+            return err
 
         return jsonify({"status": "success", "data": grant_data})
     except Exception as exc:

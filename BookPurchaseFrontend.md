@@ -442,7 +442,42 @@ Purchased editions are **not** opened via `/api/books/{numeric_id}/access` (that
 2. **Optional detail:** `GET /api/my/paid-editions/{editionReferenceId}` for one edition + LMS metadata.
 3. **Start reading session:** `POST /api/my/paid-editions/{editionReferenceId}/access` with the **user JWT** (African Hub), not the LMS token yet.
 4. **Open LMS UI:** Use `data.access_token` as `Authorization: Bearer <content-jwt>` on **direct** requests to `data.reader.*` URLs. Page URLs use the **edition UUID** in the path, e.g. `GET {lms}/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/pages/1` — not the parent book UUID.
-5. **Session end / reopen:** Request a new grant with the same POST when the token expires (there is no separate “status” endpoint for paid editions today).
+5. **Session end / reopen:** Use **reissue** or POST access again (see §7.3).
+
+### 7.3 Revoke, status, and re-issue
+
+Requires purchased edition (same as POST access). Admins may pass `?user_id=` on any of these.
+
+**Check active LMS session**
+
+```http
+GET /api/my/paid-editions/{editionReferenceId}/access/status
+Authorization: Bearer <user_jwt>
+```
+
+**Revoke** (logout reader / invalidate content token on LMS)
+
+```http
+DELETE /api/my/paid-editions/{editionReferenceId}/access
+Authorization: Bearer <user_jwt>
+```
+
+**Re-issue** (revoke then new token — use when reader is stuck or token leaked)
+
+```http
+POST /api/my/paid-editions/{editionReferenceId}/access/reissue
+Authorization: Bearer <user_jwt>
+Content-Type: application/json
+```
+
+Optional body: `{ "ttl_seconds": 1800 }`.
+
+| Action | Method | Path |
+|--------|--------|------|
+| Issue / refresh | `POST` | `/api/my/paid-editions/{id}/access` |
+| Re-issue (revoke + grant) | `POST` | `/api/my/paid-editions/{id}/access/reissue` |
+| Revoke | `DELETE` | `/api/my/paid-editions/{id}/access` |
+| Status | `GET` | `/api/my/paid-editions/{id}/access/status` |
 
 ```http
 POST /api/my/paid-editions/{editionReferenceId}/access
