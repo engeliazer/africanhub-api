@@ -355,6 +355,7 @@ class LMSClient:
         book_reference_id: str,
         user_email: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
+        version_reference_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         if ttl_seconds is None:
             ttl_seconds = int(os.getenv("LMS_ACCESS_TOKEN_TTL_SECONDS", "1800"))
@@ -366,9 +367,17 @@ class LMSClient:
         }
         if user_email:
             payload["user_email"] = user_email
+        if version_reference_id:
+            version_id = str(version_reference_id)
+            payload["version_reference_id"] = version_id
+            payload["edition_reference_id"] = version_id
 
         data = self._request_with_retry("POST", "/access-tokens", json=payload)
-        return self._normalize_grant_response(data, book_reference_id=str(book_reference_id))
+        return self._normalize_grant_response(
+            data,
+            book_reference_id=str(book_reference_id),
+            edition_reference_id=str(version_reference_id) if version_reference_id else None,
+        )
 
     def _normalize_grant_response(
         self,
@@ -401,17 +410,15 @@ class LMSClient:
         edition_reference_id: str,
         user_email: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
-        book_reference_id_hint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Issue a reading token for a purchased edition.
 
         Resolves the parent book UUID from the LMS catalog (required by POST /access-tokens).
         """
-        edition = self.get_edition(
-            edition_reference_id,
-            book_reference_id_hint=book_reference_id_hint,
-        )
+        # Resolve book + version from LMS catalog (do not trust stored book id alone).
+        edition = self.get_edition(edition_reference_id, book_reference_id_hint=None)
+        version_id = self._version_reference_id(edition) or str(edition_reference_id)
         book_ref = edition.get("book_reference_id")
         if not book_ref and isinstance(edition.get("book"), dict):
             book_ref = self._book_reference_id(edition["book"])
@@ -421,11 +428,15 @@ class LMSClient:
                 status_code=502,
             )
 
+        # Verify the version exists under this book (clear 404 if catalog is out of sync).
+        self.get_book_version(str(book_ref), version_id)
+
         grant = self.grant_access_token(
             user_id=user_id,
             book_reference_id=str(book_ref),
             user_email=user_email,
             ttl_seconds=ttl_seconds,
+            version_reference_id=version_id,
         )
         grant["edition_reference_id"] = str(edition_reference_id)
         reader = grant.get("reader")

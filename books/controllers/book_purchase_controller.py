@@ -296,7 +296,6 @@ def grant_paid_edition_access(edition_reference_id):
                 edition_reference_id=edition_reference_id,
                 user_email=user.email,
                 ttl_seconds=access_request.ttl_seconds,
-                book_reference_id_hint=ent.book_reference_id,
             )
         except LMSClientError as exc:
             status = exc.status_code or 502

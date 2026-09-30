@@ -450,7 +450,11 @@ Authorization: Bearer <user_jwt>
 Content-Type: application/json
 ```
 
-**Optional body**
+**Request body**
+
+An **empty JSON object `{}` is valid** — you do not need to send a body. The API uses your JWT identity and the **edition id in the URL**; it then calls the LMS with that edition’s **version UUID** plus parent book UUID.
+
+Optional:
 
 ```json
 { "ttl_seconds": 1800 }
@@ -459,6 +463,8 @@ Content-Type: application/json
 | Field | Rules |
 |-------|--------|
 | `ttl_seconds` | Optional session length (roughly 300–7200); default ~30 minutes server-side |
+
+If you see LMS `"Book version not found"` (status 105), the edition UUID in the URL does not match a version under that book in the LMS (catalog sync / wrong edition id). After a backend fix, the hub re-resolves the edition from the LMS catalog before granting.
 
 **Example response `200`**
 
