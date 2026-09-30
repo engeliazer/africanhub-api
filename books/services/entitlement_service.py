@@ -93,13 +93,13 @@ def check_book_access_entitlement(
 def record_grant_log(
     db: Session,
     user_id: int,
-    lms_book_id: int,
+    lms_book_id,
     grant_payload: dict,
 ) -> BookAccessGrantLog:
     grant = grant_payload.get("grant") or {}
     log = BookAccessGrantLog(
         user_id=user_id,
-        lms_book_id=lms_book_id,
+        lms_book_id=str(lms_book_id),
         lms_grant_id=grant.get("id"),
         status=grant.get("status") or "active",
         issued_at=_parse_datetime(grant.get("issued_at")),
@@ -111,12 +111,12 @@ def record_grant_log(
     return log
 
 
-def mark_grant_revoked(db: Session, user_id: int, lms_book_id: int) -> None:
+def mark_grant_revoked(db: Session, user_id: int, lms_book_id) -> None:
     logs = (
         db.query(BookAccessGrantLog)
         .filter(
             BookAccessGrantLog.user_id == user_id,
-            BookAccessGrantLog.lms_book_id == lms_book_id,
+            BookAccessGrantLog.lms_book_id == str(lms_book_id),
             BookAccessGrantLog.status == "active",
         )
         .all()

@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from books.models.sales_models import BookOrder, BookOrderItem, BookOrderStatus, BookListing, ListingStatus
+from books.models.sales_models import BookListing, ListingStatus, UserPaidBookEdition
 from books.services.pricing_service import get_active_edition_price
 from books.services.lms_edition_helpers import book_reference_id
 from services.lms_client import LMSClient, LMSClientError
@@ -21,12 +21,10 @@ def user_has_completed_book_purchase(
     book_reference_id: str,
 ) -> bool:
     return (
-        db.query(BookOrderItem.id)
-        .join(BookOrder, BookOrder.id == BookOrderItem.order_id)
+        db.query(UserPaidBookEdition.id)
         .filter(
-            BookOrder.user_id == user_id,
-            BookOrder.status == BookOrderStatus.completed.value,
-            BookOrderItem.book_reference_id == book_reference_id,
+            UserPaidBookEdition.user_id == user_id,
+            UserPaidBookEdition.book_reference_id == book_reference_id,
         )
         .first()
         is not None

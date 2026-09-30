@@ -694,3 +694,104 @@ No auth. Use for admin diagnostics only.
 |------|---------|
 | `books.md` | LMS source-system integration (tokens, TTL, revocation) |
 | `booklisting.md` | Sales module specification (pricing, listings, orders) |
+| `purchasingBooks.md` | Backend purchase specification |
+| [`BookPurchaseFrontend.md`](BookPurchaseFrontend.md) | **User purchase flow (store → pay → My Books → reader)** |
+
+---
+
+# Part E — Purchase & paid access
+
+**Full frontend guide:** [`BookPurchaseFrontend.md`](BookPurchaseFrontend.md) (recommended for checkout, payment, and My Books UI).
+
+Summary below; keep in sync with that file.
+
+**Rule:** Submitting payment does **not** grant access. Only **admin approval** does.
+
+### E.1 Create order (multi-edition)
+
+```http
+POST /api/book-orders
+Authorization: Bearer <user_jwt>
+Content-Type: application/json
+```
+
+```json
+{
+  "edition_reference_ids": [
+    "bca85208-74ba-49e1-8c0e-9fa75e9a09de",
+    "another-edition-uuid"
+  ]
+}
+```
+
+Already-owned editions are **skipped** (returned in `skipped_already_owned`). Server calculates each `unit_price`.
+
+Status: `PENDING_PAYMENT`.
+
+### E.2 Submit payment (reference + provider — same as applications)
+
+Load providers from the same endpoint used for course applications:
+
+```http
+GET /api/accounting/payment-methods
+Authorization: Bearer <user_jwt>
+```
+
+```http
+POST /api/book-orders/{orderId}/payment
+Authorization: Bearer <user_jwt>
+Content-Type: application/json
+```
+
+```json
+{
+  "service_provider_id": 2,
+  "payment_reference": "OCPA-WBDRJSN4-20250404222213",
+  "mobile_number": "255755344162",
+  "amount": 125000
+}
+```
+
+| Field | Required |
+|-------|----------|
+| `service_provider_id` | Yes (or legacy `payment_method_id` / `payment_method` string) |
+| `payment_reference` | Yes (`bank_reference` or `reference` accepted as aliases) |
+| `mobile_number` | Yes |
+| `amount` | Optional (defaults to order total; must match) |
+
+No receipt upload. Reference is stored on `payments.bank_reference` for admin reconciliation.
+
+Creates a row in existing `payments` with `pending_payment`. Order → `PAYMENT_SUBMITTED`.
+
+### E.3 Admin approve / reject
+
+```http
+POST /api/book-orders/payments/{paymentId}/approve
+POST /api/book-orders/payments/{paymentId}/reject
+Authorization: Bearer <admin_jwt>
+```
+
+Reject body (optional): `{ "reason": "..." }`.
+
+On **approve**: payment → `paid`, order → `PAID`, entitlements created.
+
+### E.4 My Books (paid editions only)
+
+```http
+GET /api/my/books
+GET /api/my/paid-editions
+GET /api/my/paid-editions/{editionReferenceId}
+```
+
+Response merges purchase data + LMS `book` / `edition` metadata.
+
+### E.5 Open reader (purchased edition)
+
+```http
+POST /api/my/paid-editions/{editionReferenceId}/access
+Authorization: Bearer <user_jwt>
+```
+
+Optional body: `{ "ttl_seconds": 1800 }`.
+
+Returns LMS **content JWT** + `reader` URLs (same pattern as Part A.3). Use token directly against LMS — do not proxy through this API.

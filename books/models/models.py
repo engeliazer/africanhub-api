@@ -10,7 +10,7 @@ class BookSubjectLink(Base):
     __tablename__ = "book_subject_links"
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
-    lms_book_id = Column(Integer, nullable=False, index=True)
+    lms_book_id = Column(String(100), nullable=False, index=True)
     subject_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(500), nullable=True)
     description = Column(Text, nullable=True)
@@ -40,7 +40,7 @@ class BookAccessGrantLog(Base):
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     user_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    lms_book_id = Column(Integer, nullable=False, index=True)
+    lms_book_id = Column(String(100), nullable=False, index=True)
     lms_grant_id = Column(Integer, nullable=True, index=True)
     status = Column(String(50), nullable=False, default="active")
     issued_at = Column(DateTime, nullable=True)

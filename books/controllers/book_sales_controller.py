@@ -436,10 +436,10 @@ def get_order(order_id):
 @book_sales_bp.route("/purchases", methods=["GET"])
 @jwt_required()
 def list_purchases():
-    """Completed book orders for the current user (purchase history)."""
+    """Paid editions (approved payments only). Prefer GET /api/my/paid-editions."""
     db = get_db()
     try:
-        from books.models.sales_models import BookOrderStatus, BookOrderItem
+        from books.services.book_purchase_service import list_paid_editions_for_user, enrich_paid_edition
 
         user_id = int(get_jwt_identity())
         is_admin = user_has_admin_role(db, user_id)
@@ -447,32 +447,11 @@ def list_purchases():
         if is_admin and request.args.get("user_id"):
             target_user_id = int(request.args.get("user_id"))
 
-        rows = (
-            db.query(BookOrderItem, BookOrder)
-            .join(BookOrder, BookOrder.id == BookOrderItem.order_id)
-            .filter(
-                BookOrder.user_id == target_user_id,
-                BookOrder.status == BookOrderStatus.completed.value,
-            )
-            .order_by(BookOrder.completed_at.desc())
-            .limit(200)
-            .all()
-        )
-
-        data = []
-        for item, order in rows:
-            data.append({
-                "order_id": order.id,
-                "order_number": order.order_number,
-                "book_reference_id": item.book_reference_id,
-                "edition_reference_id": item.edition_reference_id,
-                "quantity": item.quantity,
-                "unit_price": float(item.unit_price),
-                "total_price": float(item.total_price),
-                "currency": order.currency,
-                "completed_at": order.completed_at.isoformat() if order.completed_at else None,
-            })
-
-        return jsonify({"status": "success", "data": data})
+        client = get_lms_client()
+        rows = list_paid_editions_for_user(db, target_user_id)
+        return jsonify({
+            "status": "success",
+            "data": [enrich_paid_edition(row, client) for row in rows],
+        })
     finally:
         db.close()

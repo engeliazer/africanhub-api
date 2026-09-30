@@ -14,11 +14,12 @@ Use these SQL scripts when you **do not** want to run Alembic against production
    mysql -h HOST -u USER -p DB_NAME < scripts/add_book_sales_tables.sql
    ```
 
-Run both files in order (same as Alembic chain `fl4d5e6f7a8b` → `fm5e6f7a8b9c`):
+Run in order:
 
 ```bash
 mysql -h HOST -u USER -p DB_NAME < scripts/add_books_lms_tables.sql
 mysql -h HOST -u USER -p DB_NAME < scripts/add_book_sales_tables.sql
+mysql -h HOST -u USER -p DB_NAME < scripts/add_book_purchase_entitlements.sql
 ```
 
 ## Tables created

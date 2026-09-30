@@ -82,6 +82,7 @@ from api.routes.vdocipher_routes import vdocipher_bp
 from api.routes.video_tracking_routes import video_tracking_bp
 from books.controllers.books_controller import books_bp
 from books.controllers.book_sales_controller import book_sales_bp
+from books.controllers.book_purchase_controller import book_purchase_bp
 from video_tracking.models.models import VideoWatchSession, VideoWatchProgress
 
 app = Flask(__name__)
@@ -230,6 +231,7 @@ app.register_blueprint(vdocipher_bp, url_prefix='', name='api_vdocipher')  # Vdo
 app.register_blueprint(video_tracking_bp, name='api_video_tracking')
 app.register_blueprint(books_bp, url_prefix='/api', name='api_books')
 app.register_blueprint(book_sales_bp, url_prefix='/api', name='api_book_sales')
+app.register_blueprint(book_purchase_bp, url_prefix='/api', name='api_book_purchase')
 
 # Print all registered routes for debugging
 print("\nRegistered Routes:")
