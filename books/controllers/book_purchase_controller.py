@@ -6,6 +6,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy.orm import joinedload
 
 from auth.models.models import User
 from books.services.book_purchase_service import (
@@ -80,7 +81,11 @@ def list_book_orders():
     try:
         user_id = int(get_jwt_identity())
         is_admin = user_has_admin_role(db, user_id)
-        query = db.query(BookOrder)
+        query = db.query(BookOrder).options(
+            joinedload(BookOrder.user),
+            joinedload(BookOrder.payment),
+            joinedload(BookOrder.items),
+        )
         if not is_admin:
             query = query.filter(BookOrder.user_id == user_id)
         elif request.args.get("user_id"):
@@ -101,7 +106,16 @@ def get_book_order(order_id):
     db = get_db()
     try:
         user_id = int(get_jwt_identity())
-        order = db.query(BookOrder).get(order_id)
+        order = (
+            db.query(BookOrder)
+            .options(
+                joinedload(BookOrder.user),
+                joinedload(BookOrder.payment),
+                joinedload(BookOrder.items),
+            )
+            .filter(BookOrder.id == order_id)
+            .first()
+        )
         if not order:
             return jsonify({"status": "error", "message": "Order not found"}), 404
         if order.user_id != user_id and not user_has_admin_role(db, user_id):

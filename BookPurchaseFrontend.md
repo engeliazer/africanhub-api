@@ -370,6 +370,10 @@ When payment is linked, use nested fields on the order:
 
 | Field | Meaning |
 |-------|---------|
+| `customer_name` | From user profile (`first` + `middle` + `last`) |
+| `customer_phone` | Profile `phone` |
+| `customer_email` | Profile email |
+| `customer` | Same fields nested: `user_id`, `customer_name`, `phone`, `email` |
 | `payment_id` | Internal id |
 | `payment_method` | Provider/mode from `payments` (e.g. `Bank`, `M-Pesa`, `Mixx by Yas`) |
 | `payment_reference` | User’s reference (same as submitted) |

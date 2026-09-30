@@ -28,6 +28,20 @@ class BookPurchaseError(Exception):
         self.status_code = status_code
 
 
+def customer_profile_from_order(order: BookOrder) -> Optional[Dict[str, Any]]:
+    user = getattr(order, "user", None)
+    if not user:
+        return None
+    parts = [user.first_name, user.middle_name, user.last_name]
+    name = " ".join(p for p in parts if p).strip()
+    return {
+        "user_id": user.id,
+        "customer_name": name or None,
+        "phone": user.phone,
+        "email": user.email,
+    }
+
+
 def user_owns_edition(db: Session, user_id: int, edition_reference_id: str) -> bool:
     return (
         db.query(UserPaidBookEdition.id)
@@ -329,12 +343,18 @@ def reject_book_payment(
 
 
 def order_to_response(order: BookOrder, include_skipped: Optional[List[str]] = None) -> dict:
+    customer = customer_profile_from_order(order)
     data = {
         "id": order.id,
+        "user_id": order.user_id,
         "order_number": order.order_number,
         "status": order.status,
         "total_amount": float(order.total_amount),
         "currency": order.currency,
+        "customer_name": customer["customer_name"] if customer else None,
+        "customer_phone": customer["phone"] if customer else None,
+        "customer_email": customer["email"] if customer else None,
+        "customer": customer,
         "payment_id": order.payment_id,
         "payment_reference": order.payment.bank_reference if order.payment else None,
         "payment_method": order.payment.payment_method if order.payment else None,
