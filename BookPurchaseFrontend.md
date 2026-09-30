@@ -371,7 +371,9 @@ When payment is linked, use nested fields on the order:
 | Field | Meaning |
 |-------|---------|
 | `payment_id` | Internal id |
+| `payment_method` | Provider/mode from `payments` (e.g. `Bank`, `M-Pesa`, `Mixx by Yas`) |
 | `payment_reference` | User’s reference (same as submitted) |
+| `mobile_number` | Payer mobile used at submission |
 | `payment_status` | `pending_payment`, `paid`, `failed` |
 
 **After admin rejection:** order returns to `PENDING_PAYMENT`, `payment_id` cleared — allow the user to **submit payment again** with a new reference.
