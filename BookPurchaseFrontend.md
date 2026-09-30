@@ -87,7 +87,7 @@ Optional detail:
 GET /api/store/books/{editionReferenceId}
 ```
 
-**Frontend:** Merge each row with your existing **LMS edition/book metadata** (title, cover, author) keyed by `edition_reference_id`. Store API returns commercial fields only (`new_buyer_price`, `previous_buyer_price`, `currency`, `status`).
+**Frontend:** Each row includes LMS presentation fields when the catalog is reachable: `title`, `author`, `cover_url`, `edition_label`, plus nested `book` and `edition`. Use `cover_url` for cards; fall back to your LMS catalog layer only if those fields are `null` (LMS unavailable).
 
 ---
 

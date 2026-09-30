@@ -253,7 +253,7 @@ Admins may add `user_id`. Students see only their own grants.
 
 # Part B — Book store (sales)
 
-Store flows use **edition reference ids** (`ED-…`). **Presentation** (title, cover, edition labels) should come from your **existing LMS book/edition catalog integration** (same source as admin catalog screens). Store endpoints return **commercial** fields only unless noted.
+Store flows use **edition reference ids** (UUIDs from LMS). `GET /api/store/books` merges **commercial** fields with LMS **title, cover, author**, and nested `book` / `edition` objects when the LMS is reachable.
 
 ### B.1 Public store catalog (listed editions + list prices)
 
@@ -270,17 +270,29 @@ No auth required.
   "status": "success",
   "data": [
     {
-      "edition_reference_id": "ED-000125-02",
+      "edition_reference_id": "bca85208-74ba-49e1-8c0e-9fa75e9a09de",
       "new_buyer_price": 70000,
       "previous_buyer_price": 45000,
       "currency": "TZS",
-      "status": "LISTED"
+      "status": "LISTED",
+      "book_reference_id": "book-uuid",
+      "title": "Advanced Excel",
+      "author": "Jane Author",
+      "cover_url": "https://lms-api.example.com/books/.../cover",
+      "edition_label": "2025 Edition",
+      "book": { },
+      "edition": { }
     }
   ]
 }
 ```
 
-**Frontend:** Join each row with LMS edition metadata by `edition_reference_id` for cards and detail pages. Do **not** show checkout totals using list prices alone for logged-in users — use **B.3**.
+| Field | Notes |
+|-------|--------|
+| `title`, `author`, `cover_url`, `edition_label` | Convenience fields from LMS for store cards |
+| `book`, `edition` | Full LMS payloads when catalog sync succeeds; may be `null` if LMS is down |
+
+**Frontend:** Prefer `cover_url` / `title` on each row for the store grid. Do **not** show checkout totals using list prices alone for logged-in users — use **B.3**.
 
 ### B.2 Store edition detail
 

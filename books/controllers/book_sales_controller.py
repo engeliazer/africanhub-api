@@ -261,15 +261,26 @@ def update_listing_by_id(listing_id):
 
 @book_sales_bp.route("/store/books", methods=["GET"])
 def store_list_books():
-    """Listed editions with configured prices (LMS metadata fetched separately by the client)."""
+    """Listed editions with prices and LMS book/edition metadata (title, cover, etc.)."""
     db = get_db()
     try:
+        from books.services.lms_edition_helpers import attach_store_catalog_metadata
+
         listings = list_listed_editions(db)
+        client = get_lms_client()
+        edition_index = {}
+        if client:
+            try:
+                edition_index = client.build_edition_index(published_only=False)
+            except LMSClientError:
+                edition_index = {}
+
         data = []
         for listing in listings:
             payload = build_store_edition_payload(db, listing)
             if payload:
-                data.append(payload)
+                edition = edition_index.get(listing.edition_reference_id)
+                data.append(attach_store_catalog_metadata(payload, edition, client))
         return jsonify({"status": "success", "data": data})
     finally:
         db.close()
@@ -287,14 +298,20 @@ def store_get_book(edition_reference_id):
         if not payload:
             return jsonify({"status": "error", "message": "No active price for this edition"}), 409
 
+        from books.services.lms_edition_helpers import attach_store_catalog_metadata
+
         client = get_lms_client()
+        edition = None
         if client:
             try:
-                payload["edition"] = client.get_edition(edition_reference_id)
+                edition = client.get_edition(edition_reference_id)
             except LMSClientError:
-                payload["edition"] = None
+                edition = None
 
-        return jsonify({"status": "success", "data": payload})
+        return jsonify({
+            "status": "success",
+            "data": attach_store_catalog_metadata(payload, edition, client),
+        })
     finally:
         db.close()
 

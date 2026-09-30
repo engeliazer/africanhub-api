@@ -276,6 +276,15 @@ class LMSClient:
             status_code=404,
         )
 
+    def build_edition_index(self, published_only: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Map edition/version UUID → full edition payload (includes nested `book`)."""
+        index: Dict[str, Dict[str, Any]] = {}
+        for edition in self.list_editions(published_only=published_only):
+            ref = self._version_reference_id(edition)
+            if ref:
+                index[ref] = edition
+        return index
+
     def list_editions(
         self,
         book_reference_id: Optional[str] = None,

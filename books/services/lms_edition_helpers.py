@@ -1,6 +1,9 @@
 """Helpers for normalizing LMS book/edition payloads."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from services.lms_client import LMSClient
 
 
 def edition_reference_id(edition: Dict[str, Any]) -> Optional[str]:
@@ -43,3 +46,78 @@ def edition_is_published(edition: Dict[str, Any]) -> bool:
         "LIVE",
         "READY",
     }
+
+
+def _absolute_media_url(client: Optional["LMSClient"], url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    url = str(url).strip()
+    if not url:
+        return None
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    if client:
+        return client.absolute_url(url)
+    return url
+
+
+def cover_url_from_lms(
+    edition: Dict[str, Any],
+    client: Optional["LMSClient"] = None,
+) -> Optional[str]:
+    book = edition.get("book") if isinstance(edition.get("book"), dict) else {}
+    for source in (edition, book):
+        if not isinstance(source, dict):
+            continue
+        for key in ("cover_url", "cover_image_url", "cover_image", "cover"):
+            raw = source.get(key)
+            if raw:
+                return _absolute_media_url(client, raw if isinstance(raw, str) else str(raw))
+    return None
+
+
+def display_title_from_lms(edition: Dict[str, Any]) -> Optional[str]:
+    book = edition.get("book") if isinstance(edition.get("book"), dict) else {}
+    for source in (edition, book):
+        if not isinstance(source, dict):
+            continue
+        for key in ("title", "name", "book_title"):
+            value = source.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def attach_store_catalog_metadata(
+    store_payload: Dict[str, Any],
+    edition: Optional[Dict[str, Any]],
+    client: Optional["LMSClient"] = None,
+) -> Dict[str, Any]:
+    """Merge LMS book/edition metadata into a store listing row."""
+    out = dict(store_payload)
+    if not edition:
+        out["edition"] = None
+        out["book"] = None
+        out["book_reference_id"] = None
+        out["title"] = None
+        out["author"] = None
+        out["cover_url"] = None
+        out["edition_label"] = None
+        return out
+
+    book = edition.get("book") if isinstance(edition.get("book"), dict) else None
+    out["edition"] = edition
+    out["book"] = book
+    out["book_reference_id"] = book_reference_id(edition)
+    out["title"] = display_title_from_lms(edition)
+    out["cover_url"] = cover_url_from_lms(edition, client)
+    out["author"] = (book or {}).get("author") or edition.get("author")
+    out["edition_label"] = (
+        edition.get("label")
+        or edition.get("version_label")
+        or edition.get("edition_name")
+        or edition.get("name")
+    )
+    if book and book.get("description") and "description" not in out:
+        out["description"] = book.get("description")
+    return out
