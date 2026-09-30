@@ -1,3 +1,4 @@
+from collections import defaultdict
 from decimal import Decimal
 from typing import Any, Dict, Optional, Set, Tuple
 
@@ -83,8 +84,8 @@ def resolve_customer_price(
 def load_user_paid_purchase_sets(
     db: Session,
     user_id: int,
-) -> Tuple[Set[str], Set[str]]:
-    """Return (owned_edition_reference_ids, owned_book_reference_ids) for approved purchases."""
+) -> Tuple[Set[str], Set[str], Dict[str, Set[str]]]:
+    """Return (owned edition ids, owned book ids, owned edition ids grouped by book)."""
     rows = (
         db.query(
             UserPaidBookEdition.edition_reference_id,
@@ -95,12 +96,16 @@ def load_user_paid_purchase_sets(
     )
     editions: Set[str] = set()
     books: Set[str] = set()
+    by_book: Dict[str, Set[str]] = defaultdict(set)
     for edition_ref, book_ref in rows:
         if edition_ref:
             editions.add(str(edition_ref))
         if book_ref:
-            books.add(str(book_ref))
-    return editions, books
+            book_key = str(book_ref)
+            books.add(book_key)
+            if edition_ref:
+                by_book[book_key].add(str(edition_ref))
+    return editions, books, dict(by_book)
 
 
 def attach_store_user_pricing(

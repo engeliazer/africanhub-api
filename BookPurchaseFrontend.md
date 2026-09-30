@@ -116,6 +116,26 @@ List response **`meta`** (logged in):
 
 Use `meta.user_owned_edition_ids` for fast client-side checks without re-reading every row.
 
+### Which editions appear in the store (server-filtered)
+
+The API returns **one or two rows per book**, not every listed edition:
+
+| User situation (per book) | Editions in `data` |
+|---------------------------|-------------------|
+| Guest or **new buyer** (never bought this book) | **Current edition only** (`is_current_edition: true`) |
+| **Returning buyer** (owns an older edition) | **Each owned edition** + **current edition** (up to 2 cards if different) |
+| Owns the current edition already | Usually **one** row (`edition_display_role`: `OWNED_CURRENT`) |
+
+**Current edition** is chosen from LMS metadata (`is_current` / version number / publish date) among **listed** editions.
+
+| Field | Use |
+|-------|-----|
+| `is_current_edition` | Latest edition for sale |
+| `edition_display_role` | `CURRENT` · `OWNED` · `OWNED_CURRENT` |
+| `show_in_store` | Always `true` on items returned (older listed editions are omitted) |
+
+`meta.store_edition_policy`: `CURRENT_EDITION_ONLY` or `OWNED_AND_CURRENT_FOR_RETURNING_BUYERS` (user has any book purchase).
+
 Optional detail:
 
 ```http

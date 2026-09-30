@@ -302,7 +302,9 @@ No auth required.
 | `store_presentation` | `OWNED` \| `BUY` \| `BUY_RETURNING` | `GUEST` |
 | `your_price` | Checkout price, or `null` if owned | `null` |
 
-List responses also include `meta.authenticated` and `meta.user_owned_edition_ids` when logged in.
+List responses also include `meta.authenticated`, `meta.store_edition_policy`, and `meta.user_owned_edition_ids` when logged in.
+
+**Edition visibility (server-filtered):** For each book, guests and new buyers only receive the **current** listed edition; returning buyers receive **owned edition(s) + current**. Rows include `is_current_edition` and `edition_display_role` (`CURRENT`, `OWNED`, `OWNED_CURRENT`).
 
 **Frontend:** Branch on `store_presentation` or `user_owns_edition`. When `OWNED`, link to My Books; do not show Buy. Checkout can still call **B.3** to re-verify before order create.
 
