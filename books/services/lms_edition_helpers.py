@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 
 def edition_reference_id(edition: Dict[str, Any]) -> Optional[str]:
-    for key in ("edition_reference_id", "reference_id", "id"):
+    for key in ("version_reference_id", "edition_reference_id", "reference_id", "id"):
         value = edition.get(key)
         if value is not None and str(value).strip():
             return str(value)
@@ -26,6 +26,9 @@ def book_reference_id(edition: Dict[str, Any]) -> Optional[str]:
 
 
 def edition_is_published(edition: Dict[str, Any]) -> bool:
+    if edition.get("is_published") is True or edition.get("published") is True:
+        return True
+
     status = (
         edition.get("publication_status")
         or edition.get("publish_status")

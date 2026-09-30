@@ -47,7 +47,7 @@ def validate_edition_for_listing(
     except LMSClientError as exc:
         if exc.status_code == 404:
             raise ListingValidationError("Edition not found in LMS", 404) from exc
-        raise ListingValidationError("Failed to validate edition with LMS", 502) from exc
+        raise ListingValidationError(str(exc) or "Failed to validate edition with LMS", 502) from exc
 
     if not edition_is_published(edition):
         raise ListingValidationError("Edition is not published in LMS", 409)

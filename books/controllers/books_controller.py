@@ -132,7 +132,7 @@ def grant_book_access(book_id):
 
         grant_data = client.grant_access_token(
             user_id=str(user.id),
-            book_id=book_id,
+            book_reference_id=str(book_id),
             user_email=user.email,
             ttl_seconds=access_request.ttl_seconds,
         )
@@ -180,7 +180,7 @@ def get_book_access_status(book_id):
         if not client:
             return _lms_unavailable_response()
 
-        status_data = client.get_access_status(str(user.id), book_id)
+        status_data = client.get_access_status(str(user.id), str(book_id))
         return jsonify({"status": "success", "data": status_data})
     except LMSClientError as exc:
         logger.error("Failed to get access status for book %s: %s", book_id, exc)
@@ -219,7 +219,7 @@ def revoke_book_access(book_id):
         if not client:
             return _lms_unavailable_response()
 
-        client.revoke_active_access(str(target_user_id), book_id)
+        client.revoke_active_access(str(target_user_id), str(book_id))
         mark_grant_revoked(db, target_user_id, book_id)
 
         return jsonify({

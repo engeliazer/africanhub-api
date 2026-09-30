@@ -111,9 +111,40 @@ class LMSClient:
         if not response.content:
             return None
         try:
-            return response.json()
+            data = response.json()
         except ValueError:
             return response.text
+
+        if isinstance(data, dict) and data.get("success") is False:
+            raise LMSClientError(
+                data.get("message") or "LMS request failed",
+                status_code=response.status_code if response.status_code >= 400 else 400,
+                response_body=data,
+            )
+        return data
+
+    @staticmethod
+    def _extract_access_token(data: Any) -> Optional[str]:
+        if not isinstance(data, dict):
+            return None
+        if data.get("access_token"):
+            return str(data["access_token"])
+        inner = LMSClient._unwrap_payload(data)
+        if isinstance(inner, dict) and inner.get("access_token"):
+            return str(inner["access_token"])
+        return None
+
+    @staticmethod
+    def _extract_expires_in(data: Any, default: int = 900) -> int:
+        if not isinstance(data, dict):
+            return default
+        for source in (data, LMSClient._unwrap_payload(data) if isinstance(LMSClient._unwrap_payload(data), dict) else {}):
+            if isinstance(source, dict) and source.get("expires_in"):
+                try:
+                    return int(source["expires_in"])
+                except (TypeError, ValueError):
+                    pass
+        return default
 
     @retry_on_failure(max_retries=2, delay=1)
     def authenticate(self) -> str:
@@ -125,13 +156,11 @@ class LMSClient:
         }
         data = self._request("POST", "/oauth/token", json=payload, use_system_auth=False)
 
-        access_token = data.get("access_token") if isinstance(data, dict) else None
+        access_token = self._extract_access_token(data)
         if not access_token:
             raise LMSClientError("LMS OAuth response missing access_token", response_body=data)
 
-        expires_in = 900
-        if isinstance(data, dict):
-            expires_in = int(data.get("expires_in") or expires_in)
+        expires_in = self._extract_expires_in(data)
 
         with self._token_lock:
             self._system_token = access_token
@@ -166,59 +195,117 @@ class LMSClient:
             return data["data"]
         return data
 
-    def get_edition(self, edition_reference_id: str) -> Dict[str, Any]:
-        """Fetch a single edition/version by LMS reference id."""
+    @staticmethod
+    def _book_reference_id(book: Dict[str, Any]) -> Optional[str]:
+        for key in ("reference_id", "book_reference_id", "id"):
+            value = book.get(key)
+            if value is not None and str(value).strip():
+                return str(value)
+        return None
+
+    @staticmethod
+    def _version_reference_id(version: Dict[str, Any]) -> Optional[str]:
+        for key in ("version_reference_id", "edition_reference_id", "reference_id", "id"):
+            value = version.get(key)
+            if value is not None and str(value).strip():
+                return str(value)
+        return None
+
+    @staticmethod
+    def _as_list(data: Any) -> List[Dict[str, Any]]:
+        result = LMSClient._unwrap_payload(data)
+        if isinstance(result, list):
+            return [item for item in result if isinstance(item, dict)]
+        if isinstance(result, dict):
+            for key in ("versions", "editions", "items", "books"):
+                if key in result and isinstance(result[key], list):
+                    return [item for item in result[key] if isinstance(item, dict)]
+            return [result]
+        return []
+
+    def list_book_versions(self, book_reference_id: str) -> List[Dict[str, Any]]:
+        """GET /books/{book_reference_id}/versions"""
         from urllib.parse import quote
 
-        encoded = quote(edition_reference_id, safe="")
-        data = self._request_with_retry("GET", f"/editions/{encoded}")
+        encoded = quote(str(book_reference_id), safe="")
+        data = self._request_with_retry("GET", f"/books/{encoded}/versions")
+        return self._as_list(data)
+
+    def get_book_version(self, book_reference_id: str, version_reference_id: str) -> Dict[str, Any]:
+        """GET /books/{book_reference_id}/versions/{version_reference_id}"""
+        from urllib.parse import quote
+
+        book_encoded = quote(str(book_reference_id), safe="")
+        version_encoded = quote(str(version_reference_id), safe="")
+        data = self._request_with_retry(
+            "GET",
+            f"/books/{book_encoded}/versions/{version_encoded}",
+        )
         result = self._unwrap_payload(data)
-        return result if isinstance(result, dict) else {"raw": result}
+        if isinstance(result, dict):
+            result.setdefault("book_reference_id", str(book_reference_id))
+            result.setdefault("version_reference_id", str(version_reference_id))
+            return result
+        return {"raw": result}
+
+    def get_edition(self, edition_reference_id: str) -> Dict[str, Any]:
+        """
+        Resolve a book version/edition by its version UUID.
+
+        African Hub LMS exposes versions at
+        GET /books/{book_reference_id}/versions/{version_reference_id}
+        not /editions/{id}. When only the version id is known, scan the catalog.
+        """
+        version_id = str(edition_reference_id)
+        books = self.list_books(published_only=False)
+        for book in books:
+            book_ref = self._book_reference_id(book)
+            if not book_ref:
+                continue
+            for version in self.list_book_versions(book_ref):
+                if self._version_reference_id(version) == version_id:
+                    edition = dict(version)
+                    edition["book_reference_id"] = book_ref
+                    edition["book"] = book
+                    edition.setdefault("version_reference_id", version_id)
+                    edition.setdefault("edition_reference_id", version_id)
+                    return edition
+
+        raise LMSClientError(
+            f"Edition {version_id} not found in LMS catalog",
+            status_code=404,
+        )
 
     def list_editions(
         self,
         book_reference_id: Optional[str] = None,
         published_only: bool = False,
     ) -> List[Dict[str, Any]]:
-        """List editions, optionally filtered by parent book reference."""
-        params: Dict[str, Any] = {}
-        if published_only:
-            params["published_only"] = "true"
+        """List book versions (editions), optionally for one book."""
         if book_reference_id:
-            from urllib.parse import quote
-
-            encoded = quote(book_reference_id, safe="")
-            path = f"/books/{encoded}/editions"
+            versions = self.list_book_versions(book_reference_id)
         else:
-            path = "/editions"
-
-        data = self._request_with_retry("GET", path, params=params or None)
-        result = self._unwrap_payload(data)
-        if isinstance(result, list):
-            return result
-        if isinstance(result, dict):
-            for key in ("editions", "items"):
-                if key in result and isinstance(result[key], list):
-                    return result[key]
-            return [result]
-        return []
+            versions = []
+            for book in self.list_books(published_only=published_only):
+                book_ref = self._book_reference_id(book)
+                if not book_ref:
+                    continue
+                for version in self.list_book_versions(book_ref):
+                    item = dict(version)
+                    item["book_reference_id"] = book_ref
+                    item["book"] = book
+                    versions.append(item)
+        return versions
 
     def list_books(self, published_only: bool = True) -> List[Dict[str, Any]]:
         params = {"published_only": "true" if published_only else "false"}
         data = self._request_with_retry("GET", "/books", params=params)
-        if isinstance(data, dict):
-            if "data" in data:
-                return data["data"] if isinstance(data["data"], list) else [data["data"]]
-            if "books" in data:
-                return data["books"] if isinstance(data["books"], list) else [data["books"]]
-        if isinstance(data, list):
-            return data
-        return []
+        return self._as_list(data)
 
     def grant_access_token(
         self,
         user_id: str,
-        book_id: int,
+        book_reference_id: str,
         user_email: Optional[str] = None,
         ttl_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
@@ -227,55 +314,49 @@ class LMSClient:
 
         payload: Dict[str, Any] = {
             "user_id": user_id,
-            "book_id": book_id,
+            "book_reference_id": str(book_reference_id),
             "ttl_seconds": ttl_seconds,
         }
         if user_email:
             payload["user_email"] = user_email
 
         data = self._request_with_retry("POST", "/access-tokens", json=payload)
-        if isinstance(data, dict) and "data" in data:
-            result = dict(data["data"])
+        result = self._unwrap_payload(data)
+        if isinstance(result, dict):
+            result = dict(result)
             if "reader" in result:
                 result["reader"] = self._normalize_reader_urls(result["reader"])
             result["lms_base_url"] = self.base_url
             return result
         return data if isinstance(data, dict) else {"raw": data}
 
-    def get_access_status(self, user_id: str, book_id: int) -> Dict[str, Any]:
-        params = {"user_id": user_id, "book_id": book_id}
+    def get_access_status(self, user_id: str, book_reference_id: str) -> Dict[str, Any]:
+        params = {"user_id": user_id, "book_reference_id": str(book_reference_id)}
         data = self._request_with_retry("GET", "/access-tokens/status", params=params)
-        if isinstance(data, dict) and "data" in data:
-            return data["data"]
-        return data if isinstance(data, dict) else {"raw": data}
+        result = self._unwrap_payload(data)
+        return result if isinstance(result, dict) else {"raw": result}
 
     def list_access_tokens(
         self,
         user_id: Optional[str] = None,
-        book_id: Optional[int] = None,
+        book_reference_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         params: Dict[str, Any] = {}
         if user_id:
             params["user_id"] = user_id
-        if book_id is not None:
-            params["book_id"] = book_id
+        if book_reference_id is not None:
+            params["book_reference_id"] = str(book_reference_id)
 
         data = self._request_with_retry("GET", "/access-tokens", params=params or None)
-        if isinstance(data, dict):
-            if "data" in data:
-                return data["data"] if isinstance(data["data"], list) else [data["data"]]
-        if isinstance(data, list):
-            return data
-        return []
+        return self._as_list(data)
 
     def get_access_token_detail(self, grant_id: int) -> Dict[str, Any]:
         data = self._request_with_retry("GET", f"/access-tokens/{grant_id}")
-        if isinstance(data, dict) and "data" in data:
-            return data["data"]
-        return data if isinstance(data, dict) else {"raw": data}
+        result = self._unwrap_payload(data)
+        return result if isinstance(result, dict) else {"raw": result}
 
-    def revoke_active_access(self, user_id: str, book_id: int) -> None:
-        params = {"user_id": user_id, "book_id": book_id}
+    def revoke_active_access(self, user_id: str, book_reference_id: str) -> None:
+        params = {"user_id": user_id, "book_reference_id": str(book_reference_id)}
         self._request_with_retry("DELETE", "/access-tokens/active", params=params)
 
     def revoke_access_token(self, grant_id: int) -> None:

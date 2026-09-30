@@ -93,7 +93,10 @@ def set_edition_price(edition_reference_id):
             except LMSClientError as exc:
                 if exc.status_code == 404:
                     return jsonify({"status": "error", "message": "Edition not found in LMS"}), 404
-                return jsonify({"status": "error", "message": "Failed to validate edition with LMS"}), 502
+                err = {"status": "error", "message": str(exc) or "Failed to validate edition with LMS"}
+                if exc.response_body is not None:
+                    err["lms"] = exc.response_body
+                return jsonify(err), exc.status_code or 502
         elif require_lms:
             return _lms_unavailable()
         else:
