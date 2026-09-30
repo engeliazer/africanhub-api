@@ -4,7 +4,7 @@ Book purchase: orders, payment reference + service provider, approval, paid edit
 
 import logging
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.orm import joinedload
 
@@ -27,7 +27,8 @@ from books.services.entitlement_service import (
     record_grant_log,
     mark_grant_revoked,
 )
-from books.models.sales_models import BookOrder
+from books.models.sales_models import BookOrder, ListingStatus
+from books.services.listing_service import get_listing
 from books.models.schemas import BookAccessRequest
 from database.db_connector import get_db
 from services.lms_client import get_lms_client, LMSClientError
@@ -330,6 +331,52 @@ def get_my_paid_edition(edition_reference_id):
             "status": "success",
             "data": enrich_paid_edition(ent, client),
         })
+    finally:
+        db.close()
+
+
+def _edition_cover_allowed(db, edition_reference_id: str, user_id) -> bool:
+    listing = get_listing(db, edition_reference_id)
+    if listing and listing.status == ListingStatus.LISTED.value:
+        return True
+    if user_id is None:
+        return False
+    if get_paid_edition_for_user(db, user_id, edition_reference_id):
+        return True
+    return user_has_admin_role(db, user_id)
+
+
+@book_purchase_bp.route("/books/editions/<edition_reference_id>/cover", methods=["GET"])
+@jwt_required(optional=True)
+def proxy_edition_cover(edition_reference_id):
+    """
+    Proxy LMS cover images through this API to avoid browser CORS against lms-api.
+    Use edition UUID (not parent book UUID). Public when edition is listed; else JWT + purchase.
+    """
+    db = get_db()
+    try:
+        identity = get_jwt_identity()
+        user_id = int(identity) if identity is not None else None
+        if not _edition_cover_allowed(db, edition_reference_id, user_id):
+            return jsonify({"status": "error", "message": "Not authorized to view this cover"}), 403
+
+        client = get_lms_client()
+        if not client:
+            return jsonify({"status": "error", "message": "LMS service not configured"}), 503
+
+        try:
+            content, content_type = client.fetch_cover_for_edition(edition_reference_id)
+        except LMSClientError as exc:
+            details = exc.response_body if exc.response_body is not None else str(exc)
+            return jsonify({
+                "status": "error",
+                "message": "Cover not available",
+                "details": details,
+            }), exc.status_code if exc.status_code and exc.status_code < 500 else 404
+
+        response = Response(content, mimetype=content_type.split(";")[0].strip())
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
     finally:
         db.close()
 

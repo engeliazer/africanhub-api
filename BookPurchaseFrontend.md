@@ -543,6 +543,8 @@ If you see LMS `"Book version not found"` (status 105), the edition UUID in the 
 
 Top-level **`title`**, **`author`**, **`cover_url`**, **`edition_label`**, and nested **`book`** / **`edition`** come from the LMS catalog (same enrichment as My Books). Use them for the reader chrome; use **`reader.first_page_url`** + **`access_token`** for page loads.
 
+**Covers and CORS:** Do **not** load covers from `lms-api.africanhub.ac.tz` in the browser (CORS). Use **`cover_url`** pointing at this API, e.g. `GET https://africanhub-api.africanhub.ac.tz/api/books/editions/{editionUuid}/cover` — always the **edition UUID**, not `parent_book_reference_id`. Listed editions: no auth. Purchased-only: send user JWT (or use in `<img>` only when the edition is still listed publicly).
+
 **Reader responsibilities**
 
 1. Pass `access_token` on LMS page/search/render calls only.

@@ -62,9 +62,22 @@ class LMSClient:
         if not reader:
             return reader
         normalized = dict(reader)
-        for key in ("cover_url", "first_page_url", "search_url"):
+        for key in ("first_page_url", "search_url"):
             if key in normalized and normalized[key]:
                 normalized[key] = self.absolute_url(normalized[key])
+        if normalized.get("cover_url") and str(normalized["cover_url"]).startswith("/books/"):
+            edition_id = normalized.get("edition_reference_id") or normalized.get("book_reference_id")
+            if edition_id:
+                from config import hub_edition_cover_url
+
+                normalized["cover_url"] = hub_edition_cover_url(str(edition_id))
+        elif normalized.get("cover_url") and normalized["cover_url"].startswith("http"):
+            if self.base_url in str(normalized["cover_url"]) and "/cover" in str(normalized["cover_url"]):
+                edition_id = normalized.get("edition_reference_id") or normalized.get("book_reference_id")
+                if edition_id:
+                    from config import hub_edition_cover_url
+
+                    normalized["cover_url"] = hub_edition_cover_url(str(edition_id))
         return normalized
 
     def _reader_urls_for_edition(self, edition_reference_id: str) -> Dict[str, Any]:
@@ -73,15 +86,18 @@ class LMSClient:
         GET /books/{edition_reference_id}/pages/1
         (same id as store `edition_reference_id`, not always the parent book UUID).
         """
+        from config import hub_edition_cover_url
+
         edition_id = str(edition_reference_id)
-        return self._normalize_reader_urls({
+        reader = {
             "book_reference_id": edition_id,
             "edition_reference_id": edition_id,
             "version_reference_id": edition_id,
-            "cover_url": f"/books/{edition_id}/cover",
+            "cover_url": hub_edition_cover_url(edition_id),
             "first_page_url": f"/books/{edition_id}/pages/1",
             "search_url": f"/books/{edition_id}/search",
-        })
+        }
+        return self._normalize_reader_urls(reader)
 
     def _apply_edition_reader_paths(
         self,
@@ -537,6 +553,47 @@ class LMSClient:
             "edition_reference_id": edition_id,
             "revoked_book_reference_ids": revoked,
         }
+
+    def fetch_cover_image(self, reference_id: str) -> tuple:
+        """GET /books/{reference_id}/cover — returns (bytes, content_type)."""
+        from urllib.parse import quote
+
+        encoded = quote(str(reference_id).strip(), safe="")
+        url = f"{self.base_url}/books/{encoded}/cover"
+        headers = {"Authorization": f"Bearer {self.get_system_token()}"}
+        try:
+            response = requests.get(url, headers=headers, timeout=60)
+        except requests.exceptions.RequestException as exc:
+            raise LMSClientError(f"LMS cover fetch failed: {exc}", status_code=502) from exc
+
+        if response.status_code >= 400:
+            body: Any
+            try:
+                body = response.json()
+            except ValueError:
+                body = response.text
+            raise LMSClientError(
+                f"LMS cover error ({response.status_code})",
+                status_code=response.status_code,
+                response_body=body,
+            )
+
+        content_type = response.headers.get("Content-Type", "image/jpeg")
+        return response.content, content_type
+
+    def fetch_cover_for_edition(self, edition_reference_id: str) -> tuple:
+        """Prefer edition UUID path; fall back to parent book UUID from catalog."""
+        edition_id = str(edition_reference_id)
+        try:
+            return self.fetch_cover_image(edition_id)
+        except LMSClientError as first_error:
+            parent = self._parent_book_ref_for_edition(edition_id)
+            if parent and parent != edition_id:
+                try:
+                    return self.fetch_cover_image(parent)
+                except LMSClientError:
+                    pass
+            raise first_error
 
     def get_access_status(self, user_id: str, book_reference_id: str) -> Dict[str, Any]:
         params = {"user_id": user_id, "book_reference_id": str(book_reference_id)}

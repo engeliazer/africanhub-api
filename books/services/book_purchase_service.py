@@ -411,8 +411,10 @@ def enrich_access_grant_with_lms_metadata(
 ) -> Dict[str, Any]:
     """Attach LMS book/edition metadata to a reading access grant response."""
     from books.services.lms_edition_helpers import attach_store_catalog_metadata
+    from config import hub_edition_cover_url
 
     out = dict(grant_data)
+    out["cover_url"] = hub_edition_cover_url(edition_reference_id)
     if entitlement:
         out["paid_amount"] = float(entitlement.paid_amount)
         out["currency"] = entitlement.currency
@@ -465,6 +467,9 @@ def enrich_paid_edition(
         "order_id": entitlement.order_id,
         "payment_id": entitlement.payment_id,
     }
+    from config import hub_edition_cover_url
+
+    payload["cover_url"] = hub_edition_cover_url(entitlement.edition_reference_id)
     if lms_client:
         try:
             edition = lms_client.get_edition(entitlement.edition_reference_id)

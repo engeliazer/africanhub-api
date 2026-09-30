@@ -120,7 +120,13 @@ def attach_store_catalog_metadata(
     out["book"] = book
     out["book_reference_id"] = book_reference_id(edition)
     out["title"] = display_title_from_lms(edition)
-    out["cover_url"] = cover_url_from_lms(edition, client)
+    edition_ref = store_payload.get("edition_reference_id") or edition_reference_id(edition)
+    if edition_ref:
+        from config import hub_edition_cover_url
+
+        out["cover_url"] = hub_edition_cover_url(str(edition_ref))
+    else:
+        out["cover_url"] = cover_url_from_lms(edition, client)
     out["author"] = (book or {}).get("author") or edition.get("author")
     out["edition_label"] = (
         edition.get("label")

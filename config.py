@@ -35,5 +35,13 @@ def public_storage_url(*path_parts: str) -> str:
     return '/'.join([PUBLIC_STORAGE_BASE_URL, *[p.strip('/') for p in path_parts if p]])
 
 
+def hub_edition_cover_url(edition_reference_id: str) -> str:
+    """Browser-safe cover URL on this API (avoids LMS CORS). Use edition UUID."""
+    from urllib.parse import quote
+
+    ref = quote(str(edition_reference_id).strip(), safe="")
+    return f"{API_BASE_URL}/api/books/editions/{ref}/cover"
+
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS 
