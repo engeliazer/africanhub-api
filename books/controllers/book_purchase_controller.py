@@ -291,16 +291,30 @@ def grant_paid_edition_access(edition_reference_id):
         access_request = BookAccessRequest(**payload)
 
         try:
-            grant_data = client.grant_access_token(
+            grant_data = client.grant_access_for_paid_edition(
                 user_id=str(user.id),
-                book_reference_id=ent.book_reference_id,
+                edition_reference_id=edition_reference_id,
                 user_email=user.email,
                 ttl_seconds=access_request.ttl_seconds,
+                book_reference_id_hint=ent.book_reference_id,
             )
         except LMSClientError as exc:
-            return jsonify({"status": "error", "message": "Failed to grant reading access", "details": str(exc)}), 502
+            status = exc.status_code or 502
+            if status == 409:
+                return jsonify({
+                    "status": "error",
+                    "message": "This book is not available for reading right now",
+                    "code": "book_unpublished",
+                }), 409
+            details = exc.response_body if exc.response_body is not None else str(exc)
+            return jsonify({
+                "status": "error",
+                "message": "Failed to grant reading access",
+                "details": details,
+            }), 502 if status >= 500 else status
 
-        record_grant_log(db, user.id, ent.book_reference_id, grant_data)
+        book_ref_for_log = grant_data.get("book_reference_id") or ent.book_reference_id
+        record_grant_log(db, user.id, book_ref_for_log, grant_data)
 
         return jsonify({"status": "success", "data": grant_data})
     except Exception as exc:

@@ -196,11 +196,24 @@ class LMSClient:
         return data
 
     @staticmethod
+    def _is_uuid_reference(value: Any) -> bool:
+        if value is None:
+            return False
+        text = str(value).strip()
+        return len(text) >= 32 and "-" in text
+
+    @staticmethod
     def _book_reference_id(book: Dict[str, Any]) -> Optional[str]:
-        for key in ("reference_id", "book_reference_id", "id"):
+        """LMS access APIs require book UUID (`reference_id`), not legacy numeric ids."""
+        for key in ("reference_id", "book_reference_id"):
             value = book.get(key)
             if value is not None and str(value).strip():
-                return str(value)
+                text = str(value).strip()
+                if LMSClient._is_uuid_reference(text):
+                    return text
+        value = book.get("id")
+        if LMSClient._is_uuid_reference(value):
+            return str(value).strip()
         return None
 
     @staticmethod
@@ -248,7 +261,11 @@ class LMSClient:
             return result
         return {"raw": result}
 
-    def get_edition(self, edition_reference_id: str) -> Dict[str, Any]:
+    def get_edition(
+        self,
+        edition_reference_id: str,
+        book_reference_id_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Resolve a book version/edition by its version UUID.
 
@@ -257,6 +274,27 @@ class LMSClient:
         not /editions/{id}. When only the version id is known, scan the catalog.
         """
         version_id = str(edition_reference_id)
+        if book_reference_id_hint and self._is_uuid_reference(book_reference_id_hint):
+            try:
+                edition = self.get_book_version(str(book_reference_id_hint), version_id)
+                if isinstance(edition, dict):
+                    edition = dict(edition)
+                    edition.setdefault("book_reference_id", str(book_reference_id_hint))
+                    edition.setdefault("version_reference_id", version_id)
+                    edition.setdefault("edition_reference_id", version_id)
+                    if "book" not in edition:
+                        from urllib.parse import quote
+
+                        book_encoded = quote(str(book_reference_id_hint), safe="")
+                        book_data = self._unwrap_payload(
+                            self._request_with_retry("GET", f"/books/{book_encoded}")
+                        )
+                        if isinstance(book_data, dict):
+                            edition["book"] = book_data
+                    return edition
+            except LMSClientError:
+                pass
+
         books = self.list_books(published_only=False)
         for book in books:
             book_ref = self._book_reference_id(book)
@@ -330,14 +368,73 @@ class LMSClient:
             payload["user_email"] = user_email
 
         data = self._request_with_retry("POST", "/access-tokens", json=payload)
+        return self._normalize_grant_response(data, book_reference_id=str(book_reference_id))
+
+    def _normalize_grant_response(
+        self,
+        data: Any,
+        *,
+        book_reference_id: str,
+        edition_reference_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         result = self._unwrap_payload(data)
         if isinstance(result, dict):
             result = dict(result)
             if "reader" in result:
-                result["reader"] = self._normalize_reader_urls(result["reader"])
+                reader = dict(result["reader"]) if isinstance(result["reader"], dict) else result["reader"]
+                if isinstance(reader, dict):
+                    reader.setdefault("book_reference_id", book_reference_id)
+                    if edition_reference_id:
+                        reader.setdefault("edition_reference_id", edition_reference_id)
+                        reader.setdefault("version_reference_id", edition_reference_id)
+                    result["reader"] = self._normalize_reader_urls(reader)
             result["lms_base_url"] = self.base_url
+            result["book_reference_id"] = book_reference_id
+            if edition_reference_id:
+                result["edition_reference_id"] = edition_reference_id
             return result
         return data if isinstance(data, dict) else {"raw": data}
+
+    def grant_access_for_paid_edition(
+        self,
+        user_id: str,
+        edition_reference_id: str,
+        user_email: Optional[str] = None,
+        ttl_seconds: Optional[int] = None,
+        book_reference_id_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Issue a reading token for a purchased edition.
+
+        Resolves the parent book UUID from the LMS catalog (required by POST /access-tokens).
+        """
+        edition = self.get_edition(
+            edition_reference_id,
+            book_reference_id_hint=book_reference_id_hint,
+        )
+        book_ref = edition.get("book_reference_id")
+        if not book_ref and isinstance(edition.get("book"), dict):
+            book_ref = self._book_reference_id(edition["book"])
+        if not book_ref or not self._is_uuid_reference(book_ref):
+            raise LMSClientError(
+                "Could not resolve LMS book_reference_id for this edition",
+                status_code=502,
+            )
+
+        grant = self.grant_access_token(
+            user_id=user_id,
+            book_reference_id=str(book_ref),
+            user_email=user_email,
+            ttl_seconds=ttl_seconds,
+        )
+        grant["edition_reference_id"] = str(edition_reference_id)
+        reader = grant.get("reader")
+        if isinstance(reader, dict):
+            reader = dict(reader)
+            reader["edition_reference_id"] = str(edition_reference_id)
+            reader["version_reference_id"] = str(edition_reference_id)
+            grant["reader"] = self._normalize_reader_urls(reader)
+        return grant
 
     def get_access_status(self, user_id: str, book_reference_id: str) -> Dict[str, Any]:
         params = {"user_id": user_id, "book_reference_id": str(book_reference_id)}

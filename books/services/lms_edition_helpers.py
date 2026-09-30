@@ -14,17 +14,27 @@ def edition_reference_id(edition: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _is_uuid_reference(value: Any) -> bool:
+    if value is None:
+        return False
+    text = str(value).strip()
+    return len(text) >= 32 and "-" in text
+
+
 def book_reference_id(edition: Dict[str, Any]) -> Optional[str]:
     direct = edition.get("book_reference_id") or edition.get("book_reference")
-    if direct:
-        return str(direct)
+    if direct and _is_uuid_reference(direct):
+        return str(direct).strip()
 
     book = edition.get("book")
     if isinstance(book, dict):
-        for key in ("reference_id", "book_reference_id", "id"):
+        for key in ("reference_id", "book_reference_id"):
             value = book.get(key)
-            if value is not None and str(value).strip():
-                return str(value)
+            if value is not None and _is_uuid_reference(value):
+                return str(value).strip()
+        value = book.get("id")
+        if _is_uuid_reference(value):
+            return str(value).strip()
     return None
 
 
