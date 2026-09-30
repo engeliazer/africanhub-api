@@ -67,6 +67,33 @@ class LMSClient:
                 normalized[key] = self.absolute_url(normalized[key])
         return normalized
 
+    def _reader_urls_for_edition(self, edition_reference_id: str) -> Dict[str, Any]:
+        """
+        LMS reader routes use the edition/version UUID in the path segment:
+        GET /books/{edition_reference_id}/pages/1
+        (same id as store `edition_reference_id`, not always the parent book UUID).
+        """
+        edition_id = str(edition_reference_id)
+        return self._normalize_reader_urls({
+            "book_reference_id": edition_id,
+            "edition_reference_id": edition_id,
+            "version_reference_id": edition_id,
+            "cover_url": f"/books/{edition_id}/cover",
+            "first_page_url": f"/books/{edition_id}/pages/1",
+            "search_url": f"/books/{edition_id}/search",
+        })
+
+    def _apply_edition_reader_paths(
+        self,
+        grant: Dict[str, Any],
+        edition_reference_id: str,
+    ) -> Dict[str, Any]:
+        edition_id = str(edition_reference_id)
+        grant = dict(grant)
+        grant["edition_reference_id"] = edition_id
+        grant["reader"] = self._reader_urls_for_edition(edition_id)
+        return grant
+
     def _request(
         self,
         method: str,
@@ -414,37 +441,43 @@ class LMSClient:
         """
         Issue a reading token for a purchased edition.
 
-        Resolves the parent book UUID from the LMS catalog (required by POST /access-tokens).
+        African Hub LMS serves pages at `/books/{edition_reference_id}/pages/{n}`.
+        The access-token request uses that same edition UUID as `book_reference_id`.
         """
-        # Resolve book + version from LMS catalog (do not trust stored book id alone).
-        edition = self.get_edition(edition_reference_id, book_reference_id_hint=None)
-        version_id = self._version_reference_id(edition) or str(edition_reference_id)
-        book_ref = edition.get("book_reference_id")
-        if not book_ref and isinstance(edition.get("book"), dict):
-            book_ref = self._book_reference_id(edition["book"])
-        if not book_ref or not self._is_uuid_reference(book_ref):
-            raise LMSClientError(
-                "Could not resolve LMS book_reference_id for this edition",
-                status_code=502,
+        edition_id = str(edition_reference_id)
+
+        parent_book_ref = None
+        try:
+            edition = self.get_edition(edition_id)
+            parent_book_ref = edition.get("book_reference_id")
+            if not parent_book_ref and isinstance(edition.get("book"), dict):
+                parent_book_ref = self._book_reference_id(edition["book"])
+        except LMSClientError:
+            edition = None
+
+        try:
+            grant = self.grant_access_token(
+                user_id=user_id,
+                book_reference_id=edition_id,
+                user_email=user_email,
+                ttl_seconds=ttl_seconds,
             )
+        except LMSClientError as first_error:
+            if parent_book_ref and self._is_uuid_reference(parent_book_ref):
+                grant = self.grant_access_token(
+                    user_id=user_id,
+                    book_reference_id=str(parent_book_ref),
+                    user_email=user_email,
+                    ttl_seconds=ttl_seconds,
+                    version_reference_id=edition_id,
+                )
+            else:
+                raise first_error
 
-        # Verify the version exists under this book (clear 404 if catalog is out of sync).
-        self.get_book_version(str(book_ref), version_id)
-
-        grant = self.grant_access_token(
-            user_id=user_id,
-            book_reference_id=str(book_ref),
-            user_email=user_email,
-            ttl_seconds=ttl_seconds,
-            version_reference_id=version_id,
-        )
-        grant["edition_reference_id"] = str(edition_reference_id)
-        reader = grant.get("reader")
-        if isinstance(reader, dict):
-            reader = dict(reader)
-            reader["edition_reference_id"] = str(edition_reference_id)
-            reader["version_reference_id"] = str(edition_reference_id)
-            grant["reader"] = self._normalize_reader_urls(reader)
+        grant = self._apply_edition_reader_paths(grant, edition_id)
+        grant["lms_base_url"] = self.base_url
+        if parent_book_ref:
+            grant["parent_book_reference_id"] = parent_book_ref
         return grant
 
     def get_access_status(self, user_id: str, book_reference_id: str) -> Dict[str, Any]:

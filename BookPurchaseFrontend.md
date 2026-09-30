@@ -441,7 +441,7 @@ Purchased editions are **not** opened via `/api/books/{numeric_id}/access` (that
 1. **List library:** `GET /api/my/books` (or `/api/my/paid-editions`).
 2. **Optional detail:** `GET /api/my/paid-editions/{editionReferenceId}` for one edition + LMS metadata.
 3. **Start reading session:** `POST /api/my/paid-editions/{editionReferenceId}/access` with the **user JWT** (African Hub), not the LMS token yet.
-4. **Open LMS UI:** Use `data.access_token` as `Authorization: Bearer <content-jwt>` on **direct** requests to `data.reader.*` URLs (or paths under `data.lms_base_url`).
+4. **Open LMS UI:** Use `data.access_token` as `Authorization: Bearer <content-jwt>` on **direct** requests to `data.reader.*` URLs. Page URLs use the **edition UUID** in the path, e.g. `GET {lms}/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/pages/1` — not the parent book UUID.
 5. **Session end / reopen:** Request a new grant with the same POST when the token expires (there is no separate “status” endpoint for paid editions today).
 
 ```http
@@ -489,7 +489,7 @@ If you see LMS `"Book version not found"` (status 105), the edition UUID in the 
     "reader": {
       "book_id": "book-reference-uuid",
       "cover_url": "https://lms-api.example.com/books/.../cover",
-      "first_page_url": "https://lms-api.example.com/books/.../pages/1",
+      "first_page_url": "https://lms-api.africanhub.ac.tz/books/bca85208-74ba-49e1-8c0e-9fa75e9a09de/pages/1",
       "search_url": "https://lms-api.example.com/books/.../search"
     },
     "lms_base_url": "https://lms-api.example.com"
