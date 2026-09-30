@@ -160,6 +160,49 @@ class LMSClient:
                 return self._request(method, path, **kwargs)
             raise
 
+    @staticmethod
+    def _unwrap_payload(data: Any) -> Any:
+        if isinstance(data, dict) and "data" in data:
+            return data["data"]
+        return data
+
+    def get_edition(self, edition_reference_id: str) -> Dict[str, Any]:
+        """Fetch a single edition/version by LMS reference id."""
+        from urllib.parse import quote
+
+        encoded = quote(edition_reference_id, safe="")
+        data = self._request_with_retry("GET", f"/editions/{encoded}")
+        result = self._unwrap_payload(data)
+        return result if isinstance(result, dict) else {"raw": result}
+
+    def list_editions(
+        self,
+        book_reference_id: Optional[str] = None,
+        published_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """List editions, optionally filtered by parent book reference."""
+        params: Dict[str, Any] = {}
+        if published_only:
+            params["published_only"] = "true"
+        if book_reference_id:
+            from urllib.parse import quote
+
+            encoded = quote(book_reference_id, safe="")
+            path = f"/books/{encoded}/editions"
+        else:
+            path = "/editions"
+
+        data = self._request_with_retry("GET", path, params=params or None)
+        result = self._unwrap_payload(data)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict):
+            for key in ("editions", "items"):
+                if key in result and isinstance(result[key], list):
+                    return result[key]
+            return [result]
+        return []
+
     def list_books(self, published_only: bool = True) -> List[Dict[str, Any]]:
         params = {"published_only": "true" if published_only else "false"}
         data = self._request_with_retry("GET", "/books", params=params)
