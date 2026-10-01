@@ -15,7 +15,7 @@ BRAND_BG = "#F3F4F6"
 BRAND_WHITE = "#FFFFFF"
 BRAND_BORDER = "#E5E7EB"
 
-_DEFAULT_LOGO_URL = "https://africanhub.ac.tz/logo.png"
+_DEFAULT_LOGO_URL = "https://africanhub.ac.tz/ahubLogo.png"
 _DEFAULT_WEBSITE = "https://africanhub.ac.tz"
 _DEFAULT_TAGLINE = "Building Accounting Skills for the Real World"
 

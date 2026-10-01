@@ -24,7 +24,7 @@ def _default_logo_url() -> str:
     return (
         os.getenv("MAIL_LETTERHEAD_LOGO_URL")
         or os.getenv("MAIL_LOGO_URL")
-        or "https://africanhub.ac.tz/logo.png"
+        or "https://africanhub.ac.tz/ahubLogo.png"
     ).strip()
 
 
