@@ -4,7 +4,7 @@ from database.db_connector import db_session
 from auth.models.models import User, UserRole, Role
 from datetime import datetime
 from werkzeug.security import generate_password_hash
-from flask_jwt_extended import create_access_token
+from auth.services.login_session import assign_login_session, create_login_token
 import logging
 import random
 import string
@@ -100,11 +100,9 @@ def self_registration():
         db_session.add(user_role)
         db_session.commit()
 
-        # Create identity object for JWT
-        identity = str(new_user.id)  # Convert user ID to string for JWT subject
-
-        # Generate access token
-        access_token = create_access_token(identity=identity)
+        session_id = assign_login_session(new_user)
+        db_session.commit()
+        access_token = create_login_token(new_user, session_id)
 
         # Send welcome SMS with the new format
         welcome_message = f"Welcome to The African Hub. Your account is ready. Initial password: {plain_password}. Please log in to change it."
@@ -120,6 +118,7 @@ def self_registration():
             "message": "Registration successful",
             "data": {
                 "token": access_token,
+                "session_id": session_id,
                 "user": {
                     "id": new_user.id,
                     "first_name": new_user.first_name,

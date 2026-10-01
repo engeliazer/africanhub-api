@@ -5,7 +5,7 @@ Frontend supplies parsed rows; Excel parsing is not handled here.
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from applications.models.models import (
     Invitation,
@@ -21,6 +21,11 @@ MAX_INVITEES_PER_REQUEST = 5000
 
 def _normalize_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def _eq(actual: Any, expected: Any) -> bool:
+    """Compare a loaded model attribute in Python, not as a SQL clause."""
+    return actual == expected
 
 
 def _normalize_text(value) -> Optional[str]:
@@ -114,22 +119,22 @@ def build_invitee_summary(invitees: List[InvitationInvitee]) -> Dict[str, int]:
     return {
         "total": len(invitees),
         "valid": sum(
-            1 for i in invitees if i.validation_status == InviteeValidationStatus.valid
+            1 for i in invitees if _eq(i.validation_status, InviteeValidationStatus.valid)
         ),
         "invalid": sum(
-            1 for i in invitees if i.validation_status == InviteeValidationStatus.invalid
+            1 for i in invitees if _eq(i.validation_status, InviteeValidationStatus.invalid)
         ),
         "duplicate": sum(
-            1 for i in invitees if i.validation_status == InviteeValidationStatus.duplicate
+            1 for i in invitees if _eq(i.validation_status, InviteeValidationStatus.duplicate)
         ),
         "pending_send": sum(
-            1 for i in invitees if i.send_status == InviteeSendStatus.pending
+            1 for i in invitees if _eq(i.send_status, InviteeSendStatus.pending)
         ),
         "sent": sum(
-            1 for i in invitees if i.send_status == InviteeSendStatus.sent
+            1 for i in invitees if _eq(i.send_status, InviteeSendStatus.sent)
         ),
         "failed": sum(
-            1 for i in invitees if i.send_status == InviteeSendStatus.failed
+            1 for i in invitees if _eq(i.send_status, InviteeSendStatus.failed)
         ),
     }
 
@@ -173,15 +178,16 @@ def sync_invitation_invitees(
         db.add(invitee)
         saved.append(invitee)
 
+    record = cast(Any, invitation)
     if summary["valid"] > 0:
-        if invitation.status == InvitationCampaignStatus.draft:
-            invitation.status = InvitationCampaignStatus.validated
-    elif invitation.status == InvitationCampaignStatus.validated:
-        invitation.status = InvitationCampaignStatus.draft
+        if _eq(record.status, InvitationCampaignStatus.draft):
+            record.status = InvitationCampaignStatus.validated
+    elif _eq(record.status, InvitationCampaignStatus.validated):
+        record.status = InvitationCampaignStatus.draft
 
     if user_id is not None:
-        invitation.updated_by = user_id
-    invitation.updated_at = now
+        record.updated_by = user_id
+    record.updated_at = now
 
     db.flush()
     return saved, summary

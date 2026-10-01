@@ -8,7 +8,7 @@ import os
 import re
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
@@ -359,14 +359,14 @@ def build_invitation_render_context(
         "brand": _brand_context(invitation),
         "signatory": _signatory_context(),
         "letter": {
-            "reference": _letter_reference(invitation.id),
+            "reference": _letter_reference(cast(int, invitation.id)),
             "date": letter_date,
-            "subject_heading": _subject_heading(invitation.course_title),
+            "subject_heading": _subject_heading(cast(str, invitation.course_title)),
         },
         "invitation": {
             "title": invitation.title,
-            "email_message": _personalize_text(invitation.email_message, full_name),
-            "email_subject": _personalize_text(invitation.email_subject, full_name),
+            "email_message": _personalize_text(cast(str, invitation.email_message), full_name),
+            "email_subject": _personalize_text(cast(str, invitation.email_subject), full_name),
         },
         "invitee": {
             "full_name": full_name,

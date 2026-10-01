@@ -19,6 +19,7 @@ class User(Base):
     updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
     email_verified_at = Column(DateTime, nullable=True)
     remember_token = Column(String(100), nullable=True)
+    active_session_id = Column(String(36), nullable=True)
     created_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)

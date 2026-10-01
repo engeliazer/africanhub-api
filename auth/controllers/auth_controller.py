@@ -8,9 +8,14 @@ from pydantic import BaseModel, EmailStr, validator
 import logging
 from functools import wraps
 from typing import Optional
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt, unset_jwt_cookies
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt, unset_jwt_cookies, decode_token
 from werkzeug.security import generate_password_hash, check_password_hash
 from auth.services.device_fingerprint_service import DeviceFingerprintService
+from auth.services.login_session import (
+    assign_login_session,
+    create_login_token,
+    session_was_replaced,
+)
 from public.controllers.sms_controller import SMSService
 import random
 import string
@@ -137,9 +142,10 @@ def login():
             for ur in user_roles:
                 logger.info(f"Active UserRole ID: {ur.id}, Role Name: {ur.role.name}, Role Code: {ur.role.code}")
 
-            # Create JWT token with string identity
-            identity = str(user.id)
-            access_token = create_access_token(identity=identity)
+            # New login replaces any session still open on another device.
+            session_id = assign_login_session(user)
+            db_session.commit()
+            access_token = create_login_token(user, session_id)
             logger.info(f"JWT token created successfully for user_id: {user.id}")
 
             # Prepare response
@@ -148,6 +154,7 @@ def login():
                 "message": "Login successful",
                 "data": {
                     "token": access_token,
+                    "session_id": session_id,
                     "user": {
                         "id": user.id,
                         "first_name": user.first_name,
@@ -171,6 +178,7 @@ def login():
             return jsonify(response_data), 200
 
         except Exception as e:
+            db_session.rollback()
             logger.error(f"Token creation failed for user_id: {user.id}", exc_info=True)
             return jsonify({
                 "status": "error",
@@ -185,6 +193,125 @@ def login():
             "message": "Login failed, server error",
             "error": str(e)
         }), 500
+
+
+def _request_value(body, name):
+    if body.get(name) is not None:
+        return body.get(name)
+    return request.args.get(name)
+
+
+def _presented_login(body):
+    """
+    Identify the caller's login from a JWT or from user id plus session id.
+
+    The JWT may be the Authorization bearer token or a ``token`` field.
+    ``user_id`` alone is not enough: every device shares it, so the client
+    must also send the ``session_id`` returned at login.
+    """
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raw = _request_value(body, "token")
+        token = raw.strip() if isinstance(raw, str) else None
+
+    requested_user_id = _request_value(body, "user_id")
+    requested_session_id = _request_value(body, "session_id")
+    if isinstance(requested_session_id, str):
+        requested_session_id = requested_session_id.strip() or None
+
+    if token:
+        try:
+            claims = decode_token(token, allow_expired=True)
+        except Exception:
+            return None, None, "invalid_token"
+        try:
+            user_id = int(claims.get("sub"))
+        except (TypeError, ValueError):
+            return None, None, "invalid_token"
+        if requested_user_id is not None:
+            try:
+                if int(requested_user_id) != user_id:
+                    return None, None, "user_mismatch"
+            except (TypeError, ValueError):
+                return None, None, "invalid_user"
+        session_id = claims.get("sid") or requested_session_id
+        return user_id, session_id, None
+
+    if requested_user_id is None:
+        return None, None, "missing_identity"
+    if not requested_session_id:
+        return None, None, "missing_session"
+    try:
+        return int(requested_user_id), requested_session_id, None
+    except (TypeError, ValueError):
+        return None, None, "invalid_user"
+
+
+@auth.route('/auth/session-status', methods=['GET', 'POST'])
+def session_status():
+    """
+    Tell the client whether this login was replaced by a newer one.
+
+    Call with ``Authorization: Bearer <jwt>``, or with ``user_id`` and the
+    ``session_id`` stored from the login response. A match means this browser
+    is still the active login. A mismatch means the account signed in again
+    somewhere else and this client should sign out.
+    """
+    body = request.get_json(silent=True) or {}
+    user_id, session_id, error = _presented_login(body)
+
+    if error == "invalid_token":
+        return jsonify({
+            "status": "error",
+            "message": "Invalid token"
+        }), 401
+    if error == "user_mismatch":
+        return jsonify({
+            "status": "error",
+            "message": "Token does not belong to this user"
+        }), 400
+    if error == "missing_identity":
+        return jsonify({
+            "status": "error",
+            "message": "Provide a JWT token, or user_id together with session_id"
+        }), 400
+    if error == "missing_session":
+        return jsonify({
+            "status": "error",
+            "message": "session_id is required when checking by user_id"
+        }), 400
+    if error == "invalid_user":
+        return jsonify({
+            "status": "error",
+            "message": "user_id must be a number"
+        }), 400
+
+    user = db_session.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        return jsonify({
+            "status": "error",
+            "message": "User not found"
+        }), 404
+
+    replaced = session_was_replaced(user.active_session_id, session_id)
+    if replaced:
+        message = "Another login was detected on a different device or browser."
+    else:
+        message = "This session is still the active login."
+
+    return jsonify({
+        "status": "success",
+        "message": message,
+        "data": {
+            "user_id": user.id,
+            "another_login_detected": replaced,
+            "session_valid": not replaced
+        }
+    }), 200
+
 
 @auth.route('/auth/change-password', methods=['POST'])
 @jwt_required()
