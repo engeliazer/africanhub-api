@@ -8,7 +8,7 @@ import os
 import re
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
@@ -196,7 +196,7 @@ def _signatory_context() -> Dict[str, str]:
     }
 
 
-def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, str]:
+def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[str, float]]:
     logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/ahubLogo.png").strip()
     letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
     source_email = getattr(invitation, "source_email", None) if invitation else None

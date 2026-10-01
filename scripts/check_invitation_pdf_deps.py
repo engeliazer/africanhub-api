@@ -9,6 +9,8 @@ def main() -> int:
         from io import BytesIO
 
         import requests  # noqa: F401
+        from jinja2 import Environment  # noqa: F401
+        from markupsafe import Markup  # noqa: F401
         from PIL import Image  # noqa: F401
         from pypdf import PdfReader  # noqa: F401
         from reportlab.pdfgen import canvas  # noqa: F401
