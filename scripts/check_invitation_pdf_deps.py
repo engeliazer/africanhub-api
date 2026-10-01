@@ -6,10 +6,15 @@ import sys
 
 def main() -> int:
     try:
-        from xhtml2pdf import pisa
         from io import BytesIO
+
+        import requests  # noqa: F401
+        from PIL import Image  # noqa: F401
+        from pypdf import PdfReader  # noqa: F401
+        from reportlab.pdfgen import canvas  # noqa: F401
+        from xhtml2pdf import pisa
     except ImportError as e:
-        print("FAIL: xhtml2pdf is not installed.")
+        print("FAIL: invitation PDF dependencies are not installed.")
         print(f"  Import error: {e}")
         print("  Fix: source venv/bin/activate && pip install -r requirements.txt")
         return 1
