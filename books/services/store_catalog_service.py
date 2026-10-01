@@ -5,7 +5,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from sqlalchemy.orm import Session
 
 from books.services.listing_service import get_listing, list_listed_editions
-from books.services.lms_edition_helpers import attach_store_catalog_metadata, book_reference_id
+from books.services.lms_edition_helpers import (
+    attach_store_catalog_metadata,
+    book_reference_id,
+    build_lms_book_categories_catalog,
+)
 from books.services.price_resolution_service import (
     attach_store_user_pricing,
     build_store_edition_payload,
@@ -73,6 +77,10 @@ def build_store_books_list(db: Session, user_id: Optional[int]) -> Dict[str, Any
     }
     if user_id is not None:
         body["meta"]["user_owned_edition_ids"] = sorted(owned_editions)
+    body["meta"]["book_categories"] = build_lms_book_categories_catalog(
+        client,
+        edition_index=edition_index,
+    )
     return body
 
 

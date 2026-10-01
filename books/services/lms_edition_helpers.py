@@ -1,6 +1,6 @@
 """Helpers for normalizing LMS book/edition payloads."""
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from services.lms_client import LMSClient
@@ -86,6 +86,138 @@ def cover_url_from_lms(
     return None
 
 
+def _lms_category_identity(raw: Dict[str, Any]) -> Optional[str]:
+    for key in ("reference_id", "category_reference_id", "id", "slug", "code"):
+        value = raw.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    name = raw.get("name") or raw.get("title") or raw.get("label")
+    if name:
+        return str(name).strip()
+    return None
+
+
+def normalize_lms_book_category(raw: Any) -> Optional[Dict[str, Any]]:
+    """Single LMS category object for store JSON."""
+    if not isinstance(raw, dict):
+        return None
+    identity = _lms_category_identity(raw)
+    name = raw.get("name") or raw.get("title") or raw.get("label")
+    if not identity and not name:
+        return None
+    out: Dict[str, Any] = {
+        "id": identity or str(name),
+        "name": name or identity,
+    }
+    for src_key, dst_key in (
+        ("slug", "slug"),
+        ("code", "code"),
+        ("description", "description"),
+        ("sort_order", "sort_order"),
+        ("display_order", "sort_order"),
+        ("parent_id", "parent_id"),
+        ("parent_reference_id", "parent_id"),
+    ):
+        if raw.get(src_key) is not None:
+            out[dst_key] = raw.get(src_key)
+    return out
+
+
+def extract_categories_from_lms(
+    edition: Optional[Dict[str, Any]],
+    book: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Categories assigned to a book/edition in LMS catalog payloads."""
+    found: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    def add_item(item: Any) -> None:
+        if isinstance(item, dict):
+            norm = normalize_lms_book_category(item)
+        elif item is not None and str(item).strip():
+            norm = normalize_lms_book_category({"id": str(item), "name": str(item)})
+        else:
+            norm = None
+        if not norm:
+            return
+        key = str(norm["id"])
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(norm)
+
+    nested_book = book
+    if nested_book is None and isinstance(edition, dict):
+        nested_book = edition.get("book") if isinstance(edition.get("book"), dict) else None
+
+    for source in (nested_book, edition):
+        if not isinstance(source, dict):
+            continue
+        for key in ("categories", "book_categories"):
+            value = source.get(key)
+            if isinstance(value, list):
+                for entry in value:
+                    add_item(entry)
+        category = source.get("category")
+        if isinstance(category, dict):
+            add_item(category)
+        elif source.get("category_id") is not None or source.get("category_reference_id") is not None:
+            cat_id = source.get("category_reference_id") or source.get("category_id")
+            add_item({
+                "id": cat_id,
+                "name": source.get("category_name") or source.get("category_label"),
+            })
+        elif source.get("category_name"):
+            add_item({"name": source.get("category_name")})
+
+    return found
+
+
+def build_lms_book_categories_catalog(
+    client: Optional["LMSClient"],
+    *,
+    edition_index: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Full category list from LMS GET /book-categories, with fallback to categories
+    seen on listed books in the edition index.
+    """
+    catalog: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    def merge_item(item: Dict[str, Any]) -> None:
+        norm = normalize_lms_book_category(item)
+        if not norm:
+            return
+        key = str(norm["id"])
+        if key in seen:
+            return
+        seen.add(key)
+        catalog.append(norm)
+
+    if client:
+        try:
+            for raw in client.list_book_categories():
+                merge_item(raw)
+        except Exception:
+            pass
+
+    if edition_index:
+        for edition in edition_index.values():
+            if not isinstance(edition, dict):
+                continue
+            for cat in extract_categories_from_lms(edition):
+                merge_item(cat)
+
+    catalog.sort(
+        key=lambda c: (
+            c.get("sort_order") if c.get("sort_order") is not None else 10_000,
+            (c.get("name") or "").lower(),
+        )
+    )
+    return catalog
+
+
 def display_title_from_lms(edition: Dict[str, Any]) -> Optional[str]:
     book = edition.get("book") if isinstance(edition.get("book"), dict) else {}
     for source in (edition, book):
@@ -113,12 +245,19 @@ def attach_store_catalog_metadata(
         out["author"] = None
         out["cover_url"] = None
         out["edition_label"] = None
+        out["categories"] = []
+        out["category_ids"] = []
         return out
 
     book = edition.get("book") if isinstance(edition.get("book"), dict) else None
     out["edition"] = edition
     out["book"] = book
     out["book_reference_id"] = book_reference_id(edition)
+    out["categories"] = extract_categories_from_lms(edition, book)
+    if out["categories"]:
+        out["category_ids"] = [str(c["id"]) for c in out["categories"]]
+    else:
+        out["category_ids"] = []
     out["title"] = display_title_from_lms(edition)
     edition_ref = store_payload.get("edition_reference_id") or edition_reference_id(edition)
     if edition_ref:

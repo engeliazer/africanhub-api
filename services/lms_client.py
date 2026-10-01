@@ -273,7 +273,7 @@ class LMSClient:
         if isinstance(result, list):
             return [item for item in result if isinstance(item, dict)]
         if isinstance(result, dict):
-            for key in ("versions", "editions", "items", "books"):
+            for key in ("versions", "editions", "items", "books", "categories"):
                 if key in result and isinstance(result[key], list):
                     return [item for item in result[key] if isinstance(item, dict)]
             return [result]
@@ -391,6 +391,24 @@ class LMSClient:
         params = {"published_only": "true" if published_only else "false"}
         data = self._request_with_retry("GET", "/books", params=params)
         return self._as_list(data)
+
+    def list_book_categories(self) -> List[Dict[str, Any]]:
+        """GET /book-categories — LMS taxonomy for store filters."""
+        last_error: Optional[LMSClientError] = None
+        for path in ("/book-categories", "/books/categories"):
+            try:
+                data = self._request_with_retry("GET", path)
+                items = self._as_list(data)
+                if items:
+                    return items
+            except LMSClientError as exc:
+                last_error = exc
+                if exc.status_code in (404, 405):
+                    continue
+                raise
+        if last_error and last_error.status_code not in (404, 405):
+            raise last_error
+        return []
 
     def grant_access_token(
         self,

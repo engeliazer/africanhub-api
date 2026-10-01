@@ -1,5 +1,7 @@
 # Books & Book Store — Frontend Integration Guide
 
+**Short web guide (catalog, covers, reader):** [`BooksWeb.md`](BooksWeb.md).
+
 This document describes how the frontend should integrate with the African Hub API for:
 
 1. **Library / reading** — LMS catalog, access tokens, in-app reader (course-linked entitlement).

@@ -2,7 +2,7 @@
 
 This document is the **user-facing purchase flow** for book editions: browse the store, checkout, pay with reference + service provider (same as course applications), track approval, open **My Books**, and read after payment is approved.
 
-For **store catalog fields**, **admin pricing**, and **course-linked library reading**, see [`BooksFrontend.md`](BooksFrontend.md). Backend specification: [`purchasingBooks.md`](purchasingBooks.md).
+**Quick web overview:** [`BooksWeb.md`](BooksWeb.md). For **store catalog fields**, **admin pricing**, and **course-linked library reading**, see [`BooksFrontend.md`](BooksFrontend.md). Backend specification: [`purchasingBooks.md`](purchasingBooks.md).
 
 ---
 
@@ -87,6 +87,8 @@ GET /api/public/store/books/{editionReferenceId}
 Each row includes **`new_buyer_price`**, **`previous_buyer_price`**, **`currency`**, plus LMS **`title`**, **`cover_url`**, etc. Flags are guest mode: `store_presentation: "GUEST"`, `pricing_for_user: false`. Show list prices and route **Buy** → register / login.
 
 Response **`meta.public_catalog`**: `true` on the public list route.
+
+**Categories (LMS):** List responses include **`meta.book_categories`** (full taxonomy from LMS `GET /book-categories`) and, on each row, **`categories`** (objects with `id`, `name`, …) plus **`category_ids`** for client-side filtering.
 
 ### Logged-in store (optional JWT)
 
