@@ -16,9 +16,11 @@ from auth.models.models import User
 
 def assign_login_session(user: User) -> str:
     """Replace the user's active session id. Caller must commit."""
+    now = datetime.utcnow()
     session_id = str(uuid.uuid4())
     user.active_session_id = session_id
-    user.updated_at = datetime.utcnow()
+    user.last_login = now
+    user.updated_at = now
     return session_id
 
 

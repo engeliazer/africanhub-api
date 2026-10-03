@@ -331,21 +331,51 @@ def session_status():
     }), 200
 
 
-@auth.route('/auth/online-count', methods=['GET'])
-def online_count():
-    """Count users whose latest valid session check is still inside the online window."""
+def _online_users_query():
     cutoff = datetime.utcnow() - ONLINE_WINDOW
-    count = db_session.query(User).filter(
+    return db_session.query(User).filter(
         User.deleted_at.is_(None),
         User.last_seen_at.isnot(None),
         User.last_seen_at >= cutoff,
-    ).count()
+    )
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+@auth.route('/auth/online-count', methods=['GET'])
+def online_count():
+    """Count users whose latest valid session check is still inside the online window."""
+    count = _online_users_query().count()
 
     return jsonify({
         "status": "success",
         "data": {
             "online_users": count,
             "window_seconds": int(ONLINE_WINDOW.total_seconds()),
+        }
+    }), 200
+
+
+@auth.route('/auth/online-users', methods=['GET'])
+def online_users():
+    """List users whose latest valid session check is still inside the online window."""
+    users = _online_users_query().order_by(User.last_seen_at.desc()).all()
+    return jsonify({
+        "status": "success",
+        "data": {
+            "window_seconds": int(ONLINE_WINDOW.total_seconds()),
+            "users": [{
+                "id": user.id,
+                "first_name": user.first_name,
+                "middle_name": user.middle_name,
+                "last_name": user.last_name,
+                "phone": user.phone,
+                "email": user.email,
+                "last_login": _iso(user.last_login),
+                "last_page": user.last_page,
+            } for user in users]
         }
     }), 200
 

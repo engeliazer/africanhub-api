@@ -18,11 +18,15 @@ ALTER TABLE users
 
 ALTER TABLE users
   ADD COLUMN last_page VARCHAR(500) NULL AFTER last_seen_at;
+
+ALTER TABLE users
+  ADD COLUMN last_login DATETIME NULL AFTER active_session_id;
 ```
 
 | Column | Type | Purpose |
 | --- | --- | --- |
 | `active_session_id` | `VARCHAR(36) NULL` | UUID of the latest login. The next login replaces it. |
+| `last_login` | `DATETIME NULL` | UTC time of that login. Set on login, not on each status check. |
 | `last_seen_at` | `DATETIME NULL` | UTC time of the latest valid status check. |
 | `last_page` | `VARCHAR(500) NULL` | Route the user was on at that check, sent by the frontend as `page`. |
 
@@ -141,10 +145,39 @@ No login or role check. The frontend decides who can open the screen that calls 
 
 Poll this about every 10–30 seconds on the screen that shows the number. This call does not mark anyone online. Only a valid session-status check does that.
 
+## Online users
+
+`GET /api/auth/online-users`
+
+Same 60-second window and no role check. Returns each online user:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "window_seconds": 60,
+    "users": [
+      {
+        "id": 12,
+        "first_name": "Amina",
+        "middle_name": null,
+        "last_name": "Juma",
+        "phone": "255700000000",
+        "email": "amina@example.com",
+        "last_login": "2026-10-03T10:15:00",
+        "last_page": "/dashboard"
+      }
+    ]
+  }
+}
+```
+
+`last_login` is when this session started. It stays empty until the user logs in again after the column is added. `last_page` is the route from the latest status check.
+
 ## Rebuild on another system
 
-1. Add `active_session_id`, `last_seen_at`, and `last_page` to the user table.
-2. On login, save a new UUID, return it as `session_id`, and put it in the token as `sid`.
+1. Add `active_session_id`, `last_login`, `last_seen_at`, and `last_page` to the user table.
+2. On login, save a new UUID and the current time as `last_login`, return the id as `session_id`, and put it in the token as `sid`.
 3. Every 10 seconds, send the current route as `page` and compare the session id with the stored one. Return `another_login_detected: true` with HTTP 200 when they differ, and sign the client out.
 4. When they match, set `last_seen_at` and `last_page` if the last check is older than 15 seconds, or immediately when `page` changed.
 5. Count users whose `last_seen_at` is within the last 60 seconds. Leave access control to the frontend.
