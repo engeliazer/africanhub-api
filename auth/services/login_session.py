@@ -31,8 +31,8 @@ def create_login_token(user: User, session_id: str) -> str:
 
 # Frontend polls about every 10 seconds. A user counts as online for this long
 # after the latest accepted check. Writes are skipped inside the shorter interval
-# so the 30-second window still covers them without a row update on every poll.
-ONLINE_WINDOW = timedelta(seconds=30)
+# so the 60-second window still covers them without a row update on every poll.
+ONLINE_WINDOW = timedelta(seconds=60)
 HEARTBEAT_WRITE_INTERVAL = timedelta(seconds=15)
 
 

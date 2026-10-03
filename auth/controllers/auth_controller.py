@@ -321,40 +321,9 @@ def session_status():
     }), 200
 
 
-def _caller_can_view_online_count(user_id: int) -> bool:
-    user = db_session.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
-    if not user:
-        return False
-    if user.is_admin:
-        return True
-    role = db_session.query(Role.code).join(UserRole, UserRole.role_id == Role.id).filter(
-        UserRole.user_id == user_id,
-        UserRole.is_active == True,
-        UserRole.deleted_at.is_(None),
-        Role.deleted_at.is_(None),
-        Role.code.in_(("SYSADMIN", "SUPADM")),
-    ).first()
-    return role is not None
-
-
 @auth.route('/auth/online-count', methods=['GET'])
-@jwt_required()
 def online_count():
     """Count users whose latest valid session check is still inside the online window."""
-    try:
-        caller_id = int(get_jwt_identity())
-    except (TypeError, ValueError):
-        return jsonify({
-            "status": "error",
-            "message": "Invalid token"
-        }), 401
-
-    if not _caller_can_view_online_count(caller_id):
-        return jsonify({
-            "status": "error",
-            "message": "Unauthorized"
-        }), 403
-
     cutoff = datetime.utcnow() - ONLINE_WINDOW
     count = db_session.query(User).filter(
         User.deleted_at.is_(None),
