@@ -6,7 +6,7 @@ caller's session with the stored one so an older browser can be signed out.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from flask_jwt_extended import create_access_token
@@ -27,6 +27,23 @@ def create_login_token(user: User, session_id: str) -> str:
         identity=str(user.id),
         additional_claims={"sid": session_id},
     )
+
+
+# Frontend polls about every 10 seconds. A user counts as online for this long
+# after the latest accepted check. Writes are skipped inside the shorter interval
+# so the 30-second window still covers them without a row update on every poll.
+ONLINE_WINDOW = timedelta(seconds=30)
+HEARTBEAT_WRITE_INTERVAL = timedelta(seconds=15)
+
+
+def touch_last_seen(user: User, now: Optional[datetime] = None) -> bool:
+    """Record that this user's session is still active. Caller must commit."""
+    now = now or datetime.utcnow()
+    last_seen = user.last_seen_at
+    if last_seen is not None and now - last_seen < HEARTBEAT_WRITE_INTERVAL:
+        return False
+    user.last_seen_at = now
+    return True
 
 
 def session_was_replaced(stored_session_id: Optional[str], presented_session_id: Optional[str]) -> bool:

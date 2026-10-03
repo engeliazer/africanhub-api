@@ -12,9 +12,11 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt, unset_jw
 from werkzeug.security import generate_password_hash, check_password_hash
 from auth.services.device_fingerprint_service import DeviceFingerprintService
 from auth.services.login_session import (
+    ONLINE_WINDOW,
     assign_login_session,
     create_login_token,
     session_was_replaced,
+    touch_last_seen,
 )
 from public.controllers.sms_controller import SMSService
 import random
@@ -301,6 +303,12 @@ def session_status():
         message = "Another login was detected on a different device or browser."
     else:
         message = "This session is still the active login."
+        try:
+            if touch_last_seen(user):
+                db_session.commit()
+        except Exception:
+            db_session.rollback()
+            logger.exception("Failed to record last_seen for user_id=%s", user.id)
 
     return jsonify({
         "status": "success",
@@ -309,6 +317,56 @@ def session_status():
             "user_id": user.id,
             "another_login_detected": replaced,
             "session_valid": not replaced
+        }
+    }), 200
+
+
+def _caller_can_view_online_count(user_id: int) -> bool:
+    user = db_session.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        return False
+    if user.is_admin:
+        return True
+    role = db_session.query(Role.code).join(UserRole, UserRole.role_id == Role.id).filter(
+        UserRole.user_id == user_id,
+        UserRole.is_active == True,
+        UserRole.deleted_at.is_(None),
+        Role.deleted_at.is_(None),
+        Role.code.in_(("SYSADMIN", "SUPADM")),
+    ).first()
+    return role is not None
+
+
+@auth.route('/auth/online-count', methods=['GET'])
+@jwt_required()
+def online_count():
+    """Count users whose latest valid session check is still inside the online window."""
+    try:
+        caller_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({
+            "status": "error",
+            "message": "Invalid token"
+        }), 401
+
+    if not _caller_can_view_online_count(caller_id):
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized"
+        }), 403
+
+    cutoff = datetime.utcnow() - ONLINE_WINDOW
+    count = db_session.query(User).filter(
+        User.deleted_at.is_(None),
+        User.last_seen_at.isnot(None),
+        User.last_seen_at >= cutoff,
+    ).count()
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "online_users": count,
+            "window_seconds": int(ONLINE_WINDOW.total_seconds()),
         }
     }), 200
 
