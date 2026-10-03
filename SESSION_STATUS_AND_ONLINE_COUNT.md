@@ -15,12 +15,16 @@ ALTER TABLE users
 ALTER TABLE users
   ADD COLUMN last_seen_at DATETIME NULL AFTER active_session_id,
   ADD INDEX ix_users_last_seen_at (last_seen_at);
+
+ALTER TABLE users
+  ADD COLUMN last_page VARCHAR(500) NULL AFTER last_seen_at;
 ```
 
 | Column | Type | Purpose |
 | --- | --- | --- |
 | `active_session_id` | `VARCHAR(36) NULL` | UUID of the latest login. The next login replaces it. |
 | `last_seen_at` | `DATETIME NULL` | UTC time of the latest valid status check. |
+| `last_page` | `VARCHAR(500) NULL` | Route the user was on at that check, sent by the frontend as `page`. |
 
 ```sql
 SELECT COUNT(*)
@@ -63,17 +67,17 @@ Store `data.token` and `data.session_id`.
 Call it every 10 seconds while the user is logged in. Send either:
 
 ```http
-GET /api/auth/session-status
+GET /api/auth/session-status?page=/dashboard
 Authorization: Bearer <token>
 ```
 
 or:
 
 ```http
-GET /api/auth/session-status?user_id=12&session_id=<session_id from login>
+GET /api/auth/session-status?user_id=12&session_id=<session_id from login>&page=/dashboard
 ```
 
-`user_id` alone is not enough. Every device shares it, so send `session_id` with it. `POST` accepts the same fields in JSON. A raw JWT can also be sent as `token`.
+`page` is the route the user is on right now, such as `/dashboard` or `/courses/12`. Send it on every check. `user_id` alone is not enough. Every device shares it, so send `session_id` with it. `POST` accepts the same fields in JSON. A raw JWT can also be sent as `token`.
 
 The server compares the caller's session id with `users.active_session_id`.
 
@@ -91,7 +95,7 @@ Still the active login (`200`):
 }
 ```
 
-The server then sets `last_seen_at` to now (UTC) if it is empty or older than 15 seconds. That write is the heartbeat. It is skipped when the session was replaced.
+The server then sets `last_seen_at` to now (UTC) and `last_page` to `page` if `last_seen_at` is empty or older than 15 seconds. A changed `page` is saved immediately, and `last_seen_at` is updated with it. The write is skipped when the session was replaced. If `page` is omitted, `last_page` is left as it was.
 
 Replaced by a newer login (`200`):
 
@@ -139,8 +143,8 @@ Poll this about every 10–30 seconds on the screen that shows the number. This 
 
 ## Rebuild on another system
 
-1. Add `active_session_id` and `last_seen_at` to the user table.
+1. Add `active_session_id`, `last_seen_at`, and `last_page` to the user table.
 2. On login, save a new UUID, return it as `session_id`, and put it in the token as `sid`.
-3. Every 10 seconds, compare that id with the stored one. Return `another_login_detected: true` with HTTP 200 when they differ, and sign the client out.
-4. When they match, set `last_seen_at` if it is older than 15 seconds.
+3. Every 10 seconds, send the current route as `page` and compare the session id with the stored one. Return `another_login_detected: true` with HTTP 200 when they differ, and sign the client out.
+4. When they match, set `last_seen_at` and `last_page` if the last check is older than 15 seconds, or immediately when `page` changed.
 5. Count users whose `last_seen_at` is within the last 60 seconds. Leave access control to the frontend.

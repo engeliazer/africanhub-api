@@ -21,6 +21,7 @@ class User(Base):
     remember_token = Column(String(100), nullable=True)
     active_session_id = Column(String(36), nullable=True)
     last_seen_at = Column(DateTime, nullable=True, index=True)
+    last_page = Column(String(500), nullable=True)
     created_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)

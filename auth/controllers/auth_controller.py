@@ -197,6 +197,16 @@ def login():
         }), 500
 
 
+def _current_page(body) -> Optional[str]:
+    raw = _request_value(body, "page")
+    if not isinstance(raw, str):
+        return None
+    page = raw.strip()
+    if not page:
+        return None
+    return page[:500]
+
+
 def _request_value(body, name):
     if body.get(name) is not None:
         return body.get(name)
@@ -304,7 +314,7 @@ def session_status():
     else:
         message = "This session is still the active login."
         try:
-            if touch_last_seen(user):
+            if touch_last_seen(user, page=_current_page(body)):
                 db_session.commit()
         except Exception:
             db_session.rollback()

@@ -36,13 +36,21 @@ ONLINE_WINDOW = timedelta(seconds=60)
 HEARTBEAT_WRITE_INTERVAL = timedelta(seconds=15)
 
 
-def touch_last_seen(user: User, now: Optional[datetime] = None) -> bool:
-    """Record that this user's session is still active. Caller must commit."""
+def touch_last_seen(user: User, now: Optional[datetime] = None, page: Optional[str] = None) -> bool:
+    """Record that this user's session is still active. Caller must commit.
+
+    ``page`` is the route the client is on. It is stored with ``last_seen_at``.
+    A page change is written immediately, even inside the heartbeat interval.
+    """
     now = now or datetime.utcnow()
     last_seen = user.last_seen_at
-    if last_seen is not None and now - last_seen < HEARTBEAT_WRITE_INTERVAL:
+    due = last_seen is None or now - last_seen >= HEARTBEAT_WRITE_INTERVAL
+    page_changed = page is not None and page != user.last_page
+    if not due and not page_changed:
         return False
     user.last_seen_at = now
+    if page is not None:
+        user.last_page = page
     return True
 
 
