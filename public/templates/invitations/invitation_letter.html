@@ -190,7 +190,8 @@
       text-decoration: none;
       margin-bottom: 2px;
     }
-    .why-attend-intro {
+    .why-attend-intro,
+    .training-intro .letter-message-p {
       margin: 0 0 8px 0;
     }
     .trainer-name {
@@ -343,10 +344,10 @@
     {% endif %}
 
     {# 5. About the course #}
-    {% if course.description %}
-    <div class="letter-message">{{ course.description | richtext }}</div>
-    {% endif %}
     <p class="section-heading section-heading-plain">Training Details:</p>
+    {% if course.description %}
+    <div class="letter-message training-intro">{{ course.description | richtext }}</div>
+    {% endif %}
     <table class="diamond-list">
       {% if course.date_range_long or course.date_range %}
       <tr>
