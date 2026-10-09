@@ -362,7 +362,7 @@ def _normalize_newlines(text: Optional[str]) -> str:
     return BR_TAG_RE.sub("\n", str(text or ""))
 
 
-def _why_attend_context(intro: Optional[str], points: Optional[str]) -> Dict[str, Any]:
+def _intro_points_context(intro: Optional[str], points: Optional[str]) -> Dict[str, Any]:
     return {
         "intro": _highlighted_text(intro) if (intro or "").strip() else "",
         "points": [
@@ -443,9 +443,13 @@ def build_invitation_render_context(
             "addressee_line": _invitee_addressee_line(invitee),
         },
         **shared,
-        "why_attend": _why_attend_context(
+        "why_attend": _intro_points_context(
             getattr(invitation, "why_attend_intro", None),
             getattr(invitation, "why_attend_points", None),
+        ),
+        "who_attend": _intro_points_context(
+            getattr(invitation, "who_attend_intro", None),
+            getattr(invitation, "who_attend_points", None),
         ),
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
     }
@@ -501,7 +505,8 @@ def build_event_render_context(
             "addressee_line": _invitee_addressee_line(invitee),
         },
         **shared,
-        "why_attend": _why_attend_context(None, None),
+        "why_attend": _intro_points_context(None, None),
+        "who_attend": _intro_points_context(None, None),
         "trainers": [
             {
                 "full_name": t.get("full_name"),

@@ -585,6 +585,8 @@ class Invitation(Base):
     learning_outcomes = Column(Text, nullable=True)
     why_attend_intro = Column(Text, nullable=True)
     why_attend_points = Column(Text, nullable=True)
+    who_attend_intro = Column(Text, nullable=True)
+    who_attend_points = Column(Text, nullable=True)
     source_email = Column(String(255), nullable=False)
     email_subject = Column(String(500), nullable=False)
     email_message = Column(Text, nullable=False)

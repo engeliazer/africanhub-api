@@ -409,6 +409,24 @@
     {% endfor %}
     {% endif %}
 
+    {% if who_attend and (who_attend.intro or who_attend.points) %}
+    <p class="section-heading section-heading-accent">Who Should Attend?</p>
+    {% if who_attend.intro %}
+    <p class="why-attend-intro">{{ who_attend.intro }}</p>
+    {% endif %}
+    {% if who_attend.points %}
+    <table class="diamond-list">
+      {% for point in who_attend.points %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text">{{ point }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% endif %}
+
     {% if course.learning_outcomes %}
     <p><strong>Learning Outcomes</strong></p>
     <ul class="outcomes">
