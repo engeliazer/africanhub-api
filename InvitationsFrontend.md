@@ -209,6 +209,9 @@ Returned by create/get/update/list item:
   "who_attend_points": "Finance, Accounting, Taxation, Auditing, and Consulting\nInvestment & Portfolio Management",
   "investment_details": "The participation fee for the six-day course is only **TZS. 650,000** per participant. This fee includes…",
   "payment_intro": "Payments should be made to the African Hub of Business and Technology through the following bank details:",
+  "reservation_details": "Secure your seat with a deposit of TZS 150,000 on or before **15th October 2026**, with the balance payable by the end of the first training day.",
+  "refund_policy": "The training fees will be refunded if you consider the training not valuable to your work at the end of day one of the training.",
+  "how_to_register": "To secure your spot, send proof of payment along with the names of participants to **info@africanhub.ac.tz** or contact us via: __+255 716 734 577 | +255 798 842 828__",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -395,6 +398,9 @@ POST /api/invitations
   "who_attend_points": "Audience 1\nAudience 2",
   "investment_details": "Fee paragraph; wrap the amount in **double asterisks** to make it bold",
   "payment_intro": "Opening statement shown above the bank details",
+  "reservation_details": "Optional reservation terms",
+  "refund_policy": "Optional refund policy",
+  "how_to_register": "Optional registration instructions",
   "course_fee": 150000,
   "deposit_amount": 50000,
   "reservation_deadline": "2025-06-10",
@@ -425,6 +431,14 @@ POST /api/invitations
 
 - `payment_intro` — textarea for the opening statement above the bank details, e.g. "Payments should be made to … through the following bank details:".
 - The bullets below it come from the existing payment fields (`course_fee`, `deposit_amount`, `reservation_deadline`, `bank_name`, `bank_account_name`, `bank_account_number`); empty ones are skipped. Put any payment instructions (e.g. where to send proof of payment) in `payment_intro`.
+
+**Reservation, Refund Policy, How to Register** (after Payment Details; each is optional and omitted entirely when empty):
+
+- `reservation_details` — textarea; printed as a paragraph starting with the bold brown label "Reservation:".
+- `refund_policy` — textarea; printed as a paragraph starting with the bold brown label "Refund Policy:".
+- `how_to_register` — textarea; printed under the bold brown heading "How to Register?".
+
+Formatting in these (and other letter text fields): `**text**` → bold brown (e.g. a deadline or email), `__text__` → plain bold (e.g. phone numbers). A blank line starts a new paragraph.
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 
@@ -938,7 +952,7 @@ When complete, status becomes `COMPLETED` (poll `GET /api/invitations/{id}`).
 Sections:
 
 1. **Campaign** — `title`
-2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`, `payment_intro`
+2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`, `payment_intro`, `reservation_details`, `refund_policy`, `how_to_register`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)

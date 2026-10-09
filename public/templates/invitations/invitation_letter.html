@@ -476,6 +476,21 @@
     </div>
     {% endif %}
 
+    {% for para in reservation_paragraphs %}
+    <p class="letter-message-p">{% if loop.first %}<span class="td-label">Reservation:</span> {% endif %}{{ para }}</p>
+    {% endfor %}
+
+    {% for para in refund_paragraphs %}
+    <p class="letter-message-p">{% if loop.first %}<span class="td-label">Refund Policy:</span> {% endif %}{{ para }}</p>
+    {% endfor %}
+
+    {% if how_to_register_paragraphs %}
+    <p class="section-heading section-heading-accent">How to Register?</p>
+    {% for para in how_to_register_paragraphs %}
+    <p class="letter-message-p">{{ para }}</p>
+    {% endfor %}
+    {% endif %}
+
     {# Closing — signature and stamp appear at the end of the letter (last page) #}
     <div class="closing">
       <p>We look forward to your favourable response and participation.</p>

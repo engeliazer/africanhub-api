@@ -350,12 +350,14 @@ def _learning_outcomes_list(text: Optional[str]) -> List[str]:
 
 
 HIGHLIGHT_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+BOLD_RE = re.compile(r"__(.+?)__", re.DOTALL)
 
 
 def _highlighted_text(text: Optional[str]) -> Markup:
-    """Escape text and turn **phrase** into a highlighted (bold brown) span."""
+    """Escape text; **phrase** becomes bold brown, __phrase__ becomes plain bold."""
     escaped = html.escape(_normalize_newlines(text).strip())
-    return Markup(HIGHLIGHT_RE.sub(r'<span class="highlight">\1</span>', escaped))
+    escaped = HIGHLIGHT_RE.sub(r'<span class="highlight">\1</span>', escaped)
+    return Markup(BOLD_RE.sub(r"<strong>\1</strong>", escaped))
 
 
 def _normalize_newlines(text: Optional[str]) -> str:
@@ -467,6 +469,15 @@ def build_invitation_render_context(
         "payment_intro_paragraphs": _highlighted_paragraphs(
             getattr(invitation, "payment_intro", None),
         ),
+        "reservation_paragraphs": _highlighted_paragraphs(
+            getattr(invitation, "reservation_details", None),
+        ),
+        "refund_paragraphs": _highlighted_paragraphs(
+            getattr(invitation, "refund_policy", None),
+        ),
+        "how_to_register_paragraphs": _highlighted_paragraphs(
+            getattr(invitation, "how_to_register", None),
+        ),
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
     }
 
@@ -525,6 +536,9 @@ def build_event_render_context(
         "who_attend": _intro_points_context(None, None),
         "investment_paragraphs": [],
         "payment_intro_paragraphs": [],
+        "reservation_paragraphs": [],
+        "refund_paragraphs": [],
+        "how_to_register_paragraphs": [],
         "trainers": [
             {
                 "full_name": t.get("full_name"),
