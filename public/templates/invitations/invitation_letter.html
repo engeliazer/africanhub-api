@@ -343,6 +343,9 @@
     {% endif %}
 
     {# 5. About the course #}
+    {% if course.description %}
+    <div class="letter-message">{{ course.description | richtext }}</div>
+    {% endif %}
     <p class="section-heading section-heading-plain">Training Details:</p>
     <table class="diamond-list">
       {% if course.date_range_long or course.date_range %}
@@ -384,9 +387,6 @@
       {% endfor %}
     </table>
     {% endif %}
-    {% endif %}
-    {% if course.description %}
-    <div class="letter-message">{{ course.description | richtext }}</div>
     {% endif %}
     {% if course.learning_outcomes %}
     <p><strong>Learning Outcomes</strong></p>
