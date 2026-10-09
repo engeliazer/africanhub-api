@@ -8,7 +8,7 @@ import os
 import re
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
@@ -175,7 +175,11 @@ def _watermark_opacity() -> float:
 
 def _signatory_image_url(env_var: str, default_relative: str) -> str:
     """Resolve a signatory image to a URL xhtml2pdf can load (data URI or http)."""
-    raw = (os.getenv(env_var) or default_relative).strip()
+    return _image_url((os.getenv(env_var) or default_relative))
+
+
+def _image_url(raw: Optional[str]) -> str:
+    raw = (raw or "").strip()
     if not raw:
         return ""
     if raw.startswith(("http://", "https://", "data:")):
@@ -218,10 +222,36 @@ def _signatory_context() -> Dict[str, str]:
     }
 
 
+def _partner_branding(invitation: Optional[Invitation]) -> Tuple[str, List[str]]:
+    """Right letterhead logo and signoff lines; invitations use their own partner settings."""
+    signoff_lines = [
+        line.strip()
+        for line in (
+            os.getenv("MAIL_SIGNOFF_LINES")
+            or "African Hub of Business & Technology|DSM CPA Review Center"
+        ).split("|")
+        if line.strip()
+    ]
+    if invitation is None:
+        return (
+            _signatory_image_url("MAIL_SECONDARY_LOGO_PATH", "storage/images/logoDcrc.jpg"),
+            signoff_lines,
+        )
+
+    lines = signoff_lines[:1]
+    if not getattr(invitation, "has_training_partner", False):
+        return "", lines
+    partner_name = (getattr(invitation, "partner_name", None) or "").strip()
+    if partner_name:
+        lines.append(partner_name)
+    return _image_url(getattr(invitation, "partner_logo_path", None)), lines
+
+
 def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[str, float]]:
     logo = (os.getenv("MAIL_LOGO_URL") or "https://africanhub.ac.tz/ahubLogo.png").strip()
     letterhead_logo = (os.getenv("MAIL_LETTERHEAD_LOGO_URL") or logo).strip()
     source_email = getattr(invitation, "source_email", None) if invitation else None
+    partner_logo_url, signoff_lines = _partner_branding(invitation)
     return {
         "name": (os.getenv("MAIL_FROM_NAME") or "The African Hub").strip().upper(),
         "legal_name": (
@@ -233,10 +263,7 @@ def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[s
         ).strip(),
         "logo_url": logo,
         "letterhead_logo_url": letterhead_logo,
-        "secondary_logo_url": _signatory_image_url(
-            "MAIL_SECONDARY_LOGO_PATH",
-            "storage/images/logoDcrc.jpg",
-        ),
+        "secondary_logo_url": partner_logo_url,
         "watermark_opacity": _watermark_opacity(),
         "po_box": (
             os.getenv("MAIL_BRAND_PO_BOX")
@@ -251,14 +278,7 @@ def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[s
             or "info@africanhub.ac.tz"
         ).strip(),
         "website": (os.getenv("MAIL_WEBSITE_URL") or "https://africanhub.ac.tz").strip(),
-        "signoff_lines": [
-            line.strip()
-            for line in (
-                os.getenv("MAIL_SIGNOFF_LINES")
-                or "African Hub of Business & Technology|DSM CPA Review Center"
-            ).split("|")
-            if line.strip()
-        ],
+        "signoff_lines": signoff_lines,
         "contact_email": (
             os.getenv("MAIL_REPLY_TO")
             or source_email

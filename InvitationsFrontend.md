@@ -212,6 +212,10 @@ Returned by create/get/update/list item:
   "reservation_details": "Secure your seat with a deposit of TZS 150,000 on or before **15th October 2026**, with the balance payable by the end of the first training day.",
   "refund_policy": "The training fees will be refunded if you consider the training not valuable to your work at the end of day one of the training.",
   "how_to_register": "To secure your spot, send proof of payment along with the names of participants to **info@africanhub.ac.tz** or contact us via: __+255 716 734 577 | +255 798 842 828__",
+  "has_training_partner": true,
+  "partner_name": "DSM CPA Review Center",
+  "has_partner_logo": true,
+  "partner_logo_filename": "logoDcrc.jpg",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -401,6 +405,8 @@ POST /api/invitations
   "reservation_details": "Optional reservation terms",
   "refund_policy": "Optional refund policy",
   "how_to_register": "Optional registration instructions",
+  "has_training_partner": true,
+  "partner_name": "DSM CPA Review Center",
   "course_fee": 150000,
   "deposit_amount": 50000,
   "reservation_deadline": "2025-06-10",
@@ -439,6 +445,12 @@ POST /api/invitations
 - `how_to_register` — textarea; printed under the bold brown heading "How to Register?".
 
 Formatting in these (and other letter text fields): `**text**` → bold brown (e.g. a deadline or email), `__text__` → plain bold (e.g. phone numbers). A blank line starts a new paragraph.
+
+**Training partner** (collaborating organisation, e.g. DSM CPA Review Center):
+
+- `has_training_partner` — checkbox (default `false`). When off, the letter has no partner logo (the letterhead shows the plain corner design) and the signoff lists only African Hub.
+- `partner_name` — text; required when `has_training_partner` is `true`. Printed as the second signoff line under "African Hub of Business & Technology".
+- The partner logo is uploaded separately with `POST /api/invitations/{id}/partner-logo` (see [Partner logo](#partner-logo)) after the invitation is created. It appears at the right of the letterhead only while `has_training_partner` is `true`; switching the flag off keeps the uploaded logo for later.
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 
@@ -818,6 +830,47 @@ Reference file for users customizing templates (`invitation_letter_default.html`
 
 ---
 
+#### Partner logo
+
+```
+POST /api/invitations/{invitation_id}/partner-logo
+Content-Type: multipart/form-data
+```
+
+| Field | Type | Required |
+|-------|------|----------|
+| `logo` | file (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, max 2MB) | Yes |
+
+Replaces any existing partner logo. Only allowed while the invitation is editable (same rule as the template upload). SVG is not supported by the PDF renderer.
+
+**Response `200`:**
+
+```json
+{
+  "status": "success",
+  "message": "Partner logo uploaded",
+  "data": {
+    "invitation_id": 42,
+    "has_partner_logo": true,
+    "partner_logo_filename": "partner.png"
+  }
+}
+```
+
+```
+GET /api/invitations/{invitation_id}/partner-logo
+```
+
+Returns the image (use for the logo preview in the form). `404` when none is set.
+
+```
+DELETE /api/invitations/{invitation_id}/partner-logo
+```
+
+Removes the logo. Response `data`: `{ "invitation_id": 42, "has_partner_logo": false }`.
+
+---
+
 ### Sending
 
 Campaign sends (test + batch) use **plain text** for the email body and attach the personalized invitation **PDF**. They do not wrap the message in branded HTML (helps Primary / Inbox delivery vs Promotions).
@@ -954,6 +1007,7 @@ Sections:
 1. **Campaign** — `title`
 2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`, `payment_intro`, `reservation_details`, `refund_policy`, `how_to_register`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
+3a. **Training partner** — `has_training_partner` toggle; when on, show `partner_name` and a logo picker (upload via `POST .../partner-logo` after save, preview via `GET .../partner-logo`)
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)
 6. **Rate limits** — `interval_seconds`, `interval_limit` (advanced; defaults 10s / 5 per burst)
@@ -1137,6 +1191,9 @@ await axios.post(
 | GET | `/api/invitations/{id}/template` |
 | DELETE | `/api/invitations/{id}/template` |
 | GET | `/api/invitations/{id}/template/default` |
+| POST | `/api/invitations/{id}/partner-logo` |
+| GET | `/api/invitations/{id}/partner-logo` |
+| DELETE | `/api/invitations/{id}/partner-logo` |
 | POST | `/api/invitations/{id}/send/test` |
 | POST | `/api/invitations/{id}/send/schedule` |
 | POST | `/api/invitations/{id}/send/start` |

@@ -47,6 +47,12 @@ from public.services.invitation_campaign_template_service import (
     save_campaign_template,
     validate_campaign_template_upload,
 )
+from public.services.invitation_partner_logo_service import (
+    delete_partner_logo_file,
+    resolve_partner_logo_path,
+    save_partner_logo,
+    validate_partner_logo_upload,
+)
 from public.services.invitation_campaign_send_service import (
     count_pending_valid_invitees,
     send_test_invitation_email,
@@ -98,6 +104,12 @@ def _decimal_optional(value) -> Optional[Decimal]:
     if value in (None, ""):
         return None
     return Decimal(str(value))
+
+
+def _parse_bool(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
 
 
 def _trainer_to_dict(trainer: InvitationTrainer) -> Dict[str, Any]:
@@ -200,6 +212,10 @@ def _invitation_to_dict(
         "reservation_details": invitation.reservation_details,
         "refund_policy": invitation.refund_policy,
         "how_to_register": invitation.how_to_register,
+        "has_training_partner": bool(invitation.has_training_partner),
+        "partner_name": invitation.partner_name,
+        "has_partner_logo": bool(invitation.partner_logo_path),
+        "partner_logo_filename": invitation.partner_logo_filename,
         "source_email": invitation.source_email,
         "email_subject": invitation.email_subject,
         "email_message": invitation.email_message,
@@ -248,6 +264,7 @@ def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool =
         "reservation_details": "reservation_details",
         "refund_policy": "refund_policy",
         "how_to_register": "how_to_register",
+        "partner_name": "partner_name",
         "source_email": "source_email",
         "email_subject": "email_subject",
         "email_message": "email_message",
@@ -260,6 +277,9 @@ def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool =
     for json_key, attr in field_map.items():
         if json_key in data:
             setattr(invitation, attr, data[json_key])
+
+    if "has_training_partner" in data:
+        invitation.has_training_partner = _parse_bool(data["has_training_partner"])
 
     if "start_date" in data:
         invitation.start_date = _parse_date(data["start_date"], "start_date")
@@ -303,6 +323,8 @@ def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool =
             return "interval_seconds must be >= 0"
         if invitation.interval_limit is not None and invitation.interval_limit < 1:
             return "interval_limit must be >= 1"
+        if invitation.has_training_partner and not (invitation.partner_name or "").strip():
+            return "partner_name is required when has_training_partner is true"
 
     return None
 
@@ -1297,6 +1319,124 @@ def download_invitation_campaign_template(invitation_id: int):
         )
     except Exception as e:
         logger.exception("download_invitation_campaign_template: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/partner-logo",
+    methods=["POST"],
+)
+@jwt_required()
+def upload_invitation_partner_logo(invitation_id: int):
+    """
+    Upload the training partner logo shown at the right of the letterhead.
+
+    multipart/form-data field: logo (PNG, JPG, GIF or WEBP).
+    Shown only while has_training_partner is true.
+    """
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        blocked = _require_editable_status(invitation)
+        if blocked:
+            return blocked
+
+        file_storage = request.files.get("logo")
+        logo_error = validate_partner_logo_upload(file_storage)
+        if logo_error:
+            return jsonify({"status": "error", "message": logo_error}), 400
+
+        delete_partner_logo_file(invitation.partner_logo_path)
+        path, filename = save_partner_logo(invitation_id, file_storage)
+        invitation.partner_logo_path = path
+        invitation.partner_logo_filename = filename
+        invitation.updated_by = user_id
+        invitation.updated_at = datetime.utcnow()
+        db.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Partner logo uploaded",
+            "data": {
+                "invitation_id": invitation.id,
+                "has_partner_logo": True,
+                "partner_logo_filename": filename,
+            },
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("upload_invitation_partner_logo: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/partner-logo",
+    methods=["DELETE"],
+)
+@jwt_required()
+def remove_invitation_partner_logo(invitation_id: int):
+    """Remove the partner logo; the letterhead falls back to the plain corner design."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        blocked = _require_editable_status(invitation)
+        if blocked:
+            return blocked
+
+        if not invitation.partner_logo_path:
+            return jsonify({"status": "error", "message": "No partner logo on this invitation"}), 404
+
+        delete_partner_logo_file(invitation.partner_logo_path)
+        invitation.partner_logo_path = None
+        invitation.partner_logo_filename = None
+        invitation.updated_by = user_id
+        invitation.updated_at = datetime.utcnow()
+        db.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Partner logo removed",
+            "data": {"invitation_id": invitation.id, "has_partner_logo": False},
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("remove_invitation_partner_logo: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/partner-logo",
+    methods=["GET"],
+)
+@jwt_required()
+def download_invitation_partner_logo(invitation_id: int):
+    """Return the partner logo image (for preview in the admin form)."""
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        path = resolve_partner_logo_path(invitation.partner_logo_path)
+        if not path:
+            return jsonify({"status": "error", "message": "No partner logo on this invitation"}), 404
+        return send_file(
+            str(path),
+            download_name=invitation.partner_logo_filename or path.name,
+        )
+    except Exception as e:
+        logger.exception("download_invitation_partner_logo: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
