@@ -105,6 +105,13 @@ def _format_letter_date(value: Optional[date] = None) -> str:
     return f"{_ordinal_day(d.day)} {d.strftime('%B %Y')}"
 
 
+def _format_letter_date_html(value: Optional[date] = None) -> Markup:
+    """e.g. 20<sup>th</sup> May 2026"""
+    d = value or datetime.utcnow().date()
+    ordinal = _ordinal_day(d.day)
+    return Markup(f"{ordinal[:-2]}<sup>{ordinal[-2:]}</sup> {d.strftime('%B %Y')}")
+
+
 def _letter_reference(invitation_id: int, ref_date: Optional[date] = None) -> str:
     d = ref_date or datetime.utcnow().date()
     return f"AHB&T/{d.strftime('%m/%y')}/{int(invitation_id):07d}"
@@ -211,6 +218,10 @@ def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[s
         ).strip(),
         "logo_url": logo,
         "letterhead_logo_url": letterhead_logo,
+        "secondary_logo_url": _signatory_image_url(
+            "MAIL_SECONDARY_LOGO_PATH",
+            "storage/images/logoDcrc.jpg",
+        ),
         "watermark_opacity": _watermark_opacity(),
         "po_box": (
             os.getenv("MAIL_BRAND_PO_BOX")
@@ -361,6 +372,7 @@ def build_invitation_render_context(
         "letter": {
             "reference": _letter_reference(cast(int, invitation.id)),
             "date": letter_date,
+            "date_html": _format_letter_date_html(),
             "subject_heading": _subject_heading(cast(str, invitation.course_title)),
         },
         "invitation": {
@@ -414,6 +426,7 @@ def build_event_render_context(
         "letter": {
             "reference": _letter_reference(event.id),
             "date": letter_date,
+            "date_html": _format_letter_date_html(),
             "subject_heading": _subject_heading(event.course_title),
         },
         "invitation": {

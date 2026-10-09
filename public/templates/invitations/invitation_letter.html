@@ -57,6 +57,16 @@
       text-align: right;
       vertical-align: top;
     }
+    .secondary-logo-cell {
+      width: 130px;
+      padding-left: 10px;
+      text-align: right;
+      vertical-align: middle;
+    }
+    .secondary-logo-cell img {
+      width: 120px;
+      height: auto;
+    }
     .corner-navy {
       display: block;
       width: 55px;
@@ -90,25 +100,26 @@
     .meta-right { text-align: right; }
     /* --- Addressee --- */
     .addressee {
-      margin-bottom: 22px;
+      margin-bottom: 6px;
     }
     .salutation {
-      margin: 0 0 4px 0;
+      margin: 0 0 6px 0;
+      text-align: left;
     }
     .addressee-line {
-      margin: 0;
-      padding-left: 0;
+      margin: 0 0 6px 1.3cm;
+      text-align: left;
     }
     /* --- Subject --- */
     .subject-line {
       text-align: center;
       font-weight: bold;
-      font-size: 11pt;
+      font-size: 12pt;
       color: #8B4513;
       text-transform: uppercase;
-      line-height: 1.45;
+      line-height: 1.75;
       margin: 0 0 18px 0;
-      padding: 0 10px;
+      padding: 0 30px;
     }
     /* --- Body --- */
     p {
@@ -242,10 +253,16 @@
             Email: <a href="mailto:{{ brand.info_email }}">{{ brand.info_email }}</a>
           </p>
         </td>
+        {% if brand.secondary_logo_url %}
+        <td class="secondary-logo-cell">
+          <img src="{{ brand.secondary_logo_url }}" alt="DSM CPA Review Center" />
+        </td>
+        {% else %}
         <td class="corner-cell">
           <span class="corner-navy"></span>
           <span class="corner-gold"></span>
         </td>
+        {% endif %}
       </tr>
     </table>
     <hr class="header-rule" />
@@ -253,27 +270,24 @@
     {# Ref & date #}
     <table class="meta-table">
       <tr>
-        <td class="meta-left"><strong>Ref:</strong> {{ letter.reference }}</td>
-        <td class="meta-right">{{ letter.date }}</td>
+        <td class="meta-left">Ref: {{ letter.reference }}</td>
+        <td class="meta-right">{{ letter.date_html or letter.date }}</td>
       </tr>
     </table>
 
     {# 2. Recipient / addressee (formal letter style) #}
     <div class="addressee">
-      <p class="salutation">Dear <strong>{{ invitee.full_name }}</strong>,</p>
-      {% if invitee.organization or invitee.address_line %}
-      <p class="addressee-line">
-        {% if invitee.organization %}
-        <strong>{{ invitee.organization }}</strong>{% if invitee.address_line %}, {{ invitee.address_line }}{% endif %}.
-        {% else %}
-        {{ invitee.address_line }}.
-        {% endif %}
-      </p>
+      <p class="salutation">Dear {{ invitee.full_name }},</p>
+      {% if invitee.organization %}
+      <p class="addressee-line">{{ invitee.organization }}{% if invitee.address_line %},{% else %}.{% endif %}</p>
+      {% endif %}
+      {% if invitee.address_line %}
+      <p class="addressee-line">{{ invitee.address_line }}.</p>
       {% endif %}
     </div>
 
     {# 3. Subject heading #}
-    <p class="subject-line">{{ letter.subject_heading }}</p>
+    <p class="subject-line">{{ letter.subject_heading | nl2br }}</p>
 
     {# 4. Invitation opening #}
     <p>Reference is made to the heading above.</p>
