@@ -275,29 +275,15 @@
       margin: 6px 0 0 0;
       text-align: left;
     }
-    .signoff-contacts {
-      width: 100%;
-      margin: 16px 0 4px 0;
-    }
-    .signoff-contacts td {
-      font-size: 10pt;
-      line-height: 1.5;
-      vertical-align: top;
-      padding: 0;
-    }
-    .signoff-contact-left {
-      width: 36%;
-    }
-    .signoff-contacts a {
-      color: #1a4b8c;
-      text-decoration: underline;
-    }
     .signoff-org {
       color: #8B4513;
       font-size: 15pt;
       font-weight: bold;
       margin: 2px 0 0 0;
       text-align: left;
+    }
+    .signoff-org-first {
+      margin-top: 14px;
     }
     .signatory-rule {
       border: none;
@@ -545,20 +531,8 @@
         </tr>
       </table>
 
-      <table class="signoff-contacts">
-        <tr>
-          <td class="signoff-contact-left">
-            {% if brand.tel %}Tel: &nbsp;&nbsp;{{ brand.tel }}<br />{% endif %}
-            {% if brand.mobile %}Mob: {{ brand.mobile }}{% endif %}
-          </td>
-          <td class="signoff-contact-right">
-            {% if brand.info_email %}Email: <a href="mailto:{{ brand.info_email }}">{{ brand.info_email }}</a><br />{% endif %}
-            {% if brand.website %}Website: <a href="{{ brand.website }}">{{ brand.website | replace("https://", "") | replace("http://", "") | trim("/") }}</a>{% endif %}
-          </td>
-        </tr>
-      </table>
       {% for line in brand.signoff_lines %}
-      <p class="signoff-org">{{ line }}</p>
+      <p class="signoff-org{% if loop.first %} signoff-org-first{% endif %}">{{ line }}</p>
       {% endfor %}
     </div>
 
