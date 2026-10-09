@@ -197,6 +197,10 @@
     .investment-details .highlight {
       color: #000000;
     }
+    .payment-email {
+      color: #1a4b8c;
+      text-decoration: underline;
+    }
     .trainer-name {
       font-weight: bold;
       color: #8B4513;
@@ -449,29 +453,41 @@
     {% endif %}
 
     {# 7. Payment details #}
-    {% if payment.has_payment_info %}
+    {% if payment.has_payment_info or payment_intro_paragraphs %}
     <div class="payment-section">
-    <p class="section-heading">Payment Details</p>
-    <table class="payment-table">
-      {% if payment.course_fee %}
-      <tr><td>Course Fee</td><td>{{ payment.course_fee }}</td></tr>
-      {% endif %}
-      {% if payment.deposit_amount %}
-      <tr><td>Deposit Amount</td><td>{{ payment.deposit_amount }}</td></tr>
-      {% endif %}
-      {% if payment.reservation_deadline %}
-      <tr><td>Reservation Deadline</td><td>{{ payment.reservation_deadline }}</td></tr>
-      {% endif %}
-      {% if payment.bank_name %}
-      <tr><td>Bank</td><td>{{ payment.bank_name }}</td></tr>
-      {% endif %}
-      {% if payment.bank_account_name %}
-      <tr><td>Account Name</td><td>{{ payment.bank_account_name }}</td></tr>
-      {% endif %}
-      {% if payment.bank_account_number %}
-      <tr><td>Account Number</td><td>{{ payment.bank_account_number }}</td></tr>
+    <p class="section-heading section-heading-accent">Payment Details:</p>
+    {% for para in payment_intro_paragraphs %}
+    <p class="why-attend-intro">{{ para }}</p>
+    {% endfor %}
+    {% if payment.has_payment_info %}
+    <table class="diamond-list">
+      {% for label, value in [
+        ("Course Fee", payment.course_fee),
+        ("Deposit Amount", payment.deposit_amount),
+        ("Reservation Deadline", payment.reservation_deadline),
+        ("Bank Name", payment.bank_name),
+        ("Account Name", payment.bank_account_name),
+        ("Account Number", payment.bank_account_number),
+      ] if value %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text"><span class="td-label">{{ label }}:</span> {{ value }}</td>
+      </tr>
+      {% endfor %}
+      {% if brand.info_email %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text">
+          After making payment, please send proof of payment and the name or names of participants
+          through <a href="mailto:{{ brand.info_email }}" class="payment-email">{{ brand.info_email }}</a>
+          for registration and reservation.
+        </td>
+      </tr>
       {% endif %}
     </table>
+    {% endif %}
     </div>
     {% endif %}
 

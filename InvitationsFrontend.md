@@ -208,6 +208,7 @@ Returned by create/get/update/list item:
   "who_attend_intro": "This master class is ideal for professionals in:",
   "who_attend_points": "Finance, Accounting, Taxation, Auditing, and Consulting\nInvestment & Portfolio Management",
   "investment_details": "The participation fee for the six-day course is only **TZS. 650,000** per participant. This fee includes…",
+  "payment_intro": "Payments should be made to the African Hub of Business and Technology through the following bank details:",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -393,6 +394,7 @@ POST /api/invitations
   "who_attend_intro": "Opening statement",
   "who_attend_points": "Audience 1\nAudience 2",
   "investment_details": "Fee paragraph; wrap the amount in **double asterisks** to make it bold",
+  "payment_intro": "Opening statement shown above the bank details",
   "course_fee": 150000,
   "deposit_amount": 50000,
   "reservation_deadline": "2025-06-10",
@@ -418,6 +420,11 @@ POST /api/invitations
 **Investment & Registration Details** (letter section under Who Should Attend?, hidden when empty):
 
 - `investment_details` — textarea for the fee paragraph. Text wrapped in `**…**` is shown bold (black), e.g. `**TZS. 650,000**`. A blank line starts a new paragraph.
+
+**Payment Details:**
+
+- `payment_intro` — textarea for the opening statement above the bank details, e.g. "Payments should be made to … through the following bank details:".
+- The bullets below it come from the existing payment fields (`course_fee`, `deposit_amount`, `reservation_deadline`, `bank_name`, `bank_account_name`, `bank_account_number`); empty ones are skipped. A final bullet asks for proof of payment via the brand info email (`MAIL_BRAND_INFO_EMAIL`).
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 
@@ -931,7 +938,7 @@ When complete, status becomes `COMPLETED` (poll `GET /api/invitations/{id}`).
 Sections:
 
 1. **Campaign** — `title`
-2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`
+2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`, `payment_intro`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)

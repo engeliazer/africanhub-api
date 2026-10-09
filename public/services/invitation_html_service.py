@@ -464,6 +464,9 @@ def build_invitation_render_context(
         "investment_paragraphs": _highlighted_paragraphs(
             getattr(invitation, "investment_details", None),
         ),
+        "payment_intro_paragraphs": _highlighted_paragraphs(
+            getattr(invitation, "payment_intro", None),
+        ),
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
     }
 
@@ -521,6 +524,7 @@ def build_event_render_context(
         "why_attend": _intro_points_context(None, None),
         "who_attend": _intro_points_context(None, None),
         "investment_paragraphs": [],
+        "payment_intro_paragraphs": [],
         "trainers": [
             {
                 "full_name": t.get("full_name"),
