@@ -156,6 +156,31 @@
     .course-detail {
       margin: 4px 0;
     }
+    .training-details {
+      width: 100%;
+      margin: 0 0 12px 0;
+    }
+    .training-details td {
+      vertical-align: top;
+      padding: 0 0 4px 0;
+      font-size: 11pt;
+      line-height: 1.3;
+    }
+    .td-indent {
+      width: 0.9cm;
+    }
+    .training-details td.td-bullet {
+      width: 0.75cm;
+      color: #8B4513;
+      font-family: Symbol;
+      /* Symbol glyph sits higher than Times; nudge it onto the text baseline */
+      padding-top: 3pt;
+    }
+    .td-label,
+    .td-accent {
+      font-weight: bold;
+      color: #8B4513;
+    }
     .trainer-name {
       font-weight: bold;
       margin: 10px 0 2px 0;
@@ -307,10 +332,29 @@
 
     {# 5. About the course #}
     <p class="section-heading section-heading-plain">Training Details:</p>
-    <p class="course-detail"><strong>Course:</strong> {{ course.title }}</p>
-    <p class="course-detail"><strong>Venue:</strong> {{ course.venue }}</p>
-    <p class="course-detail"><strong>Date:</strong> {{ course.date_range }}</p>
-    <p class="course-detail"><strong>Time:</strong> {{ course.time_range }}</p>
+    <table class="training-details">
+      {% if course.date_range_long or course.date_range %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text td-accent">Dates: {{ course.date_range_long or course.date_range }}</td>
+      </tr>
+      {% endif %}
+      {% if course.venue %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text"><span class="td-label">Venue:</span> {{ course.venue }}</td>
+      </tr>
+      {% endif %}
+      {% if course.time_range_12h or course.time_range %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text"><span class="td-label">Time:</span> {{ course.time_range_12h or course.time_range }}</td>
+      </tr>
+      {% endif %}
+    </table>
     {% if course.description %}
     <div class="letter-message">{{ course.description | richtext }}</div>
     {% endif %}

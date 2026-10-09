@@ -85,6 +85,21 @@ def _format_time(value: Optional[time]) -> Optional[str]:
     return value.strftime("%H:%M")
 
 
+def _format_time_12h(value: Optional[time]) -> Optional[str]:
+    """e.g. 9:00 AM"""
+    if not value:
+        return None
+    hour = value.hour % 12 or 12
+    return f"{hour}:{value.minute:02d} {'AM' if value.hour < 12 else 'PM'}"
+
+
+def _format_long_date(value: Optional[date]) -> Optional[str]:
+    """e.g. 19th October 2026"""
+    if not value:
+        return None
+    return f"{_ordinal_day(value.day)} {value.strftime('%B %Y')}"
+
+
 def _format_money(amount) -> Optional[str]:
     if amount is None:
         return None
@@ -269,12 +284,26 @@ def _course_render_fields(
     else:
         date_range = start_date_fmt or end_date_fmt or ""
 
+    start_long = _format_long_date(start_date)
+    end_long = _format_long_date(end_date)
+    if start_long and end_long and start_long != end_long:
+        date_range_long = f"{start_long} to {end_long}"
+    else:
+        date_range_long = start_long or end_long or ""
+
     start_time_fmt = _format_time(start_time)
     end_time_fmt = _format_time(end_time)
     if start_time_fmt and end_time_fmt:
         time_range = f"{start_time_fmt} – {end_time_fmt}"
     else:
         time_range = start_time_fmt or end_time_fmt or ""
+
+    start_12h = _format_time_12h(start_time)
+    end_12h = _format_time_12h(end_time)
+    if start_12h and end_12h:
+        time_range_12h = f"{start_12h} – {end_12h}"
+    else:
+        time_range_12h = start_12h or end_12h or ""
 
     course_fee_fmt = _format_money(course_fee)
     deposit_amount_fmt = _format_money(deposit_amount)
@@ -295,9 +324,11 @@ def _course_render_fields(
             "start_date": start_date_fmt,
             "end_date": end_date_fmt,
             "date_range": date_range,
+            "date_range_long": date_range_long,
             "start_time": start_time_fmt,
             "end_time": end_time_fmt,
             "time_range": time_range,
+            "time_range_12h": time_range_12h,
             "learning_outcomes": _learning_outcomes_list(learning_outcomes),
         },
         "payment": {
