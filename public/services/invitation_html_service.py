@@ -251,6 +251,16 @@ def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[s
             or "info@africanhub.ac.tz"
         ).strip(),
         "website": (os.getenv("MAIL_WEBSITE_URL") or "https://africanhub.ac.tz").strip(),
+        "tel": (os.getenv("MAIL_BRAND_TEL") or "+255 710 223 399").strip(),
+        "mobile": (os.getenv("MAIL_BRAND_MOBILE") or "+255 716 734 577").strip(),
+        "signoff_lines": [
+            line.strip()
+            for line in (
+                os.getenv("MAIL_SIGNOFF_LINES")
+                or "African Hub of Business & Technology|DSM CPA Review Center"
+            ).split("|")
+            if line.strip()
+        ],
         "contact_email": (
             os.getenv("MAIL_REPLY_TO")
             or source_email
