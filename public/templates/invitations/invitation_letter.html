@@ -196,7 +196,9 @@
     }
     .trainer-name {
       font-weight: bold;
-      margin: 10px 0 2px 0;
+      color: #8B4513;
+      margin: 10px 0 4px 0;
+      text-align: left;
     }
     .trainer-role {
       font-style: italic;
@@ -392,7 +394,7 @@
 
     {# 6. Trainer(s) #}
     {% if trainers %}
-    <p class="section-heading">Meet Your Leading Trainer{% if trainers | length > 1 %}s{% endif %}</p>
+    <p class="section-heading section-heading-accent">Meet Your Leading Trainer{% if trainers | length > 1 %}s{% endif %}</p>
     {% for trainer in trainers %}
     <p class="trainer-name">{{ trainer.full_name }}</p>
     {% if trainer.designation %}
