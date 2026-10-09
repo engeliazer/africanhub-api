@@ -389,18 +389,10 @@
     </table>
     {% endif %}
     {% endif %}
-    {% if course.learning_outcomes %}
-    <p><strong>Learning Outcomes</strong></p>
-    <ul class="outcomes">
-      {% for outcome in course.learning_outcomes %}
-      <li>{{ outcome }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
 
-    {# 6. About the trainer(s) #}
+    {# 6. Trainer(s) #}
     {% if trainers %}
-    <p class="section-heading">About the Trainer{% if trainers | length > 1 %}s{% endif %}</p>
+    <p class="section-heading">Meet Your Leading Trainer{% if trainers | length > 1 %}s{% endif %}</p>
     {% for trainer in trainers %}
     <p class="trainer-name">{{ trainer.full_name }}</p>
     {% if trainer.designation %}
@@ -413,6 +405,15 @@
     <p><strong>Qualifications:</strong> {{ trainer.qualifications | nl2br }}</p>
     {% endif %}
     {% endfor %}
+    {% endif %}
+
+    {% if course.learning_outcomes %}
+    <p><strong>Learning Outcomes</strong></p>
+    <ul class="outcomes">
+      {% for outcome in course.learning_outcomes %}
+      <li>{{ outcome }}</li>
+      {% endfor %}
+    </ul>
     {% endif %}
 
     {# 7. Payment details #}
