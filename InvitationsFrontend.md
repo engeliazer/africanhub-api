@@ -424,7 +424,7 @@ POST /api/invitations
 **Payment Details:**
 
 - `payment_intro` — textarea for the opening statement above the bank details, e.g. "Payments should be made to … through the following bank details:".
-- The bullets below it come from the existing payment fields (`course_fee`, `deposit_amount`, `reservation_deadline`, `bank_name`, `bank_account_name`, `bank_account_number`); empty ones are skipped. A final bullet asks for proof of payment via the brand info email (`MAIL_BRAND_INFO_EMAIL`).
+- The bullets below it come from the existing payment fields (`course_fee`, `deposit_amount`, `reservation_deadline`, `bank_name`, `bank_account_name`, `bank_account_number`); empty ones are skipped. Put any payment instructions (e.g. where to send proof of payment) in `payment_intro`.
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 

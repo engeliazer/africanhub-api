@@ -197,10 +197,6 @@
     .investment-details .highlight {
       color: #000000;
     }
-    .payment-email {
-      color: #1a4b8c;
-      text-decoration: underline;
-    }
     .trainer-name {
       font-weight: bold;
       color: #8B4513;
@@ -475,17 +471,6 @@
         <td class="td-text"><span class="td-label">{{ label }}:</span> {{ value }}</td>
       </tr>
       {% endfor %}
-      {% if brand.info_email %}
-      <tr>
-        <td class="td-indent"></td>
-        <td class="td-bullet">&#9830;</td>
-        <td class="td-text">
-          After making payment, please send proof of payment and the name or names of participants
-          through <a href="mailto:{{ brand.info_email }}" class="payment-email">{{ brand.info_email }}</a>
-          for registration and reservation.
-        </td>
-      </tr>
-      {% endif %}
     </table>
     {% endif %}
     </div>
