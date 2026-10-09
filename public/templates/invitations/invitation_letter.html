@@ -23,12 +23,12 @@
       vertical-align: top;
       padding: 0;
     }
+    /* Logo cells are kept narrow so the company name fits on one line at 15pt */
     .logo-cell {
-      width: 130px;
-      padding-right: 10px;
+      width: 94px;
     }
     .logo-cell img {
-      width: 115px;
+      width: 94px;
       height: auto;
     }
     .company-name {
@@ -58,13 +58,12 @@
       vertical-align: top;
     }
     .secondary-logo-cell {
-      width: 130px;
-      padding-left: 10px;
+      width: 94px;
       text-align: right;
       vertical-align: middle;
     }
     .secondary-logo-cell img {
-      width: 120px;
+      width: 94px;
       height: auto;
     }
     .corner-navy {
@@ -142,6 +141,9 @@
       text-decoration: underline;
       margin: 18px 0 8px 0;
       text-align: left;
+    }
+    .section-heading-plain {
+      text-decoration: none;
     }
     ul.outcomes {
       margin: 6px 0 12px 22px;
@@ -304,7 +306,7 @@
     {% endif %}
 
     {# 5. About the course #}
-    <p class="section-heading">About the Course</p>
+    <p class="section-heading section-heading-plain">Training Details:</p>
     <p class="course-detail"><strong>Course:</strong> {{ course.title }}</p>
     <p class="course-detail"><strong>Venue:</strong> {{ course.venue }}</p>
     <p class="course-detail"><strong>Date:</strong> {{ course.date_range }}</p>

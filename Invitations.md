@@ -196,7 +196,7 @@ Generate invitation using 7 sections:
 1. Header
 2. Recipient Information
 3. Invitation Section
-4. About the Course
+4. Training Details
 5. About the Trainer
 6. Payment Details
 7. Footer
