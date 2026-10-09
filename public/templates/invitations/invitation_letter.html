@@ -52,11 +52,6 @@
       color: #1a4b8c;
       text-decoration: underline;
     }
-    .corner-cell {
-      width: 70px;
-      text-align: right;
-      vertical-align: top;
-    }
     .secondary-logo-cell {
       width: 94px;
       text-align: right;
@@ -65,21 +60,6 @@
     .secondary-logo-cell img {
       width: 94px;
       height: auto;
-    }
-    .corner-navy {
-      display: block;
-      width: 55px;
-      height: 18px;
-      background-color: #1e3a5f;
-      margin-left: auto;
-      margin-bottom: 4px;
-    }
-    .corner-gold {
-      display: block;
-      width: 55px;
-      height: 18px;
-      background-color: #e8912d;
-      margin-left: auto;
     }
     .header-rule {
       border: none;
@@ -311,16 +291,11 @@
             Email: <a href="mailto:{{ brand.info_email }}">{{ brand.info_email }}</a>
           </p>
         </td>
-        {% if brand.secondary_logo_url %}
         <td class="secondary-logo-cell">
+          {% if brand.secondary_logo_url %}
           <img src="{{ brand.secondary_logo_url }}" alt="Training partner" />
+          {% endif %}
         </td>
-        {% else %}
-        <td class="corner-cell">
-          <span class="corner-navy"></span>
-          <span class="corner-gold"></span>
-        </td>
-        {% endif %}
       </tr>
     </table>
     <hr class="header-rule" />
