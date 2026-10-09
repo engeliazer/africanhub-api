@@ -53,6 +53,11 @@ from public.services.invitation_partner_logo_service import (
     save_partner_logo,
     validate_partner_logo_upload,
 )
+from public.services.invitation_attachment_service import (
+    delete_invitation_attachment_file,
+    save_invitation_attachment,
+    validate_invitation_attachment,
+)
 from public.services.invitation_campaign_send_service import (
     count_pending_valid_invitees,
     send_test_invitation_email,
@@ -216,6 +221,8 @@ def _invitation_to_dict(
         "partner_name": invitation.partner_name,
         "has_partner_logo": bool(invitation.partner_logo_path),
         "partner_logo_filename": invitation.partner_logo_filename,
+        "has_additional_attachment": bool(invitation.additional_attachment_path),
+        "additional_attachment_filename": invitation.additional_attachment_filename,
         "source_email": invitation.source_email,
         "email_subject": invitation.email_subject,
         "email_message": invitation.email_message,
@@ -1437,6 +1444,125 @@ def download_invitation_partner_logo(invitation_id: int):
         )
     except Exception as e:
         logger.exception("download_invitation_partner_logo: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/attachment",
+    methods=["POST"],
+)
+@jwt_required()
+def upload_invitation_additional_attachment(invitation_id: int):
+    """
+    Upload an extra PDF (e.g. Course Contents) sent with every invitation email.
+
+    multipart/form-data field: attachment (PDF only).
+    """
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        blocked = _require_editable_status(invitation)
+        if blocked:
+            return blocked
+
+        file_storage = request.files.get("attachment")
+        attachment_error = validate_invitation_attachment(file_storage)
+        if attachment_error:
+            return jsonify({"status": "error", "message": attachment_error}), 400
+
+        delete_invitation_attachment_file(invitation.additional_attachment_path)
+        path, filename = save_invitation_attachment(invitation_id, file_storage)
+        invitation.additional_attachment_path = path
+        invitation.additional_attachment_filename = filename
+        invitation.updated_by = user_id
+        invitation.updated_at = datetime.utcnow()
+        db.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Attachment uploaded",
+            "data": {
+                "invitation_id": invitation.id,
+                "has_additional_attachment": True,
+                "additional_attachment_filename": filename,
+            },
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("upload_invitation_additional_attachment: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/attachment",
+    methods=["DELETE"],
+)
+@jwt_required()
+def remove_invitation_additional_attachment(invitation_id: int):
+    """Remove the extra PDF; emails then carry only the invitation letter."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        blocked = _require_editable_status(invitation)
+        if blocked:
+            return blocked
+
+        if not invitation.additional_attachment_path:
+            return jsonify({"status": "error", "message": "No attachment on this invitation"}), 404
+
+        delete_invitation_attachment_file(invitation.additional_attachment_path)
+        invitation.additional_attachment_path = None
+        invitation.additional_attachment_filename = None
+        invitation.updated_by = user_id
+        invitation.updated_at = datetime.utcnow()
+        db.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Attachment removed",
+            "data": {"invitation_id": invitation.id, "has_additional_attachment": False},
+        })
+    except Exception as e:
+        db.rollback()
+        logger.exception("remove_invitation_additional_attachment: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/attachment",
+    methods=["GET"],
+)
+@jwt_required()
+def download_invitation_additional_attachment(invitation_id: int):
+    """Download the extra PDF."""
+    db = get_db()
+    try:
+        invitation, err = _get_invitation_or_404(db, invitation_id)
+        if err:
+            return err
+        path = invitation.additional_attachment_path
+        if not path or not Path(path).is_file():
+            return jsonify({"status": "error", "message": "No attachment on this invitation"}), 404
+        return send_file(
+            path,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=invitation.additional_attachment_filename or Path(path).name,
+        )
+    except Exception as e:
+        logger.exception("download_invitation_additional_attachment: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()

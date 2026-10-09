@@ -277,6 +277,10 @@ def _brand_context(invitation: Optional[Invitation] = None) -> Dict[str, Union[s
             os.getenv("MAIL_BRAND_INFO_EMAIL")
             or "info@africanhub.ac.tz"
         ).strip(),
+        "header_email": (
+            os.getenv("MAIL_BRAND_HEADER_EMAIL")
+            or "trainings@africanhub.ac.tz"
+        ).strip(),
         "website": (os.getenv("MAIL_WEBSITE_URL") or "https://africanhub.ac.tz").strip(),
         "signoff_lines": signoff_lines,
         "contact_email": (

@@ -17,7 +17,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from dotenv import load_dotenv
 
@@ -178,6 +178,16 @@ def _load_attachment(
     return path.read_bytes(), filename
 
 
+def _load_attachments(
+    attachment_path: Optional[str],
+    attachment_filename: Optional[str],
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
+) -> List[Tuple[bytes, str]]:
+    pairs = [(attachment_path, attachment_filename), *(extra_attachments or [])]
+    loaded = [_load_attachment(path, name) for path, name in pairs]
+    return [item for item in loaded if item]
+
+
 def _send_via_sendgrid(
     *,
     from_email: str,
@@ -186,6 +196,7 @@ def _send_via_sendgrid(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
     use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     if not SENDGRID_AVAILABLE:
@@ -210,9 +221,9 @@ def _send_via_sendgrid(
             mail_kwargs["html_content"] = html_body
         mail = Mail(**mail_kwargs)
         mail.reply_to = (reply_to, _from_display_name())
-        attachment = _load_attachment(attachment_path, attachment_filename)
-        if attachment:
-            data, filename = attachment
+        for data, filename in _load_attachments(
+            attachment_path, attachment_filename, extra_attachments
+        ):
             encoded = base64.b64encode(data).decode("utf-8")
             mail.add_attachment(
                 Attachment(
@@ -276,19 +287,20 @@ def _build_smtp_message(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
     use_html: Optional[bool] = None,
 ):
-    attachment = _load_attachment(attachment_path, attachment_filename)
+    attachments = _load_attachments(attachment_path, attachment_filename, extra_attachments)
     body_part = _build_body_part(body, subject, use_html=use_html)
-    if attachment:
+    if attachments:
         msg = MIMEMultipart("mixed")
         msg.attach(body_part)
-        data, filename = attachment
-        part = MIMEBase("application", "pdf")
-        part.set_payload(data)
-        encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-        msg.attach(part)
+        for data, filename in attachments:
+            part = MIMEBase("application", "pdf")
+            part.set_payload(data)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            msg.attach(part)
     else:
         msg = body_part
 
@@ -326,6 +338,7 @@ def _send_via_smtp(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
     use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     cfg = _smtp_config()
@@ -355,6 +368,7 @@ def _send_via_smtp(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            extra_attachments=extra_attachments,
             use_html=use_html,
         )
         _send_smtp_message(cfg, msg)
@@ -383,6 +397,7 @@ def _send_via_ses(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
     use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     try:
@@ -407,6 +422,7 @@ def _send_via_ses(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            extra_attachments=extra_attachments,
             use_html=use_html,
         )
         msg.replace_header("From", formataddr((_from_display_name(), send_from)))
@@ -446,10 +462,12 @@ def send_batch_email(
     body: str,
     attachment_path: Optional[str] = None,
     attachment_filename: Optional[str] = None,
+    extra_attachments: Optional[Sequence[Tuple[str, Optional[str]]]] = None,
     use_html: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Send email with optional PDF attachment.
+    Send email with optional PDF attachment, plus any extra_attachments
+    given as (path, filename) pairs.
 
     Body is sent as plain text. Set MAIL_HTML_ENABLED=true to also attach the
     branded HTML wrapper (that layout is what inboxes tend to file as promotions).
@@ -466,6 +484,7 @@ def send_batch_email(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            extra_attachments=extra_attachments,
             use_html=use_html,
         )
     if transport == "api":
@@ -476,6 +495,7 @@ def send_batch_email(
             body=body,
             attachment_path=attachment_path,
             attachment_filename=attachment_filename,
+            extra_attachments=extra_attachments,
             use_html=use_html,
         )
     return _send_via_smtp(
@@ -485,5 +505,6 @@ def send_batch_email(
         body=body,
         attachment_path=attachment_path,
         attachment_filename=attachment_filename,
+        extra_attachments=extra_attachments,
         use_html=use_html,
     )

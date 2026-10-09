@@ -216,6 +216,8 @@ Returned by create/get/update/list item:
   "partner_name": "DSM CPA Review Center",
   "has_partner_logo": true,
   "partner_logo_filename": "logoDcrc.jpg",
+  "has_additional_attachment": true,
+  "additional_attachment_filename": "Course_Contents.pdf",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -871,6 +873,51 @@ Removes the logo. Response `data`: `{ "invitation_id": 42, "has_partner_logo": f
 
 ---
 
+#### Additional attachment (e.g. Course Contents)
+
+An optional extra PDF sent with every invitation email (campaign sends and test emails), alongside the personalised invitation letter. The email body adds "Also attached: {filename}." One file per invitation.
+
+```
+POST /api/invitations/{invitation_id}/attachment
+Content-Type: multipart/form-data
+```
+
+| Field | Type | Required |
+|-------|------|----------|
+| `attachment` | file (`.pdf` only, max 5MB) | Yes |
+
+Replaces any existing attachment. Only allowed while the invitation is editable. The file name the user uploads is the name recipients see, so suggest a clear one such as `Course_Contents.pdf`.
+
+**Response `200`:**
+
+```json
+{
+  "status": "success",
+  "message": "Attachment uploaded",
+  "data": {
+    "invitation_id": 42,
+    "has_additional_attachment": true,
+    "additional_attachment_filename": "Course_Contents.pdf"
+  }
+}
+```
+
+Errors (`400`): `Only PDF files are allowed`, `File is not a valid PDF`, `PDF must be 5MB or smaller`, `PDF file is empty`, `PDF file is required (field: attachment)`.
+
+```
+GET /api/invitations/{invitation_id}/attachment
+```
+
+Downloads the PDF. `404` when none is set.
+
+```
+DELETE /api/invitations/{invitation_id}/attachment
+```
+
+Removes it; emails then carry only the invitation letter. Response `data`: `{ "invitation_id": 42, "has_additional_attachment": false }`.
+
+---
+
 ### Sending
 
 Campaign sends (test + batch) use **plain text** for the email body and attach the personalized invitation **PDF**. They do not wrap the message in branded HTML (helps Primary / Inbox delivery vs Promotions).
@@ -1008,6 +1055,7 @@ Sections:
 2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`, `payment_intro`, `reservation_details`, `refund_policy`, `how_to_register`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
 3a. **Training partner** — `has_training_partner` toggle; when on, show `partner_name` and a logo picker (upload via `POST .../partner-logo` after save, preview via `GET .../partner-logo`)
+3b. **Additional attachment** — optional PDF picker (e.g. Course Contents); upload via `POST .../attachment` after save; show `additional_attachment_filename` with download / remove actions
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)
 6. **Rate limits** — `interval_seconds`, `interval_limit` (advanced; defaults 10s / 5 per burst)
@@ -1194,6 +1242,9 @@ await axios.post(
 | POST | `/api/invitations/{id}/partner-logo` |
 | GET | `/api/invitations/{id}/partner-logo` |
 | DELETE | `/api/invitations/{id}/partner-logo` |
+| POST | `/api/invitations/{id}/attachment` |
+| GET | `/api/invitations/{id}/attachment` |
+| DELETE | `/api/invitations/{id}/attachment` |
 | POST | `/api/invitations/{id}/send/test` |
 | POST | `/api/invitations/{id}/send/schedule` |
 | POST | `/api/invitations/{id}/send/start` |

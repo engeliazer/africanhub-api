@@ -596,6 +596,8 @@ class Invitation(Base):
     partner_name = Column(String(255), nullable=True)
     partner_logo_path = Column(String(500), nullable=True)
     partner_logo_filename = Column(String(255), nullable=True)
+    additional_attachment_path = Column(String(500), nullable=True)
+    additional_attachment_filename = Column(String(255), nullable=True)
     source_email = Column(String(255), nullable=False)
     email_subject = Column(String(500), nullable=False)
     email_message = Column(Text, nullable=False)

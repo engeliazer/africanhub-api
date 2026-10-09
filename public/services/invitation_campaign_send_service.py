@@ -45,12 +45,33 @@ def _to_plain_text(text: str) -> str:
     return raw.strip()
 
 
-def _build_plain_email_body(invitation: Invitation, full_name: str, pdf_filename: str) -> str:
+def _additional_attachment(invitation: Invitation) -> Optional[Tuple[str, str]]:
+    path = invitation.additional_attachment_path
+    if not path:
+        return None
+    if not Path(path).is_file():
+        logger.warning(
+            "Additional attachment for invitation %s missing on disk: %s",
+            invitation.id,
+            path,
+        )
+        return None
+    return path, invitation.additional_attachment_filename or Path(path).name
+
+
+def _build_plain_email_body(
+    invitation: Invitation,
+    full_name: str,
+    pdf_filename: str,
+    extra_filename: Optional[str] = None,
+) -> str:
     message = _to_plain_text(personalize_text(invitation.email_message, full_name))
     attachment_note = (
         f"Please find the formal invitation letter attached "
         f"({pdf_filename})."
     )
+    if extra_filename:
+        attachment_note += f" Also attached: {extra_filename}."
     if message:
         return f"{message}\n\n{attachment_note}\n"
     return (
@@ -105,7 +126,10 @@ def send_invitation_email(
         pdf_bytes, pdf_filename = render_invitation_pdf_bytes(invitation, invitee_data)
         pdf_path = _write_temp_pdf(invitation.id, pdf_bytes, pdf_filename)
 
-        body = _build_plain_email_body(invitation, full_name, pdf_filename)
+        extra = _additional_attachment(invitation)
+        body = _build_plain_email_body(
+            invitation, full_name, pdf_filename, extra[1] if extra else None
+        )
         subject = personalize_text(invitation.email_subject, full_name)
 
         if record_log and session is not None and update_invitee is not None:
@@ -130,6 +154,7 @@ def send_invitation_email(
             body=body,
             attachment_path=str(pdf_path),
             attachment_filename=pdf_filename,
+            extra_attachments=[extra] if extra else None,
             use_html=False,
         )
 
