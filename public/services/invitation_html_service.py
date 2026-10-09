@@ -362,6 +362,16 @@ def _normalize_newlines(text: Optional[str]) -> str:
     return BR_TAG_RE.sub("\n", str(text or ""))
 
 
+def _highlighted_paragraphs(text: Optional[str]) -> List[Markup]:
+    """Blank-line separated paragraphs; single newlines become line breaks."""
+    paragraphs = re.split(r"\n\s*\n", _normalize_newlines(text).strip())
+    return [
+        Markup(str(_highlighted_text(para)).replace("\n", "<br />"))
+        for para in paragraphs
+        if para.strip()
+    ]
+
+
 def _intro_points_context(intro: Optional[str], points: Optional[str]) -> Dict[str, Any]:
     return {
         "intro": _highlighted_text(intro) if (intro or "").strip() else "",
@@ -451,6 +461,9 @@ def build_invitation_render_context(
             getattr(invitation, "who_attend_intro", None),
             getattr(invitation, "who_attend_points", None),
         ),
+        "investment_paragraphs": _highlighted_paragraphs(
+            getattr(invitation, "investment_details", None),
+        ),
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
     }
 
@@ -507,6 +520,7 @@ def build_event_render_context(
         **shared,
         "why_attend": _intro_points_context(None, None),
         "who_attend": _intro_points_context(None, None),
+        "investment_paragraphs": [],
         "trainers": [
             {
                 "full_name": t.get("full_name"),

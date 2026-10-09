@@ -194,6 +194,9 @@
     .training-intro .letter-message-p {
       margin: 0 0 8px 0;
     }
+    .investment-details .highlight {
+      color: #000000;
+    }
     .trainer-name {
       font-weight: bold;
       color: #8B4513;
@@ -425,6 +428,15 @@
       {% endfor %}
     </table>
     {% endif %}
+    {% endif %}
+
+    {% if investment_paragraphs %}
+    <p class="section-heading section-heading-accent">Investment &amp; Registration Details</p>
+    <div class="investment-details">
+      {% for para in investment_paragraphs %}
+      <p class="letter-message-p">{{ para }}</p>
+      {% endfor %}
+    </div>
     {% endif %}
 
     {% if course.learning_outcomes %}

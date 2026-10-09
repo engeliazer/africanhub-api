@@ -207,6 +207,7 @@ Returned by create/get/update/list item:
   "why_attend_points": "Prepare & automate IFRS-compliant financial statements\nPayroll automation & asset register management",
   "who_attend_intro": "This master class is ideal for professionals in:",
   "who_attend_points": "Finance, Accounting, Taxation, Auditing, and Consulting\nInvestment & Portfolio Management",
+  "investment_details": "The participation fee for the six-day course is only **TZS. 650,000** per participant. This fee includes…",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -391,6 +392,7 @@ POST /api/invitations
   "why_attend_points": "Point 1\nPoint 2",
   "who_attend_intro": "Opening statement",
   "who_attend_points": "Audience 1\nAudience 2",
+  "investment_details": "Fee paragraph; wrap the amount in **double asterisks** to make it bold",
   "course_fee": 150000,
   "deposit_amount": 50000,
   "reservation_deadline": "2025-06-10",
@@ -412,6 +414,10 @@ POST /api/invitations
 
 - `who_attend_intro` — textarea for the opening statement, e.g. "This master class is ideal for professionals in:".
 - `who_attend_points` — textarea, one audience per line.
+
+**Investment & Registration Details** (letter section under Who Should Attend?, hidden when empty):
+
+- `investment_details` — textarea for the fee paragraph. Text wrapped in `**…**` is shown bold (black), e.g. `**TZS. 650,000**`. A blank line starts a new paragraph.
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 
@@ -925,7 +931,7 @@ When complete, status becomes `COMPLETED` (poll `GET /api/invitations/{id}`).
 Sections:
 
 1. **Campaign** — `title`
-2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`
+2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`, `who_attend_intro`, `who_attend_points`, `investment_details`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)
