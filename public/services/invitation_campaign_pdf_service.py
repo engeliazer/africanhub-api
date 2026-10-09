@@ -62,7 +62,7 @@ def render_invitation_pdf_bytes(
     brand = _brand_context(invitation)
     pdf_bytes = apply_invitation_pdf_overlays(
         buffer.getvalue(),
-        opacity=_watermark_opacity(),
+        opacity=0.15,
         brand={
             "legal_name": brand["legal_name"],
             "info_email": brand["info_email"],
