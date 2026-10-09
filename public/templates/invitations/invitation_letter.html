@@ -156,11 +156,11 @@
     .course-detail {
       margin: 4px 0;
     }
-    .training-details {
+    .diamond-list {
       width: 100%;
       margin: 0 0 12px 0;
     }
-    .training-details td {
+    .diamond-list td {
       vertical-align: top;
       padding: 0 0 4px 0;
       font-size: 11pt;
@@ -169,17 +169,29 @@
     .td-indent {
       width: 0.9cm;
     }
-    .training-details td.td-bullet {
+    .diamond-list td.td-bullet {
       width: 0.75cm;
       color: #8B4513;
       font-family: Symbol;
       /* Symbol glyph sits higher than Times; nudge it onto the text baseline */
       padding-top: 3pt;
     }
+    .td-text {
+      text-align: justify;
+    }
     .td-label,
-    .td-accent {
+    .td-accent,
+    .highlight {
       font-weight: bold;
       color: #8B4513;
+    }
+    .section-heading-accent {
+      color: #8B4513;
+      text-decoration: none;
+      margin-bottom: 2px;
+    }
+    .why-attend-intro {
+      margin: 0 0 8px 0;
     }
     .trainer-name {
       font-weight: bold;
@@ -332,7 +344,7 @@
 
     {# 5. About the course #}
     <p class="section-heading section-heading-plain">Training Details:</p>
-    <table class="training-details">
+    <table class="diamond-list">
       {% if course.date_range_long or course.date_range %}
       <tr>
         <td class="td-indent"></td>
@@ -355,6 +367,24 @@
       </tr>
       {% endif %}
     </table>
+
+    {% if why_attend and (why_attend.intro or why_attend.points) %}
+    <p class="section-heading section-heading-accent">Why You Should Attend:</p>
+    {% if why_attend.intro %}
+    <p class="why-attend-intro">{{ why_attend.intro }}</p>
+    {% endif %}
+    {% if why_attend.points %}
+    <table class="diamond-list">
+      {% for point in why_attend.points %}
+      <tr>
+        <td class="td-indent"></td>
+        <td class="td-bullet">&#9830;</td>
+        <td class="td-text">{{ point }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% endif %}
     {% if course.description %}
     <div class="letter-message">{{ course.description | richtext }}</div>
     {% endif %}

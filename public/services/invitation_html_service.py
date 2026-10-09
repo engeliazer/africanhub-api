@@ -349,6 +349,29 @@ def _learning_outcomes_list(text: Optional[str]) -> List[str]:
     return [line.strip() for line in str(text).splitlines() if line.strip()]
 
 
+HIGHLIGHT_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+
+
+def _highlighted_text(text: Optional[str]) -> Markup:
+    """Escape text and turn **phrase** into a highlighted (bold brown) span."""
+    escaped = html.escape(_normalize_newlines(text).strip())
+    return Markup(HIGHLIGHT_RE.sub(r'<span class="highlight">\1</span>', escaped))
+
+
+def _normalize_newlines(text: Optional[str]) -> str:
+    return BR_TAG_RE.sub("\n", str(text or ""))
+
+
+def _why_attend_context(intro: Optional[str], points: Optional[str]) -> Dict[str, Any]:
+    return {
+        "intro": _highlighted_text(intro) if (intro or "").strip() else "",
+        "points": [
+            _highlighted_text(line)
+            for line in _learning_outcomes_list(_normalize_newlines(points))
+        ],
+    }
+
+
 def _trainers_from_invitation(invitation: Invitation) -> List[Dict[str, Any]]:
     ordered = sorted(
         invitation.trainer_assignments,
@@ -420,6 +443,10 @@ def build_invitation_render_context(
             "addressee_line": _invitee_addressee_line(invitee),
         },
         **shared,
+        "why_attend": _why_attend_context(
+            getattr(invitation, "why_attend_intro", None),
+            getattr(invitation, "why_attend_points", None),
+        ),
         "trainers": trainers if trainers is not None else _trainers_from_invitation(invitation),
     }
 
@@ -474,6 +501,7 @@ def build_event_render_context(
             "addressee_line": _invitee_addressee_line(invitee),
         },
         **shared,
+        "why_attend": _why_attend_context(None, None),
         "trainers": [
             {
                 "full_name": t.get("full_name"),

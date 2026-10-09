@@ -203,6 +203,8 @@ Returned by create/get/update/list item:
   "start_time": "09:00:00",
   "end_time": "16:00:00",
   "learning_outcomes": "Outcome 1\nOutcome 2",
+  "why_attend_intro": "This training is designed to **transform the way you manage financial data** by equipping you with…",
+  "why_attend_points": "Prepare & automate IFRS-compliant financial statements\nPayroll automation & asset register management",
   "source_email": "trainings@africanhub.ac.tz",
   "email_subject": "Invitation: [NAME] — Advanced Tax Planning",
   "email_message": "Dear [NAME],\n\nWe are pleased to invite you…",
@@ -383,6 +385,8 @@ POST /api/invitations
 ```json
 {
   "learning_outcomes": "Line 1\nLine 2",
+  "why_attend_intro": "Opening statement; wrap a phrase in **double asterisks** to highlight it",
+  "why_attend_points": "Point 1\nPoint 2",
   "course_fee": 150000,
   "deposit_amount": 50000,
   "reservation_deadline": "2025-06-10",
@@ -394,6 +398,11 @@ POST /api/invitations
   "trainer_ids": [1, 2]
 }
 ```
+
+**Why You Should Attend** (letter section under Training Details, hidden when both are empty):
+
+- `why_attend_intro` — textarea for the opening statement. Text wrapped in `**…**` is shown bold and brown in the letter.
+- `why_attend_points` — textarea, one point per line (same as `learning_outcomes`). Each line becomes a diamond bullet; `**…**` highlighting also works here.
 
 **Response `201`:** full invitation object in `data`. Initial `status` is `DRAFT`.
 
@@ -907,7 +916,7 @@ When complete, status becomes `COMPLETED` (poll `GET /api/invitations/{id}`).
 Sections:
 
 1. **Campaign** — `title`
-2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`
+2. **Course** — `course_title`, `course_description`, `venue`, dates/times, `learning_outcomes`, `why_attend_intro`, `why_attend_points`
 3. **Trainers** — multi-select from `GET /trainers`; save via `POST .../trainers` on submit or separate assign call
 4. **Payment** — fee, deposit, deadline, bank fields
 5. **Email** — `source_email`, `email_subject`, `email_message` (show `[NAME]` hint)
