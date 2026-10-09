@@ -153,8 +153,10 @@
       width: 0.75cm;
       color: #8B4513;
       font-family: Symbol;
-      /* Symbol glyph sits higher than Times; nudge it onto the text baseline */
+      /* Symbol glyph sits higher than Times; nudge it onto the text baseline.
+         line-height 1 keeps the nudge from making the row taller than the text. */
       padding-top: 3pt;
+      line-height: 1;
     }
     .td-text {
       text-align: justify;
