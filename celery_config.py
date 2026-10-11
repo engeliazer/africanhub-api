@@ -76,7 +76,7 @@ celery.conf.update(
     task_default_retry_delay=60,  # Wait 60 seconds before retrying
     task_max_retries=3,  # Maximum number of retries
     worker_enable_remote_control=True,  # Enable remote control for better monitoring
-    worker_state_db='worker_state.db',  # Persist worker state
+    # Avoid worker_state.db (corrupt/locked on small VPS); not required for task execution
     task_compression='gzip',  # Compress task messages
     task_default_rate_limit='10/m',  # Rate limit tasks per minute
     task_default_priority=5,  # Default task priority (0-9, 0 being highest)
