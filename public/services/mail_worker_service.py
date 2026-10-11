@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -25,6 +26,45 @@ def _app_root() -> Path:
 
 def _env_bool(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default).lower()).strip().lower() in ("1", "true", "yes")
+
+
+def _executable(name: str, *fallback_paths: str) -> str:
+    """Resolve CLI tools when Gunicorn's PATH is minimal (common on systemd)."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for path in fallback_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return name
+
+
+PGREP = lambda: _executable("pgrep", "/usr/bin/pgrep", "/bin/pgrep")
+PKILL = lambda: _executable("pkill", "/usr/bin/pkill", "/bin/pkill")
+SYSTEMCTL = lambda: _executable("systemctl", "/bin/systemctl", "/usr/bin/systemctl")
+SUDO = lambda: _executable("sudo", "/usr/bin/sudo", "/bin/sudo")
+
+
+def _mail_worker_systemd_unit() -> str:
+    return os.getenv("MAIL_WORKER_SYSTEMD_UNIT", "africanhub-celery-mail.service").strip()
+
+
+def _systemd_unit_is_active(unit: str) -> tuple[bool, str | None]:
+    if not unit:
+        return False, "systemd unit not configured"
+    try:
+        proc = subprocess.run(
+            [SYSTEMCTL(), "is-active", unit],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        state = (proc.stdout or "").strip()
+        if proc.returncode == 0 and state == "active":
+            return True, None
+        return False, state or "inactive"
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _redis_client():
@@ -48,14 +88,24 @@ def redis_is_up() -> tuple[bool, str | None]:
 
 
 def mail_worker_is_running() -> tuple[bool, str | None]:
+    unit = _mail_worker_systemd_unit()
+    if unit:
+        active, err = _systemd_unit_is_active(unit)
+        if active:
+            return True, None
+        if err and err not in ("inactive", "failed", "deactivating"):
+            logger.debug("systemd is-active %s: %s", unit, err)
+
     try:
         result = subprocess.run(
-            ["pgrep", "-f", r"celery.*mail_processing"],
+            [PGREP(), "-f", r"celery.*mail_processing"],
             capture_output=True,
             text=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             return True, None
+        if unit:
+            return False, f"Unit {unit} not active"
         return False, "No Celery process for mail_processing queue"
     except Exception as exc:
         return False, str(exc)
@@ -65,9 +115,9 @@ def _run_systemctl(action: str, unit: str) -> tuple[bool, str]:
     unit = unit.strip()
     if not unit:
         return False, "systemd unit not configured"
-    cmd = ["systemctl", action, unit]
+    cmd = [SYSTEMCTL(), action, unit]
     if _env_bool("MAIL_WORKER_USE_SUDO", True):
-        cmd = ["sudo", "-n"] + cmd
+        cmd = [SUDO(), "-n"] + cmd
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if proc.returncode == 0:
@@ -173,7 +223,10 @@ def restart_mail_worker() -> dict[str, Any]:
         actions.append(f"systemctl restart {unit}: ok")
     else:
         actions.append(f"systemctl restart {unit}: failed ({msg})")
-        subprocess.run(["pkill", "-f", r"celery.*mail_processing"], capture_output=True)
+        subprocess.run(
+            [PKILL(), "-f", r"celery.*mail_processing"],
+            capture_output=True,
+        )
         time.sleep(2)
         spawn_ok, spawn_msg = _spawn_mail_worker()
         actions.append(f"spawn after pkill: {spawn_msg}")
