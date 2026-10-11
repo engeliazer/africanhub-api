@@ -11,6 +11,9 @@ from public.services.invitation_campaign_processor import (
     name="tasks_invitation_campaign.process_invitation_campaign_task",
     bind=True,
     max_retries=0,
+    # Large campaigns (thousands of PDFs + rate limits) can run many hours
+    time_limit=86400,
+    soft_time_limit=82800,
 )
 def process_invitation_campaign_task(self, invitation_id: int, include_failed: bool = False):
     _process_invitation_campaign(invitation_id, include_failed=include_failed)

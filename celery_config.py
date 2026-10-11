@@ -92,6 +92,11 @@ celery.conf.update(
     }
 )
 
+# Register ORM mappers before tasks touch the database (workers do not load app.py)
+from database.register_models import register_all_models
+
+register_all_models()
+
 # Import tasks module to ensure tasks are registered
 logger.info("Registering tasks...")
 import tasks_streamlined
