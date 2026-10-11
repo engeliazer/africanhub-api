@@ -360,6 +360,9 @@ def start_invitation_mail_batch(batch_id: int):
             start_invitation_batch_background,
         )
 
+        from public.services.mail_worker_service import ensure_mail_worker_ready
+
+        mail_worker = ensure_mail_worker_ready()
         queued_async = False
         try:
             from tasks_invitation_mail import process_invitation_mail_batch as celery_task
@@ -376,6 +379,7 @@ def start_invitation_mail_batch(batch_id: int):
                         "queued_via_celery": False,
                         "resumed": resuming,
                         "already_running": True,
+                        "mail_worker": mail_worker,
                     },
                 })
 
@@ -388,6 +392,7 @@ def start_invitation_mail_batch(batch_id: int):
                 "queued_via_celery": queued_async,
                 "resumed": resuming,
                 "already_running": False,
+                "mail_worker": mail_worker,
             },
         })
     except Exception as e:

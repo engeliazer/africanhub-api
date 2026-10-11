@@ -72,6 +72,12 @@ UPLOAD_FOLDER=./storage/uploads
 4. Rotate passwords regularly
 5. Use environment-specific `.env` files for different deployments
 
+## Bulk mail (Redis + Celery)
+
+Invitation campaigns queue work on the `mail_processing` Celery queue. The API can start Redis and the mail worker automatically when users send or resume campaigns — see **[MAIL_WORKER_OPS.md](./MAIL_WORKER_OPS.md)** for one-time systemd/sudo setup on the server.
+
+Optional `.env` keys: `APP_ROOT`, `MAIL_WORKER_AUTO_ENSURE`, `MAIL_WORKER_SYSTEMD_UNIT`, `REDIS_SYSTEMD_UNIT`, `MAIL_WORKER_SPAWN_IF_MISSING`.
+
 ## Testing SMTP Configuration
 
 After adding the variables, test the configuration:

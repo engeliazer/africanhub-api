@@ -1,0 +1,30 @@
+# Install on server (once):
+#   sudo cp scripts/africanhub-celery-mail.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable africanhub-celery-mail.service
+#
+# Passwordless start for the app user (optional, for API auto-ensure):
+#   sudo visudo -f /etc/sudoers.d/africanhub-mail-worker
+#   africanhub ALL=NOPASSWD: /bin/systemctl start redis-server.service, \
+#                            /bin/systemctl start africanhub-celery-mail.service, \
+#                            /bin/systemctl restart africanhub-celery-mail.service, \
+#                            /bin/systemctl status africanhub-celery-mail.service
+
+[Unit]
+Description=African Hub Celery mail worker (invitation campaigns)
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=africanhub
+Group=africanhub
+WorkingDirectory=/var/www/africanhub-api.africanhub.ac.tz
+EnvironmentFile=/var/www/africanhub-api.africanhub.ac.tz/.env
+Environment=APP_ROOT=/var/www/africanhub-api.africanhub.ac.tz
+ExecStart=/var/www/africanhub-api.africanhub.ac.tz/venv/bin/celery -A celery_config.celery worker --loglevel=info --concurrency=1 --queues=mail_processing
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

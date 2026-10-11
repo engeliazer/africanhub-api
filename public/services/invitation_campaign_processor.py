@@ -208,7 +208,9 @@ def dispatch_due_scheduled_campaigns() -> int:
             invitation.updated_at = now
             session.commit()
 
-            queued_async, _already_running = queue_invitation_campaign_processing(invitation.id)
+            queued_async, _already_running, _mail_worker = queue_invitation_campaign_processing(
+                invitation.id
+            )
             if queued_async or _already_running:
                 queued += 1
         return queued
@@ -221,11 +223,14 @@ def queue_invitation_campaign_processing(
     *,
     include_failed: bool = False,
 ) -> tuple:
-    """Returns (queued_via_celery, already_running_in_worker)."""
+    """Returns (queued_via_celery, already_running_in_worker, mail_worker_status)."""
+    from public.services.mail_worker_service import ensure_mail_worker_ready
+
+    mail_worker = ensure_mail_worker_ready()
     try:
         from tasks_invitation_campaign import process_invitation_campaign_task
         process_invitation_campaign_task.delay(invitation_id, include_failed=include_failed)
-        return True, False
+        return True, False, mail_worker
     except Exception as e:
         logger.warning(
             "Celery unavailable for invitation campaign %s: %s",
@@ -236,4 +241,4 @@ def queue_invitation_campaign_processing(
             invitation_id,
             include_failed=include_failed,
         )
-        return False, not started
+        return False, not started, mail_worker

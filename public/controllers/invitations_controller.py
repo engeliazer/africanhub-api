@@ -65,6 +65,12 @@ from public.services.invitation_campaign_send_service import (
 from public.services.invitation_campaign_processor import (
     queue_invitation_campaign_processing,
 )
+from public.services.mail_worker_service import (
+    ensure_mail_worker_ready,
+    get_mail_worker_status,
+    restart_mail_worker,
+)
+from books.services.entitlement_service import user_has_admin_role
 
 logger = logging.getLogger(__name__)
 
@@ -1765,6 +1771,31 @@ def schedule_invitation_send(invitation_id: int):
         db.close()
 
 
+@invitations_bp.route("/api/invitations/mail-worker/status", methods=["GET"])
+@jwt_required()
+def invitation_mail_worker_status():
+    return jsonify({"status": "success", "data": get_mail_worker_status()})
+
+
+@invitations_bp.route("/api/invitations/mail-worker/ensure", methods=["POST"])
+@jwt_required()
+def invitation_mail_worker_ensure():
+    return jsonify({"status": "success", "data": ensure_mail_worker_ready()})
+
+
+@invitations_bp.route("/api/invitations/mail-worker/restart", methods=["POST"])
+@jwt_required()
+def invitation_mail_worker_restart():
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        if not user_has_admin_role(db, user_id):
+            return jsonify({"status": "error", "message": "Admin access required"}), 403
+        return jsonify({"status": "success", "data": restart_mail_worker()})
+    finally:
+        db.close()
+
+
 @invitations_bp.route(
     "/api/invitations/<int:invitation_id>/send/start",
     methods=["POST"],
@@ -1829,7 +1860,7 @@ def start_invitation_send(invitation_id: int):
             invitation.updated_at = datetime.utcnow()
             db.commit()
 
-        queued_async, already_running = queue_invitation_campaign_processing(
+        queued_async, already_running, mail_worker = queue_invitation_campaign_processing(
             invitation_id,
             include_failed=retry_failed,
         )
@@ -1854,6 +1885,7 @@ def start_invitation_send(invitation_id: int):
                 "resumed": resuming,
                 "already_running": already_running,
                 "retry_failed": retry_failed,
+                "mail_worker": mail_worker,
             },
         })
     except Exception as e:
