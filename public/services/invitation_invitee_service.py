@@ -130,6 +130,9 @@ def build_invitee_summary(invitees: List[InvitationInvitee]) -> Dict[str, int]:
         "pending_send": sum(
             1 for i in invitees if _eq(i.send_status, InviteeSendStatus.pending)
         ),
+        "sending": sum(
+            1 for i in invitees if _eq(i.send_status, InviteeSendStatus.sending)
+        ),
         "sent": sum(
             1 for i in invitees if _eq(i.send_status, InviteeSendStatus.sent)
         ),

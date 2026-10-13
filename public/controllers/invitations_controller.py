@@ -65,6 +65,10 @@ from public.services.invitation_campaign_send_service import (
 from public.services.invitation_campaign_processor import (
     queue_invitation_campaign_processing,
 )
+from public.services.invitation_reproduce_service import (
+    load_invitation_for_reproduce,
+    reproduce_invitation,
+)
 from public.services.mail_worker_service import (
     ensure_mail_worker_ready,
     get_mail_worker_status,
@@ -139,7 +143,21 @@ def _trainer_to_dict(trainer: InvitationTrainer) -> Dict[str, Any]:
     }
 
 
-def _invitee_to_dict(invitee: InvitationInvitee) -> Dict[str, Any]:
+def _invitee_to_dict(
+    invitee: InvitationInvitee,
+    *,
+    minimal: bool = False,
+) -> Dict[str, Any]:
+    send_status = invitee.send_status.value if invitee.send_status else None
+    if minimal:
+        return {
+            "id": invitee.id,
+            "full_name": invitee.full_name,
+            "email": invitee.email,
+            "send_status": send_status,
+            "error_message": invitee.error_message,
+            "sent_at": invitee.sent_at.isoformat() if invitee.sent_at else None,
+        }
     return {
         "id": invitee.id,
         "full_name": invitee.full_name,
@@ -148,7 +166,7 @@ def _invitee_to_dict(invitee: InvitationInvitee) -> Dict[str, Any]:
         "organization": invitee.organization,
         "validation_status": invitee.validation_status.value if invitee.validation_status else None,
         "validation_message": invitee.validation_message,
-        "send_status": invitee.send_status.value if invitee.send_status else None,
+        "send_status": send_status,
         "error_message": invitee.error_message,
         "sent_at": invitee.sent_at.isoformat() if invitee.sent_at else None,
         "processed_at": invitee.processed_at.isoformat() if invitee.processed_at else None,
@@ -618,6 +636,53 @@ def list_invitations():
         db.close()
 
 
+@invitations_bp.route(
+    "/api/invitations/<int:invitation_id>/reproduce",
+    methods=["POST"],
+)
+@jwt_required()
+def reproduce_invitation_endpoint(invitation_id: int):
+    """
+    Duplicate an invitation as a new DRAFT (same content & trainers).
+
+    Body (optional): { "title": "My new campaign title" }
+
+    Not copied: invitees, send history, scheduled/send timestamps,
+    additional PDF attachment (user must upload again if needed).
+    """
+    data = request.get_json(silent=True) or {}
+    title_override = data.get("title")
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        source = load_invitation_for_reproduce(db, invitation_id)
+        if not source:
+            return jsonify({"status": "error", "message": "Invitation not found"}), 404
+
+        clone = reproduce_invitation(
+            db,
+            source,
+            user_id=user_id,
+            title=title_override,
+        )
+        db.commit()
+        db.refresh(clone)
+        return jsonify({
+            "status": "success",
+            "message": "Invitation reproduced as draft",
+            "data": {
+                "source_invitation_id": source.id,
+                "invitation": _invitation_to_dict(clone),
+            },
+        }), 201
+    except Exception as e:
+        db.rollback()
+        logger.exception("reproduce_invitation: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @invitations_bp.route("/api/invitations/<int:invitation_id>", methods=["GET"])
 @jwt_required()
 def get_invitation(invitation_id: int):
@@ -895,7 +960,7 @@ def list_invitation_invitees(invitation_id: int):
     """
     List invitees with optional filters and pagination.
 
-    Query: ?page=1&per_page=50&validation_status=VALID&send_status=PENDING
+    Query: ?page=1&per_page=50&validation_status=VALID&send_status=PENDING&minimal=true
     """
     db = get_db()
     try:
@@ -903,8 +968,9 @@ def list_invitation_invitees(invitation_id: int):
         if err:
             return err
 
+        minimal = request.args.get("minimal", "false").lower() == "true"
         page = max(1, request.args.get("page", 1, type=int))
-        per_page = min(200, max(1, request.args.get("per_page", 50, type=int)))
+        per_page = min(5000, max(1, request.args.get("per_page", 50, type=int)))
         offset = (page - 1) * per_page
 
         q = db.query(InvitationInvitee).filter(
@@ -938,7 +1004,7 @@ def list_invitation_invitees(invitation_id: int):
             "data": {
                 "invitation_id": invitation.id,
                 "summary": build_invitee_summary(all_invitees),
-                "invitees": [_invitee_to_dict(i) for i in rows],
+                "invitees": [_invitee_to_dict(i, minimal=minimal) for i in rows],
                 "pagination": {
                     "total": total,
                     "page": page,

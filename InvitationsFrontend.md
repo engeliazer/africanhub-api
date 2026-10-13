@@ -458,6 +458,43 @@ Formatting in these (and other letter text fields): `**text**` → bold brown (e
 
 ---
 
+#### Reproduce (duplicate) invitation
+
+Create a **new DRAFT** from an existing invitation so users can rerun a similar campaign without re-entering all fields.
+
+```
+POST /api/invitations/{invitation_id}/reproduce
+```
+
+**Body (optional):**
+
+```json
+{ "title": "CPA June 2026 — cohort B" }
+```
+
+If `title` is omitted, the new invitation title is `Copy of {original title}`.
+
+**Copied:** course/venue/dates, email copy, bank & fees, rate limits (`interval_*`), trainer assignments, custom HTML template file, partner logo file.
+
+**Not copied:** invitees, email/send logs, `scheduled_at` / send progress, **additional PDF attachment** (user uploads again via `POST .../attachment` if needed).
+
+**Response `201`:**
+
+```json
+{
+  "status": "success",
+  "message": "Invitation reproduced as draft",
+  "data": {
+    "source_invitation_id": 10,
+    "invitation": { }
+  }
+}
+```
+
+Frontend: after success, navigate to the edit wizard for `data.invitation.id`; show empty invitee step and prompt for attachment if the source had one.
+
+---
+
 #### List invitations
 
 ```
@@ -640,9 +677,19 @@ GET /api/invitations/{invitation_id}/invitees?page=1&per_page=50&validation_stat
 | Query | Default | Description |
 |-------|---------|-------------|
 | `page` | `1` | |
-| `per_page` | `50` | Max 200 |
+| `per_page` | `50` | Max **5000** (full list for large campaigns) |
 | `validation_status` | — | `VALID`, `INVALID`, `DUPLICATE`, `PENDING` |
 | `send_status` | — | `PENDING`, `SENDING`, `SENT`, `FAILED` |
+| `minimal` | `false` | If `true`, each invitee is `id`, `full_name`, `email`, `send_status`, `error_message`, `sent_at` only |
+
+**Examples**
+
+- All valid invitees with send status (one page, up to 5000):  
+  `GET .../invitees?validation_status=VALID&per_page=5000`
+- Only failures:  
+  `GET .../invitees?send_status=FAILED&per_page=5000`
+- Compact export-style list:  
+  `GET .../invitees?validation_status=VALID&per_page=5000&minimal=true`
 
 **Response `data`:**
 
@@ -1227,6 +1274,7 @@ await axios.post(
 | GET | `/api/invitations/{id}` |
 | PUT | `/api/invitations/{id}` |
 | DELETE | `/api/invitations/{id}` |
+| POST | `/api/invitations/{id}/reproduce` |
 | POST | `/api/invitations/{id}/trainers` |
 | POST | `/api/invitations/{id}/invitees/validate` |
 | POST | `/api/invitations/{id}/invitees` |
