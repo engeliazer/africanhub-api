@@ -211,6 +211,12 @@ def set_device_primary(device_id):
                 "status": "error",
                 "message": "Device not found"
             }), 404
+
+        if not device.is_primary:
+            return jsonify({
+                "status": "error",
+                "message": "Failed to set device as primary",
+            }), 500
             
         # Serialize device
         serialized_device = {

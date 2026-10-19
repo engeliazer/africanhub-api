@@ -113,9 +113,19 @@ class DeviceFingerprintService:
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
+    def _as_user_id(user_id) -> int:
+        return int(user_id)
+
+    @staticmethod
+    def _is_truthy_primary(value) -> bool:
+        return value is True or value == 1 or value == "1"
+
     def get_or_create_device(self, user_id: int, fingerprint_data: dict, created_by: int) -> UserDevice:
         """Get or create a device record for the user"""
         try:
+            user_id = self._as_user_id(user_id)
+            created_by = self._as_user_id(created_by)
             fingerprint_data = normalize_device_fingerprint(fingerprint_data)
             # Extract visitor ID from the correct location
             visitor_id = fingerprint_data.get('visitorId')
@@ -176,6 +186,7 @@ class DeviceFingerprintService:
                     existing_device.browser_version = device_data['browser_version']  # Update browser version
                     existing_device.updated_by = created_by
                     self.db.commit()
+                    self.db.refresh(existing_device)
                     return existing_device
                 except Exception as e:
                     # Handle concurrent update - refresh and retry
@@ -184,6 +195,7 @@ class DeviceFingerprintService:
                     existing_device.last_used = datetime.utcnow()
                     existing_device.updated_by = created_by
                     self.db.commit()
+                    self.db.refresh(existing_device)
                     return existing_device
             
             # Create new device
@@ -213,6 +225,11 @@ class DeviceFingerprintService:
                     UserDevice.is_active == True
                 ).first()
                 if existing_device:
+                    if existing_device.user_id != user_id:
+                        raise ValueError(
+                            "This device fingerprint is already registered to another account"
+                        )
+                    self.db.refresh(existing_device)
                     return existing_device
                 # If we still can't find it, re-raise for visibility
                 raise
@@ -221,28 +238,50 @@ class DeviceFingerprintService:
             self.db.rollback()
             raise ValueError(f"Failed to get or create device: {str(e)}")
 
+    def get_device_access_status(self, user_id: int, visitor_id: str) -> Dict[str, Any]:
+        """
+        Decide if this browser may access materials and return diagnostics for the UI.
+        """
+        user_id = self._as_user_id(user_id)
+        self.db.expire_all()
+
+        device = self.db.query(UserDevice).filter(
+            UserDevice.user_id == user_id,
+            UserDevice.visitor_id == visitor_id,
+            UserDevice.is_active == True,
+        ).first()
+
+        primary = self.db.query(UserDevice).filter(
+            UserDevice.user_id == user_id,
+            UserDevice.is_active == True,
+            UserDevice.is_primary.is_(True),
+        ).first()
+
+        authorized = device is not None and self._is_truthy_primary(device.is_primary)
+
+        reason = "authorized"
+        if not device:
+            reason = "device_not_registered_for_user"
+        elif not self._is_truthy_primary(device.is_primary):
+            if primary and primary.visitor_id != visitor_id:
+                reason = "primary_is_another_device"
+            else:
+                reason = "device_not_primary"
+
+        return {
+            "is_authorized": authorized,
+            "reason": reason,
+            "request_visitor_id": visitor_id,
+            "device_id": device.id if device else None,
+            "device_is_primary": self._is_truthy_primary(device.is_primary) if device else False,
+            "primary_device_id": primary.id if primary else None,
+            "primary_visitor_id": primary.visitor_id if primary else None,
+        }
+
     def check_device_access(self, user_id: int, visitor_id: str) -> bool:
-        """
-        Check if a device is allowed to access materials.
-        Only returns True if the device is already marked as primary.
-        Does NOT automatically promote devices to primary - that only happens during device creation.
-        """
+        """True when this visitor_id is the user's primary device."""
         try:
-            # Check if this device exists
-            device = self.db.query(UserDevice).filter(
-                UserDevice.user_id == user_id,
-                UserDevice.visitor_id == visitor_id,
-                UserDevice.is_active == True
-            ).first()
-            
-            if not device:
-                return False
-                
-            # Only allow access if this device is already primary
-            # If it's not primary, deny access (even if user has no primary device)
-            # Primary status can only be set explicitly via update_device_status or during first device creation
-            return device.is_primary
-            
+            return self.get_device_access_status(user_id, visitor_id)["is_authorized"]
         except Exception as e:
             self.db.rollback()
             raise ValueError(f"Error checking device access: {str(e)}")
@@ -264,6 +303,7 @@ class DeviceFingerprintService:
         Update device primary status atomically to prevent race conditions
         """
         try:
+            updated_by = self._as_user_id(updated_by)
             # Lock the device row to prevent concurrent modifications
             device = self.db.query(UserDevice).filter(
                 UserDevice.id == device_id,

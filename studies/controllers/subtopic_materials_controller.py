@@ -307,6 +307,27 @@ def get_mp4_duration(filename):
         print(f"Error reading MP4 duration: {str(e)}")
         return None
 
+def _device_access_denied_message(access: dict) -> str:
+    reason = access.get("reason")
+    if reason == "primary_is_another_device":
+        return (
+            "This browser is not your primary device. In User Devices, click "
+            "'Set as Primary' on the row whose Visitor ID matches "
+            f"{access.get('request_visitor_id')} (or use the device that is primary)."
+        )
+    if reason == "device_not_primary":
+        return (
+            "Device is registered but not primary. Set this browser as primary "
+            "in User Devices, then reload materials."
+        )
+    if reason == "device_not_registered_for_user":
+        return (
+            "Device fingerprint was not registered for this user. Send "
+            "device_fingerprint with the materials request (POST body)."
+        )
+    return "Device not authorized to access materials. Please contact administrator."
+
+
 def convert_time_to_seconds(time_str):
     """Convert time string in HH:MM:SS format to seconds."""
     try:
@@ -322,7 +343,7 @@ def convert_time_to_seconds(time_str):
 @jwt_required()
 def get_materials():
     try:
-        current_user_id = get_jwt_identity()
+        current_user_id = int(get_jwt_identity())
         
         fingerprint_data = parse_device_fingerprint_from_request(request)
         if not fingerprint_data:
@@ -338,10 +359,15 @@ def get_materials():
         device_service = DeviceFingerprintService(db_session)
         
         # Get or create device record
-        device = device_service.get_or_create_device(current_user_id, fingerprint_data, current_user_id)
-        
-        # Check if device is allowed to access materials
-        is_authorized = device_service.check_device_access(current_user_id, device.visitor_id)
+        device = device_service.get_or_create_device(
+            current_user_id, fingerprint_data, current_user_id
+        )
+        request_visitor_id = fingerprint_data.get("visitorId") or device.visitor_id
+
+        access = device_service.get_device_access_status(
+            current_user_id, request_visitor_id
+        )
+        is_authorized = access["is_authorized"]
         
         # Get pagination and filter parameters from query string
         page = request.args.get('page', 1, type=int)
@@ -397,12 +423,19 @@ def get_materials():
             "status": "success",
             "device_verification": {
                 "is_authorized": is_authorized,
-                "message": "Device authorized to access materials" if is_authorized else "Device not authorized to access materials. Please contact administrator.",
+                "message": (
+                    "Device authorized to access materials"
+                    if is_authorized
+                    else _device_access_denied_message(access)
+                ),
                 "device_id": device.id,
-                "visitor_id": device.visitor_id,
-                "is_primary": device.is_primary,
+                "visitor_id": request_visitor_id,
+                "is_primary": access["device_is_primary"],
                 "device_registered": True,
-                "last_used": device.last_used.isoformat() if device.last_used else None
+                "reason": access["reason"],
+                "primary_device_id": access["primary_device_id"],
+                "primary_visitor_id": access["primary_visitor_id"],
+                "last_used": device.last_used.isoformat() if device.last_used else None,
             },
             "data": {
                 "items": serialized_materials,
