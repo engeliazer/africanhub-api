@@ -121,8 +121,15 @@ class DeviceFingerprintService:
     def _is_truthy_primary(value) -> bool:
         return value is True or value == 1 or value == "1"
 
-    def get_or_create_device(self, user_id: int, fingerprint_data: dict, created_by: int) -> UserDevice:
-        """Get or create a device record for the user"""
+    def get_or_create_device(
+        self, user_id: int, fingerprint_data: dict, created_by: int
+    ) -> Optional[UserDevice]:
+        """
+        Get or create a device record for the user.
+
+        Returns None when visitor_id is already registered to a different user
+        (caller should treat as not authorized, not as a server error).
+        """
         try:
             user_id = self._as_user_id(user_id)
             created_by = self._as_user_id(created_by)
@@ -177,6 +184,14 @@ class DeviceFingerprintService:
                 UserDevice.is_active == True
             ).first()
             
+            owned_elsewhere = self.db.query(UserDevice).filter(
+                UserDevice.visitor_id == visitor_id,
+                UserDevice.is_active == True,
+                UserDevice.user_id != user_id,
+            ).first()
+            if owned_elsewhere:
+                return None
+
             if existing_device:
                 # Update existing device with new fingerprint data
                 try:
@@ -226,17 +241,18 @@ class DeviceFingerprintService:
                 ).first()
                 if existing_device:
                     if existing_device.user_id != user_id:
-                        raise ValueError(
-                            "This device fingerprint is already registered to another account"
-                        )
+                        return None
                     self.db.refresh(existing_device)
                     return existing_device
                 # If we still can't find it, re-raise for visibility
                 raise
-            
+
+        except ValueError:
+            self.db.rollback()
+            raise
         except Exception as e:
             self.db.rollback()
-            raise ValueError(f"Failed to get or create device: {str(e)}")
+            raise ValueError(f"Failed to get or create device: {str(e)}") from e
 
     def get_device_access_status(self, user_id: int, visitor_id: str) -> Dict[str, Any]:
         """

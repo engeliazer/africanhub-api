@@ -338,10 +338,10 @@ def get_materials():
         device_service = DeviceFingerprintService(db_session)
         
         # Get or create device record
+        request_visitor_id = fingerprint_data.get("visitorId")
         device = device_service.get_or_create_device(
             current_user_id, fingerprint_data, current_user_id
         )
-        request_visitor_id = fingerprint_data.get("visitorId") or device.visitor_id
 
         access = device_service.get_device_access_status(
             current_user_id, request_visitor_id
@@ -407,14 +407,18 @@ def get_materials():
                     if is_authorized
                     else "Device not authorized to access materials. Please contact administrator."
                 ),
-                "device_id": device.id,
+                "device_id": device.id if device else access.get("device_id"),
                 "visitor_id": request_visitor_id,
                 "is_primary": access["device_is_primary"],
-                "device_registered": True,
+                "device_registered": device is not None,
                 "reason": access["reason"],
                 "primary_device_id": access["primary_device_id"],
                 "primary_visitor_id": access["primary_visitor_id"],
-                "last_used": device.last_used.isoformat() if device.last_used else None,
+                "last_used": (
+                    device.last_used.isoformat()
+                    if device and device.last_used
+                    else None
+                ),
             },
             "data": {
                 "items": serialized_materials,
@@ -424,10 +428,16 @@ def get_materials():
                 "pages": (total + per_page - 1) // per_page
             }
         })
-    except Exception as e:
+    except ValueError as e:
         return jsonify({
             "status": "error",
-            "message": str(e)
+            "message": str(e),
+        }), 400
+    except Exception as e:
+        logger.exception("get_materials: %s", e)
+        return jsonify({
+            "status": "error",
+            "message": str(e),
         }), 500
 
 # REMOVED: Old upload endpoint - replaced with streamlined version below
