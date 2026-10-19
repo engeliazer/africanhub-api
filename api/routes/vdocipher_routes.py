@@ -580,7 +580,6 @@ def link_existing_vdocipher_video():
                 'details': error_msg
             }), status_code
 
-        video_status = video_details.get('status', 'processing')
         video_duration = video_details.get('length', 0)
         video_thumbnail = video_details.get('thumbnail')
         video_poster = video_details.get('poster')
@@ -597,7 +596,7 @@ def link_existing_vdocipher_video():
                 extension_type='mp4',
                 file_size=0,
                 vdocipher_video_id=video_id,
-                video_status=video_status,
+                video_status='ready',
                 video_duration=video_duration,
                 video_thumbnail_url=video_thumbnail,
                 video_poster_url=video_poster,
@@ -618,7 +617,7 @@ def link_existing_vdocipher_video():
                 'data': {
                     'material_id': material.id,
                     'video_id': video_id,
-                    'video_status': video_status,
+                    'video_status': 'ready',
                     'duration': int(video_duration or 0),
                     'message': 'Video linked successfully to material'
                 }

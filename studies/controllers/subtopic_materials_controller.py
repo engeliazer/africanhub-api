@@ -307,27 +307,6 @@ def get_mp4_duration(filename):
         print(f"Error reading MP4 duration: {str(e)}")
         return None
 
-def _device_access_denied_message(access: dict) -> str:
-    reason = access.get("reason")
-    if reason == "primary_is_another_device":
-        return (
-            "This browser is not your primary device. In User Devices, click "
-            "'Set as Primary' on the row whose Visitor ID matches "
-            f"{access.get('request_visitor_id')} (or use the device that is primary)."
-        )
-    if reason == "device_not_primary":
-        return (
-            "Device is registered but not primary. Set this browser as primary "
-            "in User Devices, then reload materials."
-        )
-    if reason == "device_not_registered_for_user":
-        return (
-            "Device fingerprint was not registered for this user. Send "
-            "device_fingerprint with the materials request (POST body)."
-        )
-    return "Device not authorized to access materials. Please contact administrator."
-
-
 def convert_time_to_seconds(time_str):
     """Convert time string in HH:MM:SS format to seconds."""
     try:
@@ -426,7 +405,7 @@ def get_materials():
                 "message": (
                     "Device authorized to access materials"
                     if is_authorized
-                    else _device_access_denied_message(access)
+                    else "Device not authorized to access materials. Please contact administrator."
                 ),
                 "device_id": device.id,
                 "visitor_id": request_visitor_id,
@@ -943,9 +922,13 @@ def update_material(material_id):
             if not subtopic:
                 return jsonify({"error": "New subtopic not found"}), 404
             
-        for field, value in material_data.dict(exclude_unset=True).items():
+        update_fields = material_data.dict(exclude_unset=True)
+        if update_fields.get("vdocipher_video_id"):
+            update_fields["video_status"] = "ready"
+
+        for field, value in update_fields.items():
             setattr(material, field, value)
-            
+
         db_session.commit()
         db_session.refresh(material)
         
