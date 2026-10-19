@@ -76,10 +76,17 @@ class UserRole(Base):
 
 class UserDevice(Base):
     __tablename__ = "user_devices"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "visitor_id",
+            name="uq_user_devices_user_id_visitor_id",
+        ),
+    )
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     user_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    visitor_id = Column(String(255), nullable=False, unique=True)
+    visitor_id = Column(String(255), nullable=False, index=True)
     browser_name = Column(String(255), nullable=False)
     browser_version = Column(String(255), nullable=False)
     os_name = Column(String(255), nullable=False)

@@ -127,8 +127,7 @@ class DeviceFingerprintService:
         """
         Get or create a device record for the user.
 
-        Returns None when visitor_id is already registered to a different user
-        (caller should treat as not authorized, not as a server error).
+        Same visitor_id may exist on different users (unique per user_id + visitor_id).
         """
         try:
             user_id = self._as_user_id(user_id)
@@ -184,14 +183,6 @@ class DeviceFingerprintService:
                 UserDevice.is_active == True
             ).first()
             
-            owned_elsewhere = self.db.query(UserDevice).filter(
-                UserDevice.visitor_id == visitor_id,
-                UserDevice.is_active == True,
-                UserDevice.user_id != user_id,
-            ).first()
-            if owned_elsewhere:
-                return None
-
             if existing_device:
                 # Update existing device with new fingerprint data
                 try:
@@ -232,19 +223,15 @@ class DeviceFingerprintService:
                 self.db.refresh(new_device)
                 return new_device
             except IntegrityError:
-                # Another request created this device concurrently (duplicate visitor_id)
                 self.db.rollback()
-                # Fetch the existing device by visitor_id (unique globally)
                 existing_device = self.db.query(UserDevice).filter(
+                    UserDevice.user_id == user_id,
                     UserDevice.visitor_id == visitor_id,
-                    UserDevice.is_active == True
+                    UserDevice.is_active == True,
                 ).first()
                 if existing_device:
-                    if existing_device.user_id != user_id:
-                        return None
                     self.db.refresh(existing_device)
                     return existing_device
-                # If we still can't find it, re-raise for visibility
                 raise
 
         except ValueError:
