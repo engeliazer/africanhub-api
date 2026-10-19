@@ -6,7 +6,10 @@ from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 from studies.models.schemas import SubtopicMaterialCreate, SubtopicMaterialUpdate, SubtopicMaterialInDB
 from subjects.models.models import SubTopic
 from database.db_connector import db_session
-from auth.services.device_fingerprint_service import DeviceFingerprintService
+from auth.services.device_fingerprint_service import (
+    DeviceFingerprintService,
+    parse_device_fingerprint_from_request,
+)
 from datetime import datetime, timedelta
 import os
 import re
@@ -321,19 +324,14 @@ def get_materials():
     try:
         current_user_id = get_jwt_identity()
         
-        # Get device fingerprint from request body or query params
-        fingerprint_data = None
-        if request.method == 'POST':
-            if request.is_json:
-                data = request.get_json()
-                fingerprint_data = data.get('device_fingerprint') if data else None
-            else:
-                fingerprint_data = request.form.get('device_fingerprint')
-        
+        fingerprint_data = parse_device_fingerprint_from_request(request)
         if not fingerprint_data:
             return jsonify({
                 "status": "error",
-                "message": "Device fingerprint is required"
+                "message": (
+                    "Device fingerprint is required. Send JSON body with "
+                    "device_fingerprint (POST recommended) or device_fingerprint query param."
+                ),
             }), 400
             
         # Initialize device fingerprint service
@@ -401,7 +399,9 @@ def get_materials():
                 "is_authorized": is_authorized,
                 "message": "Device authorized to access materials" if is_authorized else "Device not authorized to access materials. Please contact administrator.",
                 "device_id": device.id,
+                "visitor_id": device.visitor_id,
                 "is_primary": device.is_primary,
+                "device_registered": True,
                 "last_used": device.last_used.isoformat() if device.last_used else None
             },
             "data": {

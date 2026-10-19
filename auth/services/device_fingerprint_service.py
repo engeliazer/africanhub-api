@@ -6,6 +6,109 @@ from auth.models.schemas import UserDeviceCreate
 import json
 from datetime import datetime
 
+
+def normalize_device_fingerprint(fingerprint_data: dict) -> dict:
+    """
+    Accept FingerprintJS payloads where browser/os/hardware live under
+    `components` or at the top level (frontend-enriched shape).
+    """
+    if not fingerprint_data or not isinstance(fingerprint_data, dict):
+        raise ValueError("Device fingerprint must be a JSON object")
+
+    data = dict(fingerprint_data)
+    components = data.get("components") or {}
+    if not isinstance(components, dict):
+        components = {}
+
+    def _component_value(key: str):
+        block = components.get(key)
+        if isinstance(block, dict) and "value" in block:
+            return block.get("value")
+        return None
+
+    if not data.get("browser_info"):
+        data["browser_info"] = components.get("browser_info") or {}
+    if not data.get("os_info"):
+        data["os_info"] = components.get("os_info") or {}
+    if not data.get("hardware_info"):
+        data["hardware_info"] = components.get("hardware_info") or {}
+
+    browser_info = data["browser_info"]
+    os_info = data["os_info"]
+    hardware_info = data["hardware_info"]
+
+    if not browser_info.get("name"):
+        vendor_flavors = _component_value("vendorFlavors")
+        if isinstance(vendor_flavors, list) and vendor_flavors:
+            browser_info["name"] = str(vendor_flavors[0]).capitalize()
+        elif components.get("vendor", {}).get("value"):
+            browser_info["name"] = "Chrome"
+
+    if not os_info.get("name"):
+        platform = _component_value("platform")
+        if platform:
+            os_info["name"] = (
+                "macOS" if platform == "MacIntel" else str(platform)
+            )
+        if not os_info.get("version"):
+            os_info["version"] = "unknown"
+
+    if not hardware_info:
+        res = _component_value("screenResolution")
+        hardware_info = {
+            "screenResolution": f"{res[0]}x{res[1]}" if isinstance(res, list) and len(res) >= 2 else None,
+            "colorDepth": _component_value("colorDepth"),
+            "hardwareConcurrency": _component_value("hardwareConcurrency"),
+            "deviceMemory": _component_value("deviceMemory"),
+        }
+        data["hardware_info"] = hardware_info
+
+    components["browser_info"] = browser_info
+    components["os_info"] = os_info
+    components["hardware_info"] = hardware_info
+    data["components"] = components
+    return data
+
+
+def parse_device_fingerprint_from_request(request) -> Optional[dict]:
+    """Read device fingerprint from POST JSON, form, query, or JSON body on GET."""
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        fp = body.get("device_fingerprint")
+        if fp:
+            if isinstance(fp, str):
+                fp = json.loads(fp)
+            return normalize_device_fingerprint(fp)
+        if body.get("visitorId"):
+            return normalize_device_fingerprint(body)
+
+    form_fp = request.form.get("device_fingerprint")
+    if form_fp:
+        parsed = json.loads(form_fp) if isinstance(form_fp, str) else form_fp
+        return normalize_device_fingerprint(parsed)
+
+    query_fp = request.args.get("device_fingerprint")
+    if query_fp:
+        parsed = json.loads(query_fp) if isinstance(query_fp, str) else query_fp
+        return normalize_device_fingerprint(parsed)
+
+    raw = request.get_data(as_text=True)
+    if raw and raw.strip():
+        try:
+            body = json.loads(raw)
+            fp = body.get("device_fingerprint") if isinstance(body, dict) else None
+            if fp:
+                if isinstance(fp, str):
+                    fp = json.loads(fp)
+                return normalize_device_fingerprint(fp)
+            if isinstance(body, dict) and body.get("visitorId"):
+                return normalize_device_fingerprint(body)
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
 class DeviceFingerprintService:
     def __init__(self, db: Session):
         self.db = db
@@ -13,6 +116,7 @@ class DeviceFingerprintService:
     def get_or_create_device(self, user_id: int, fingerprint_data: dict, created_by: int) -> UserDevice:
         """Get or create a device record for the user"""
         try:
+            fingerprint_data = normalize_device_fingerprint(fingerprint_data)
             # Extract visitor ID from the correct location
             visitor_id = fingerprint_data.get('visitorId')
             
@@ -47,7 +151,7 @@ class DeviceFingerprintService:
                 'browser_name': browser_info.get('name', 'unknown'),
                 'browser_version': browser_info.get('version', 'unknown'),
                 'os_name': os_info.get('name', 'unknown'),
-                'os_version': f"Macintosh; Intel Mac OS X {os_info.get('version', 'unknown')}" if os_info.get('name') == 'MacIntel' else os_info.get('version', 'unknown'),
+                'os_version': os_info.get('version', 'unknown'),
                 'hardware_info': hardware_info,  # Store as JSON
                 'security_fingerprints': security_fingerprints,  # Store as JSON
                 'is_primary': False,
