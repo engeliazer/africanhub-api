@@ -339,9 +339,15 @@ def get_materials():
         
         # Get or create device record
         request_visitor_id = fingerprint_data.get("visitorId")
-        device = device_service.get_or_create_device(
-            current_user_id, fingerprint_data, current_user_id
-        )
+        try:
+            device = device_service.get_or_create_device(
+                current_user_id, fingerprint_data, current_user_id
+            )
+        except ValueError as reg_err:
+            if "database constraint on visitor_id" in str(reg_err):
+                device = None
+            else:
+                raise
 
         access = device_service.get_device_access_status(
             current_user_id, request_visitor_id

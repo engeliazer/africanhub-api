@@ -232,7 +232,10 @@ class DeviceFingerprintService:
                 if existing_device:
                     self.db.refresh(existing_device)
                     return existing_device
-                raise
+                raise ValueError(
+                    "Device registration blocked by database constraint on visitor_id. "
+                    "Run migration user_devices_unique_per_user (alembic upgrade head)."
+                ) from None
 
         except ValueError:
             self.db.rollback()

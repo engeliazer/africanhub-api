@@ -14,19 +14,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    for index_name in ("uq_user_devices_visitor_id", "visitor_id"):
+    # MySQL: global unique on visitor_id is typically index name `visitor_id`
+    for stmt in (
+        "ALTER TABLE user_devices DROP INDEX visitor_id",
+        "ALTER TABLE user_devices DROP INDEX uq_user_devices_visitor_id",
+    ):
         try:
-            op.drop_index(index_name, table_name="user_devices")
+            op.execute(stmt)
         except Exception:
-            try:
-                op.drop_constraint(index_name, "user_devices", type_="unique")
-            except Exception:
-                pass
+            pass
 
-    op.create_unique_constraint(
-        "uq_user_devices_user_id_visitor_id",
-        "user_devices",
-        ["user_id", "visitor_id"],
+    op.execute(
+        "ALTER TABLE user_devices ADD UNIQUE KEY uq_user_devices_user_id_visitor_id "
+        "(user_id, visitor_id)"
     )
 
 
