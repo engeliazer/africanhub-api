@@ -70,6 +70,66 @@ def normalize_device_fingerprint(fingerprint_data: dict) -> dict:
     return data
 
 
+def parse_mobile_device_id(request, fingerprint_data: Optional[dict] = None) -> Optional[str]:
+    """
+    Read the mobile hardware hash sent as ``device_id``.
+
+    The app hashes vendor id and android id and sends that string beside the
+    fingerprint, as a query parameter, or inside the fingerprint object.
+    """
+    candidates = []
+
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            candidates.append(body.get("device_id"))
+            candidates.append(body.get("mobile_device_id"))
+
+    if request.form:
+        candidates.append(request.form.get("device_id"))
+        candidates.append(request.form.get("mobile_device_id"))
+
+    candidates.append(request.args.get("device_id"))
+    candidates.append(request.args.get("mobile_device_id"))
+
+    if isinstance(fingerprint_data, dict):
+        candidates.append(fingerprint_data.get("device_id"))
+        candidates.append(fingerprint_data.get("mobile_device_id"))
+        components = fingerprint_data.get("components") or {}
+        if isinstance(components, dict):
+            candidates.append(components.get("device_id"))
+            candidates.append(components.get("mobile_device_id"))
+
+    raw = request.get_data(as_text=True)
+    if raw and raw.strip():
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            body = None
+        if isinstance(body, dict):
+            candidates.append(body.get("device_id"))
+            candidates.append(body.get("mobile_device_id"))
+
+    for value in candidates:
+        normalized = _normalize_mobile_device_id(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _normalize_mobile_device_id(value) -> Optional[str]:
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > 128:
+        raise ValueError("device_id must be at most 128 characters")
+    return value
+
+
 def parse_device_fingerprint_from_request(request) -> Optional[dict]:
     """Read device fingerprint from POST JSON, form, query, or JSON body on GET."""
     if request.is_json:
@@ -122,7 +182,11 @@ class DeviceFingerprintService:
         return value is True or value == 1 or value == "1"
 
     def get_or_create_device(
-        self, user_id: int, fingerprint_data: dict, created_by: int
+        self,
+        user_id: int,
+        fingerprint_data: dict,
+        created_by: int,
+        mobile_device_id: Optional[str] = None,
     ) -> Optional[UserDevice]:
         """
         Get or create a device record for the user.
@@ -133,6 +197,7 @@ class DeviceFingerprintService:
             user_id = self._as_user_id(user_id)
             created_by = self._as_user_id(created_by)
             fingerprint_data = normalize_device_fingerprint(fingerprint_data)
+            mobile_device_id = _normalize_mobile_device_id(mobile_device_id)
             # Extract visitor ID from the correct location
             visitor_id = fingerprint_data.get('visitorId')
             
@@ -170,6 +235,7 @@ class DeviceFingerprintService:
                 'os_version': os_info.get('version', 'unknown'),
                 'hardware_info': hardware_info,  # Store as JSON
                 'security_fingerprints': security_fingerprints,  # Store as JSON
+                'mobile_device_id': mobile_device_id,
                 'is_primary': False,
                 'last_used': datetime.utcnow(),
                 'created_by': created_by,
@@ -190,6 +256,8 @@ class DeviceFingerprintService:
                     existing_device.hardware_info = device_data['hardware_info']
                     existing_device.security_fingerprints = device_data['security_fingerprints']
                     existing_device.browser_version = device_data['browser_version']  # Update browser version
+                    if mobile_device_id:
+                        existing_device.mobile_device_id = mobile_device_id
                     existing_device.updated_by = created_by
                     self.db.commit()
                     self.db.refresh(existing_device)
@@ -199,6 +267,8 @@ class DeviceFingerprintService:
                     self.db.rollback()
                     self.db.refresh(existing_device)
                     existing_device.last_used = datetime.utcnow()
+                    if mobile_device_id:
+                        existing_device.mobile_device_id = mobile_device_id
                     existing_device.updated_by = created_by
                     self.db.commit()
                     self.db.refresh(existing_device)
@@ -230,6 +300,10 @@ class DeviceFingerprintService:
                     UserDevice.is_active == True,
                 ).first()
                 if existing_device:
+                    if mobile_device_id:
+                        existing_device.mobile_device_id = mobile_device_id
+                        existing_device.updated_by = created_by
+                        self.db.commit()
                     self.db.refresh(existing_device)
                     return existing_device
                 raise ValueError(

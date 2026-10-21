@@ -87,6 +87,8 @@ class UserDevice(Base):
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     user_id = Column(BigInteger().with_variant(Integer, "sqlite"), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     visitor_id = Column(String(255), nullable=False, index=True)
+    # Hash of vendor id + android id, sent by the mobile app as device_id.
+    mobile_device_id = Column(String(128), nullable=True, index=True)
     browser_name = Column(String(255), nullable=False)
     browser_version = Column(String(255), nullable=False)
     os_name = Column(String(255), nullable=False)

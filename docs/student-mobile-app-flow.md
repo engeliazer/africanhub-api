@@ -1022,6 +1022,28 @@ Auth required. Subjects where this user has an active application with `status` 
 
 Topics that have no subtopics are omitted.
 
+### List materials for one subtopic
+
+`GET /api/study-materials/subtopic-materials?subtopic_id=10`
+
+Auth required. Send the device fingerprint and the mobile hardware hash together. `device_id` is the hash of the vendor id and android id. The server stores that hash on the device row as `mobile_device_id`. The integer `device_id` in the response is still the saved device row id.
+
+POST JSON is the reliable way to send both values. A query parameter also works.
+
+```json
+{
+  "device_fingerprint": {
+    "visitorId": "browser-or-app-visitor-id",
+    "browser_info": { "name": "AfricanHub", "version": "1.0.0" },
+    "os_info": { "name": "Android", "version": "14" },
+    "hardware_info": {}
+  },
+  "device_id": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+}
+```
+
+`device_verification.mobile_device_id` echoes the stored hash. Omit `device_id` only for a browser that has no vendor id or android id. A value longer than 128 characters is rejected with `400`.
+
 ### 12.2 Subject progress only
 
 `GET /api/video-tracking/progress/subject/{subject_id}`

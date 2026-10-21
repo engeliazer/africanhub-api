@@ -9,6 +9,7 @@ from database.db_connector import db_session
 from auth.services.device_fingerprint_service import (
     DeviceFingerprintService,
     parse_device_fingerprint_from_request,
+    parse_mobile_device_id,
 )
 from datetime import datetime, timedelta
 import os
@@ -333,6 +334,14 @@ def get_materials():
                     "device_fingerprint (POST recommended) or device_fingerprint query param."
                 ),
             }), 400
+
+        try:
+            mobile_device_id = parse_mobile_device_id(request, fingerprint_data)
+        except ValueError as device_id_err:
+            return jsonify({
+                "status": "error",
+                "message": str(device_id_err),
+            }), 400
             
         # Initialize device fingerprint service
         device_service = DeviceFingerprintService(db_session)
@@ -341,7 +350,10 @@ def get_materials():
         request_visitor_id = fingerprint_data.get("visitorId")
         try:
             device = device_service.get_or_create_device(
-                current_user_id, fingerprint_data, current_user_id
+                current_user_id,
+                fingerprint_data,
+                current_user_id,
+                mobile_device_id=mobile_device_id,
             )
         except ValueError as reg_err:
             if "database constraint on visitor_id" in str(reg_err):
@@ -414,6 +426,7 @@ def get_materials():
                     else "Device not authorized to access materials. Please contact administrator."
                 ),
                 "device_id": device.id if device else access.get("device_id"),
+                "mobile_device_id": device.mobile_device_id if device else mobile_device_id,
                 "visitor_id": request_visitor_id,
                 "is_primary": access["device_is_primary"],
                 "device_registered": device is not None,

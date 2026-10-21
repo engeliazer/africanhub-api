@@ -116,6 +116,7 @@ class UserRoleResponse(BaseModel):
 class UserDeviceBase(BaseModel):
     user_id: int
     visitor_id: str
+    mobile_device_id: Optional[str] = None
     browser_name: str
     browser_version: str
     os_name: str
