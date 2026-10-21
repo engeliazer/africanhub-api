@@ -18,6 +18,16 @@ from video_tracking.controllers.tracking_controller import (
 
 courses_bp = Blueprint('courses', __name__)
 
+
+def _code_sort_key(item):
+    """Case-insensitive code, used to order catalog rows ascending."""
+    if isinstance(item, dict):
+        code = item.get("code")
+    else:
+        code = getattr(item, "code", None)
+    return (code or "").casefold()
+
+
 # Course CRUD routes removed - courses component eliminated
 # Only keeping refactored endpoints that work with subjects directly
 
@@ -40,14 +50,17 @@ def get_courses_public():
         result = []
         for s in subjects:
             topics_data = []
-            for t in s.topics:
-                if not t.is_active:
-                    continue
+            active_topics = sorted(
+                (t for t in s.topics if t.is_active),
+                key=_code_sort_key,
+            )
+            for t in active_topics:
                 active_subtopics = [
                     {"id": st.id, "name": st.name, "code": st.code, "description": st.description}
                     for st in t.sub_topics
                     if st.is_active
                 ]
+                active_subtopics.sort(key=_code_sort_key)
                 if not active_subtopics:
                     continue
                 topics_data.append({
@@ -128,7 +141,7 @@ def get_approved_courses():
             AND s.is_active = true
             AND t.is_active = true
             AND st.is_active = true
-            ORDER BY s.name, t.name, st.name, smc.name, sm.name
+            ORDER BY s.code, t.code, st.code, smc.code, sm.name
         """)
         
         result = db_session.execute(query, {"user_id": current_user_id})
@@ -212,27 +225,32 @@ def get_approved_courses():
                     file_entry
                 )
         
-        # Convert dictionaries to lists for JSON serialization
-        for subject_id in subjects:
-            subjects[subject_id]["topics"] = list(subjects[subject_id]["topics"].values())
-            for topic in subjects[subject_id]["topics"]:
-                topic["subtopics"] = list(topic["subtopics"].values())
-                for subtopic in topic["subtopics"]:
-                    subtopic["materials"] = list(subtopic["materials"].values())
+        # Convert dictionaries to lists, ordered by code at each level.
+        # Material files have no code, so those are ordered by name.
+        ordered_subjects = sorted(subjects.values(), key=_code_sort_key)
+        for subject in ordered_subjects:
+            topics = sorted(subject["topics"].values(), key=_code_sort_key)
+            for topic in topics:
+                subtopics = sorted(topic["subtopics"].values(), key=_code_sort_key)
+                for subtopic in subtopics:
+                    materials = sorted(subtopic["materials"].values(), key=_code_sort_key)
+                    for material in materials:
+                        material["files"].sort(
+                            key=lambda file_entry: (file_entry.get("name") or "").casefold()
+                        )
+                    subtopic["materials"] = materials
+                topic["subtopics"] = subtopics
+            subject["topics"] = [topic for topic in topics if topic["subtopics"]]
 
-            subjects[subject_id]["topics"] = [
-                topic for topic in subjects[subject_id]["topics"] if topic["subtopics"]
-            ]
-
-            subjects[subject_id]["summary"] = derive_subject_summary(
-                collect_video_entries_from_subject_tree(subjects[subject_id])
+            subject["summary"] = derive_subject_summary(
+                collect_video_entries_from_subject_tree(subject)
             )
 
         return jsonify({
             "status": "success",
             "message": "Approved subjects retrieved successfully",
             "data": {
-                "subjects": list(subjects.values())
+                "subjects": ordered_subjects
             }
         })
         
@@ -270,8 +288,8 @@ def get_subject_structure():
         
         # Execute queries
         subjects = subjects_query.order_by(Subject.code.asc()).all()
-        topics = topics_query.all()
-        subtopics = subtopics_query.all()
+        topics = topics_query.order_by(Topic.code.asc()).all()
+        subtopics = subtopics_query.order_by(SubTopic.code.asc()).all()
         
         if nested:
             # Create a dictionary to store topics by subject

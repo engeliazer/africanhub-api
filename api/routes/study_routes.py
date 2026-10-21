@@ -16,7 +16,7 @@ material_categories_bp = Blueprint('material_categories', __name__)
 def get_material_categories():
     try:
         db = get_db()
-        categories = db.query(StudyMaterialCategory).all()
+        categories = db.query(StudyMaterialCategory).order_by(StudyMaterialCategory.code.asc()).all()
         return jsonify({
             "status": "success",
             "data": [StudyMaterialCategoryInDB.from_orm(category).dict() for category in categories]

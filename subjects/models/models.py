@@ -108,7 +108,12 @@ class Subject(Base):
 
     # Relationships (no course_id - use course_subjects mapping)
     course_subject_links = relationship("CourseSubject", back_populates="subject", foreign_keys="CourseSubject.subject_id")
-    topics = relationship("Topic", back_populates="subject", cascade="all, delete-orphan")
+    topics = relationship(
+        "Topic",
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        order_by="Topic.code",
+    )
 
 class Topic(Base):
     __tablename__ = "topics"
@@ -126,7 +131,12 @@ class Topic(Base):
 
     # Relationships
     subject = relationship("Subject", back_populates="topics")
-    sub_topics = relationship("SubTopic", back_populates="topic", cascade="all, delete-orphan")
+    sub_topics = relationship(
+        "SubTopic",
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        order_by="SubTopic.code",
+    )
 
 class SubTopic(Base):
     __tablename__ = "sub_topics"

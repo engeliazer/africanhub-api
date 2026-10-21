@@ -1046,7 +1046,7 @@ def get_topics():
         total_count = query.count()
         
         # Get paginated topics
-        topics = query.order_by(Topic.name)\
+        topics = query.order_by(Topic.code.asc())\
             .offset(offset)\
             .limit(per_page)\
             .all()
@@ -1300,7 +1300,7 @@ def get_subtopics():
         total_count = query.count()
         
         # Get paginated subtopics
-        subtopics = query.order_by(SubTopic.name)\
+        subtopics = query.order_by(SubTopic.code.asc())\
             .offset(offset)\
             .limit(per_page)\
             .all()

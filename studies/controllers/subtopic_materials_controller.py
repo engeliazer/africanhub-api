@@ -372,8 +372,8 @@ def get_materials():
         # Get total count
         total = query.count()
         
-        # Get paginated materials
-        materials = query.offset(skip).limit(per_page).all()
+        # Material rows have no code column; name is the stable ascending order.
+        materials = query.order_by(SubtopicMaterial.name.asc()).offset(skip).limit(per_page).all()
 
         # B2 migration disabled: no auto-migration of local materials
 
