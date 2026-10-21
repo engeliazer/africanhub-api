@@ -346,24 +346,25 @@ def get_materials():
         # Initialize device fingerprint service
         device_service = DeviceFingerprintService(db_session)
         
-        # Get or create device record
+        # Get or create device record, then authorize.
+        # A payload device_id is checked against the saved hash before fingerprints.
         request_visitor_id = fingerprint_data.get("visitorId")
         try:
-            device = device_service.get_or_create_device(
+            device, access = device_service.authorize_materials_access(
                 current_user_id,
                 fingerprint_data,
+                mobile_device_id,
                 current_user_id,
-                mobile_device_id=mobile_device_id,
             )
         except ValueError as reg_err:
             if "database constraint on visitor_id" in str(reg_err):
                 device = None
+                access = device_service.get_device_access_status(
+                    current_user_id, request_visitor_id
+                )
             else:
                 raise
 
-        access = device_service.get_device_access_status(
-            current_user_id, request_visitor_id
-        )
         is_authorized = access["is_authorized"]
         
         # Get pagination and filter parameters from query string

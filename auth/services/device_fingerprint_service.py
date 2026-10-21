@@ -256,7 +256,7 @@ class DeviceFingerprintService:
                     existing_device.hardware_info = device_data['hardware_info']
                     existing_device.security_fingerprints = device_data['security_fingerprints']
                     existing_device.browser_version = device_data['browser_version']  # Update browser version
-                    if mobile_device_id:
+                    if mobile_device_id and not existing_device.mobile_device_id:
                         existing_device.mobile_device_id = mobile_device_id
                     existing_device.updated_by = created_by
                     self.db.commit()
@@ -267,7 +267,7 @@ class DeviceFingerprintService:
                     self.db.rollback()
                     self.db.refresh(existing_device)
                     existing_device.last_used = datetime.utcnow()
-                    if mobile_device_id:
+                    if mobile_device_id and not existing_device.mobile_device_id:
                         existing_device.mobile_device_id = mobile_device_id
                     existing_device.updated_by = created_by
                     self.db.commit()
@@ -300,7 +300,7 @@ class DeviceFingerprintService:
                     UserDevice.is_active == True,
                 ).first()
                 if existing_device:
-                    if mobile_device_id:
+                    if mobile_device_id and not existing_device.mobile_device_id:
                         existing_device.mobile_device_id = mobile_device_id
                         existing_device.updated_by = created_by
                         self.db.commit()
@@ -317,6 +317,67 @@ class DeviceFingerprintService:
         except Exception as e:
             self.db.rollback()
             raise ValueError(f"Failed to get or create device: {str(e)}") from e
+
+    def _stored_mobile_device_id(self, user_id: int, visitor_id: str) -> Optional[str]:
+        device = self.db.query(UserDevice).filter(
+            UserDevice.user_id == user_id,
+            UserDevice.visitor_id == visitor_id,
+            UserDevice.is_active == True,
+        ).first()
+        if not device or not device.mobile_device_id:
+            return None
+        return str(device.mobile_device_id).strip() or None
+
+    def authorize_materials_access(
+        self,
+        user_id: int,
+        fingerprint_data: dict,
+        payload_mobile_device_id: Optional[str],
+        updated_by: int,
+    ):
+        """
+        Decide materials access for one visitor.
+
+        A payload device_id is compared with the hash already stored for this
+        visitor. Null or an equal hash authorizes and makes this device primary.
+        A different stored hash keeps the saved hash and allows access only when
+        this visitor_id is the primary device. No payload device_id uses that
+        same visitor_id check.
+        """
+        user_id = self._as_user_id(user_id)
+        updated_by = self._as_user_id(updated_by)
+        visitor_id = fingerprint_data.get("visitorId")
+        stored = self._stored_mobile_device_id(user_id, visitor_id) if visitor_id else None
+        payload = _normalize_mobile_device_id(payload_mobile_device_id)
+
+        hash_matches = bool(payload) and (stored is None or stored == payload)
+        device = self.get_or_create_device(
+            user_id,
+            fingerprint_data,
+            updated_by,
+            mobile_device_id=payload if hash_matches else None,
+        )
+        access = self.get_device_access_status(user_id, visitor_id)
+
+        if not payload:
+            return device, access
+
+        if stored and stored != payload:
+            if access["is_authorized"]:
+                access["reason"] = "visitor_id_primary"
+            return device, access
+
+        if device is None:
+            access["is_authorized"] = False
+            access["reason"] = "device_not_registered_for_user"
+            return device, access
+
+        device = self.update_device_status(device.id, True, updated_by)
+        access = self.get_device_access_status(user_id, visitor_id)
+        access["is_authorized"] = True
+        access["reason"] = "mobile_device_id_match" if stored else "mobile_device_id_bound"
+        access["device_is_primary"] = True
+        return device, access
 
     def get_device_access_status(self, user_id: int, visitor_id: str) -> Dict[str, Any]:
         """

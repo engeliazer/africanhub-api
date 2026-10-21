@@ -1042,7 +1042,17 @@ POST JSON is the reliable way to send both values. A query parameter also works.
 }
 ```
 
-`device_verification.mobile_device_id` echoes the stored hash. Omit `device_id` only for a browser that has no vendor id or android id. A value longer than 128 characters is rejected with `400`.
+`device_verification.mobile_device_id` echoes the stored hash. A value longer than 128 characters is rejected with `400`.
+
+When `device_id` is present, the server compares it with `mobile_device_id` on this visitor's device row:
+
+| Stored `mobile_device_id` | Result |
+| --- | --- |
+| Empty | Save `device_id`, make this device primary, and allow access |
+| Equal to `device_id` | Make this device primary and allow access |
+| A different hash | Leave the saved hash unchanged. Allow access when this `visitorId` is the primary device, and deny it otherwise |
+
+A request without `device_id` uses the fingerprint `visitorId`. Access is allowed when that visitor is the user's primary device.
 
 ### 12.2 Subject progress only
 
