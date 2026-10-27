@@ -6,9 +6,12 @@ Public: list published events and download personalized invitation letters (PDF)
 """
 
 import logging
+import shutil
+import uuid
 from datetime import date, datetime, time as time_type
 from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, send_file
@@ -39,6 +42,7 @@ from events.services.event_setup_service import build_event_setup
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_campaign_pdf_service import render_event_invitation_pdf_bytes
 from public.services.invitation_template_service import (
+    INVITATION_TEMPLATE_DIR,
     delete_invitation_template_file,
     save_invitation_template,
     validate_html_template_upload,
@@ -465,6 +469,82 @@ def get_event(event_id: int):
         })
     except Exception as e:
         logger.exception("get_event: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@events_bp.route("/api/events/<int:event_id>/duplicate", methods=["POST"])
+@jwt_required()
+def duplicate_event(event_id: int):
+    """Create an unpublished copy of an event for editing as a new event."""
+    user_id = int(get_jwt_identity())
+    db = get_db()
+    try:
+        source, err = _get_event_or_404(db, event_id)
+        if err:
+            return err
+
+        duplicate = Event(
+            title=source.title,
+            course_title=source.course_title,
+            course_description=source.course_description,
+            venue=source.venue,
+            start_date=source.start_date,
+            end_date=source.end_date,
+            start_time=source.start_time,
+            end_time=source.end_time,
+            learning_outcomes=source.learning_outcomes,
+            course_fee=source.course_fee,
+            deposit_amount=source.deposit_amount,
+            reservation_deadline=source.reservation_deadline,
+            bank_account_name=source.bank_account_name,
+            bank_account_number=source.bank_account_number,
+            bank_name=source.bank_name,
+            is_published=False,
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        db.add(duplicate)
+        db.flush()
+
+        # Copy the custom template into the new event's directory so the two
+        # events can be edited/deleted independently.
+        if source.invitation_template_path:
+            source_template = Path(source.invitation_template_path)
+            if source_template.is_file():
+                template_dir = INVITATION_TEMPLATE_DIR / str(duplicate.id)
+                template_dir.mkdir(parents=True, exist_ok=True)
+                stored_name = f"{uuid.uuid4().hex}_{source_template.name}"
+                duplicate_template = template_dir / stored_name
+                shutil.copy2(source_template, duplicate_template)
+                duplicate.invitation_template_path = str(duplicate_template)
+                duplicate.invitation_template_filename = source.invitation_template_filename
+
+        trainer_ids = [
+            assignment.trainer_id
+            for assignment in sorted(
+                source.trainer_assignments,
+                key=lambda assignment: (assignment.display_order, assignment.id),
+            )
+        ]
+        if trainer_ids:
+            _assign_trainers(db, duplicate, trainer_ids)
+
+        db.commit()
+        db.refresh(duplicate)
+        return jsonify({
+            "status": "success",
+            "message": "Event duplicated as an unpublished draft",
+            "data": _event_to_dict(duplicate, db),
+            "published": False,
+        }), 201
+    except ValueError as e:
+        db.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        db.rollback()
+        logger.exception("duplicate_event: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         db.close()
