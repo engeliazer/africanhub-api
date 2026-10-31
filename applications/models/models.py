@@ -7,6 +7,7 @@ from enum import Enum
 from sqlalchemy.types import Enum as SQLAlchemyEnum
 
 from subjects.models.models import Subject
+from events.models.models import Event
 
 class PaymentStatus(str, Enum):
     pending_payment = "pending_payment"
@@ -576,7 +577,7 @@ class Invitation(Base):
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     event_id = Column(
         BigInteger().with_variant(Integer, "sqlite"),
-        ForeignKey("events.id"), nullable=True, index=True,
+        ForeignKey(Event.id), nullable=True, index=True,
     )
     title = Column(String(255), nullable=False)
     course_title = Column(String(500), nullable=False)
