@@ -1305,3 +1305,60 @@ await axios.post(
 | POST | `/api/invitations/{id}/send/test` |
 | POST | `/api/invitations/{id}/send/schedule` |
 | POST | `/api/invitations/{id}/send/start` |
+
+
+## Public self-invitation and additional attachment
+
+No JWT or registered account is required. Both endpoints resolve the newest
+non-cancelled special invitation (`id` descending) linked by `event_id` to a
+published event. Unpublished/missing events and missing invitations return 404.
+If multiple campaigns are linked, both endpoints use the same campaign; the
+attachment endpoint does not fall back to an older campaign's attachment.
+
+### Generate a personalized PDF
+
+`POST /api/events/public/{event_id}/self-invitation`
+
+```json
+{
+  "first_name": "Asha",
+  "middle_name": "Juma",
+  "last_name": "Mushi",
+  "address": "P.O. Box 123, Dar es Salaam",
+  "email": "asha@example.com",
+  "organization": "Example Ltd",
+  "phone": "+255712345678"
+}
+```
+
+All seven fields are required non-empty strings. Name parts allow 100 characters
+each, organization/email 255, address 2000 and phone 50. Email must be valid;
+phone must contain 7–15 digits, optionally prefixed with `+` (spaces, parentheses,
+dots and hyphens are accepted). Invalid bodies/fields return 400 JSON.
+
+Success returns `200 application/pdf` with inline Content-Disposition and
+`Cache-Control: private, no-store`. This uses the same PDF renderer, campaign
+content, custom template, trainers, branding and overlays as emailed invitations.
+The submitted name parts are joined into the recipient's full name. No email is
+sent and no invitee or user record is created. The phone is accepted and validated;
+the existing letter layout determines which recipient fields appear.
+
+```javascript
+const response = await fetch(`${apiBase}/api/events/public/${eventId}/self-invitation`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(details),
+});
+if (!response.ok) throw new Error((await response.json()).message);
+const pdfUrl = URL.createObjectURL(await response.blob());
+// Set an iframe's src to pdfUrl; revoke the object URL when no longer needed.
+```
+
+### View the additional attachment
+
+`GET /api/events/public/{event_id}/invitation/attachment`
+
+Returns `200 application/pdf` inline, suitable as an iframe src or a new-tab link.
+Returns 404 JSON when the selected invitation has no attachment or its file is
+missing. Both endpoints return 500 JSON if PDF generation/file loading fails.
+These routes do not change the existing event letter/phone verification flow.

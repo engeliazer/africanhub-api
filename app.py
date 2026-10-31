@@ -74,6 +74,7 @@ from public.controllers.contact_controller import contact_bp
 from public.controllers.mail_processing_controller import mail_processing_bp
 from public.controllers.invitation_mail_processing_controller import invitation_mail_processing_bp
 from public.controllers.invitations_controller import invitations_bp
+from public.controllers.public_invitations_controller import public_invitations_bp
 from events.controllers.events_controller import events_bp
 from events.controllers.event_participants_controller import event_participants_bp
 from notifications.controllers.notifications_controller import notifications_bp
@@ -196,6 +197,7 @@ app.register_blueprint(contact_bp)  # Public contact form (no auth required)
 app.register_blueprint(mail_processing_bp)
 app.register_blueprint(invitation_mail_processing_bp)
 app.register_blueprint(invitations_bp)
+app.register_blueprint(public_invitations_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(event_participants_bp)
 app.register_blueprint(notifications_bp)
