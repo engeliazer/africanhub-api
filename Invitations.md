@@ -1,5 +1,14 @@
 # Invitation Management System
 
+Special invitations accept optional `event_id` in create and update JSON payloads,
+for example `{"event_id": 12}`. The ID must reference an existing event; invalid
+IDs return HTTP 400. Send `{"event_id": null}` to unlink, or omit it on update
+to keep the association. Invitation responses include `event_id` (null when
+unlinked). Reproduced invitations retain the source event association.
+Linked events cannot be deleted until their invitations are unlinked.
+Apply `alembic upgrade head` before using this field.
+
+
 ## Overview
 
 The system shall enable users to create invitation campaigns, upload invitees, generate personalized PDF invitation letters, and send them via email.

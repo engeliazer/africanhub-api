@@ -24,6 +24,7 @@ from applications.models.models import (
     InviteeValidationStatus,
 )
 from database.db_connector import get_db
+from events.models.models import Event
 from public.controllers.invitation_trainer_photo_utils import (
     handle_invitation_trainer_photo_upload,
 )
@@ -223,6 +224,7 @@ def _invitation_to_dict(
 
     data: Dict[str, Any] = {
         "id": invitation.id,
+        "event_id": invitation.event_id,
         "title": invitation.title,
         "course_title": invitation.course_title,
         "course_description": invitation.course_description,
@@ -279,7 +281,24 @@ def _invitation_to_dict(
     return data
 
 
-def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool = False) -> Optional[str]:
+def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool = False, *, db=None) -> Optional[str]:
+    if "event_id" in data:
+        value = data["event_id"]
+        if value is None:
+            invitation.event_id = None
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                return "event_id must be a positive integer or null"
+            try:
+                event_id = int(value)
+            except (ValueError, TypeError):
+                return "event_id must be a positive integer or null"
+            if event_id <= 0:
+                return "event_id must be a positive integer or null"
+            if db.query(Event.id).filter(Event.id == event_id).first() is None:
+                return "Event not found"
+            invitation.event_id = event_id
+
     field_map = {
         "title": "title",
         "course_title": "course_title",
@@ -559,7 +578,7 @@ def create_invitation():
             created_by=user_id,
             updated_by=user_id,
         )
-        error = _apply_invitation_fields(invitation, data, partial=False)
+        error = _apply_invitation_fields(invitation, data, partial=False, db=db)
         if error:
             return jsonify({"status": "error", "message": error}), 400
 
@@ -717,7 +736,7 @@ def update_invitation(invitation_id: int):
         if blocked:
             return blocked
 
-        error = _apply_invitation_fields(invitation, data, partial=True)
+        error = _apply_invitation_fields(invitation, data, partial=True, db=db)
         if error:
             return jsonify({"status": "error", "message": error}), 400
 

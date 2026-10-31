@@ -1,5 +1,14 @@
 # Invitation Management — Frontend Integration Guide
 
+Special invitations accept optional `event_id` in create and update JSON payloads,
+for example `{"event_id": 12}`. The ID must reference an existing event; invalid
+IDs return HTTP 400. Send `{"event_id": null}` to unlink, or omit it on update
+to keep the association. Invitation responses include `event_id` (null when
+unlinked). Reproduced invitations retain the source event association.
+Linked events cannot be deleted until their invitations are unlinked.
+Apply `alembic upgrade head` before using this field.
+
+
 This document describes how the React (or other) frontend should integrate with the **Invitation Campaign API** implemented in `africanhub-api`. It covers user flows, endpoints, request payloads, and response shapes.
 
 ---

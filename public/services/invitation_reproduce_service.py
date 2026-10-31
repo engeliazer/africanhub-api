@@ -62,6 +62,7 @@ def reproduce_invitation(
 
     clone = Invitation(
         title=new_title,
+        event_id=source.event_id,
         course_title=source.course_title,
         course_description=source.course_description,
         venue=source.venue,

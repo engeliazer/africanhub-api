@@ -574,6 +574,10 @@ class Invitation(Base):
     __tablename__ = "invitations"
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id"), nullable=True, index=True,
+    )
     title = Column(String(255), nullable=False)
     course_title = Column(String(500), nullable=False)
     course_description = Column(Text, nullable=False)
