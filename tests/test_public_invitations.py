@@ -18,6 +18,12 @@ def module_stub(name, **values):
     return module
 
 
+class FakeIntegrityError(Exception):
+    def __init__(self, orig):
+        super().__init__(orig)
+        self.orig = orig
+
+
 class PublicInvitationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -29,7 +35,10 @@ class PublicInvitationTests(unittest.TestCase):
                 "applications.models.models", Invitation=invitation_model,
                 InvitationCampaignStatus=types.SimpleNamespace(cancelled="CANCELLED"),
             ),
-            "events.models.models": module_stub("events.models.models", Event=event_model),
+            "events.models.models": module_stub(
+                "events.models.models", Event=event_model, EventTrainingRegistration=MagicMock(),
+            ),
+            "sqlalchemy.exc": module_stub("sqlalchemy.exc", IntegrityError=FakeIntegrityError),
             "database.db_connector": module_stub("database.db_connector", get_db=MagicMock()),
             "public.services.invitation_campaign_pdf_service": module_stub(
                 "public.services.invitation_campaign_pdf_service", render_invitation_pdf_bytes=MagicMock(),
@@ -148,6 +157,62 @@ class PublicInvitationTests(unittest.TestCase):
         self.event_query.filter.return_value.first.return_value = None
         self.assertEqual(self.client.get(self.attachment_url).status_code, 404)
         self.assertEqual(self.db.query.call_count, 1)
+
+
+    def test_registration_is_pending_and_persists_details(self):
+        registration = types.SimpleNamespace(id=42, status="pending")
+        self.controller.EventTrainingRegistration.return_value = registration
+        payload = dict(self.payload, status="paid", email="ASHA@example.com")
+        response = self.client.post("/api/events/public/7/registrations", json=payload)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json["data"], {"id": 42, "event_id": 7, "status": "pending"})
+        fields = self.controller.EventTrainingRegistration.call_args.kwargs
+        self.assertEqual(fields["status"], "pending")
+        self.assertEqual(fields["email"], "asha@example.com")
+        self.assertEqual(fields["first_name"], "Asha")
+        self.assertEqual(fields["phone"], "+255712345678")
+        self.assertEqual(fields["address"], self.payload["address"])
+        self.db.add.assert_called_once_with(registration)
+        self.db.commit.assert_called_once()
+        self.db.close.assert_called_once()
+        self.assertEqual(self.db.query.call_count, 1)
+        self.controller.render_invitation_pdf_bytes.assert_not_called()
+
+    def test_registration_rejects_invalid_details(self):
+        response = self.client.post("/api/events/public/7/registrations", json=dict(self.payload, phone="bad"))
+        self.assertEqual(response.status_code, 400)
+        self.db.add.assert_not_called()
+        self.db.commit.assert_not_called()
+
+    def test_registration_requires_published_event(self):
+        self.event_query.filter.return_value.first.return_value = None
+        response = self.client.post("/api/events/public/7/registrations", json=self.payload)
+        self.assertEqual(response.status_code, 404)
+        self.db.add.assert_not_called()
+        self.db.close.assert_called_once()
+
+    def test_registration_duplicate_rolls_back(self):
+        self.db.commit.side_effect = FakeIntegrityError("Duplicate entry for key uq_event_training_registration_email")
+        response = self.client.post("/api/events/public/7/registrations", json=self.payload)
+        self.assertEqual(response.status_code, 409)
+        self.db.rollback.assert_called_once()
+        self.db.close.assert_called_once()
+
+    def test_registration_unrelated_integrity_failure(self):
+        self.db.commit.side_effect = FakeIntegrityError("Other database failure")
+        with self.assertLogs(self.controller.logger, level="ERROR"):
+            response = self.client.post("/api/events/public/7/registrations", json=self.payload)
+        self.assertEqual(response.status_code, 500)
+        self.db.rollback.assert_called_once()
+        self.db.close.assert_called_once()
+
+    def test_registration_database_failure(self):
+        self.db.commit.side_effect = RuntimeError("Database unavailable")
+        with self.assertLogs(self.controller.logger, level="ERROR"):
+            response = self.client.post("/api/events/public/7/registrations", json=self.payload)
+        self.assertEqual(response.status_code, 500)
+        self.db.rollback.assert_called_once()
+        self.db.close.assert_called_once()
 
 
 if __name__ == "__main__":

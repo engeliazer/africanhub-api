@@ -6,10 +6,11 @@ from io import BytesIO
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
+from sqlalchemy.exc import IntegrityError
 
 from applications.models.models import Invitation, InvitationCampaignStatus
 from database.db_connector import get_db
-from events.models.models import Event
+from events.models.models import Event, EventTrainingRegistration
 from public.services.invitation_campaign_pdf_service import render_invitation_pdf_bytes
 
 logger = logging.getLogger(__name__)
@@ -110,5 +111,54 @@ def public_invitation_attachment(event_id):
     except Exception:
         logger.exception("public_invitation_attachment failed for event %s", event_id)
         return jsonify({"status": "error", "message": "Unable to load invitation attachment"}), 500
+    finally:
+        db.close()
+
+
+@public_invitations_bp.route("/api/events/public/<int:event_id>/registrations", methods=["POST"])
+def register_for_training(event_id):
+    """Register a visitor for a published event; public submissions are pending."""
+    try:
+        details = _self_invitee(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+    db = get_db()
+    try:
+        event = db.query(Event).filter(Event.id == event_id, Event.is_published.is_(True)).first()
+        if event is None:
+            return jsonify({"status": "error", "message": "Event is not available"}), 404
+        registration = EventTrainingRegistration(
+            event_id=event_id,
+            first_name=details["first_name"],
+            middle_name=details["middle_name"],
+            last_name=details["last_name"],
+            address=details["address"],
+            email=details["email"].lower(),
+            organization=details["organization"],
+            phone=details["phone"],
+            status="pending",
+        )
+        db.add(registration)
+        db.commit()
+        response = jsonify({
+            "status": "success",
+            "message": "Training registration received",
+            "data": {"id": registration.id, "event_id": event_id, "status": registration.status},
+        })
+        response.headers["Cache-Control"] = "private, no-store"
+        return response, 201
+    except IntegrityError as exc:
+        db.rollback()
+        if "uq_event_training_registration_email" in str(exc.orig) or (
+            "event_training_registrations.event_id, event_training_registrations.email" in str(exc.orig)
+        ):
+            return jsonify({"status": "error", "message": "This email is already registered for this event"}), 409
+        logger.exception("Training registration integrity error for event %s", event_id)
+        return jsonify({"status": "error", "message": "Unable to register for training"}), 500
+    except Exception:
+        db.rollback()
+        logger.exception("Training registration failed for event %s", event_id)
+        return jsonify({"status": "error", "message": "Unable to register for training"}), 500
     finally:
         db.close()

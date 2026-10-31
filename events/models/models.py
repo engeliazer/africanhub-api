@@ -159,3 +159,31 @@ class EventParticipant(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     event = relationship("Event", back_populates="participants")
+
+
+class EventTrainingRegistration(Base):
+    """Public training signup, with payment review handled internally later."""
+
+    __tablename__ = "event_training_registrations"
+    __table_args__ = (
+        UniqueConstraint("event_id", "email", name="uq_event_training_registration_email"),
+    )
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id"), nullable=False, index=True,
+    )
+    first_name = Column(String(100), nullable=False)
+    middle_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=False)
+    address = Column(Text, nullable=False)
+    email = Column(String(255), nullable=False)
+    organization = Column(String(255), nullable=False)
+    phone = Column(String(50), nullable=False)
+    status = Column(String(50), nullable=False, default="pending", server_default="pending")
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime, nullable=False, server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )

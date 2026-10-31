@@ -1362,3 +1362,35 @@ Returns `200 application/pdf` inline, suitable as an iframe src or a new-tab lin
 Returns 404 JSON when the selected invitation has no attachment or its file is
 missing. Both endpoints return 500 JSON if PDF generation/file loading fails.
 These routes do not change the existing event letter/phone verification flow.
+
+
+## Public training registration
+
+`POST /api/events/public/{event_id}/registrations` — no JWT or account required.
+Send the same seven required fields as self-invitation: `first_name`,
+`middle_name`, `last_name`, `address`, `email`, `organization`, and `phone`.
+Validation and field limits are the same as self-invitation. Email is saved in
+lowercase and phone formatting is normalized.
+
+The event must exist and be published. An invitation campaign is not required.
+The server always sets registration status to `pending`; any submitted status
+is ignored. Registration is separate from attendance and does not create a user,
+send email, generate a PDF, or accept payment receipts. Internal status updates
+will be implemented later.
+
+Successful response: HTTP 201
+
+```json
+{
+  "status": "success",
+  "message": "Training registration received",
+  "data": { "id": 42, "event_id": 8, "status": "pending" }
+}
+```
+
+Errors: 400 for invalid details; 404 for missing/unpublished event; 409 if the
+email is already registered for the same event; 500 for a database failure.
+A repeated submission never overwrites an existing registration or its status.
+
+Before deploying, create the table using `alembic upgrade head` or manually run
+`scripts/create_event_training_registrations.sql` (choose one).
