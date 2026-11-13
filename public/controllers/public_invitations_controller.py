@@ -6,6 +6,8 @@ from io import BytesIO
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
+from flask_jwt_extended import jwt_required
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from applications.models.models import Invitation, InvitationCampaignStatus
@@ -111,6 +113,98 @@ def public_invitation_attachment(event_id):
     except Exception:
         logger.exception("public_invitation_attachment failed for event %s", event_id)
         return jsonify({"status": "error", "message": "Unable to load invitation attachment"}), 500
+    finally:
+        db.close()
+
+
+@public_invitations_bp.route("/api/events/registrations", methods=["GET"])
+@jwt_required()
+def summarize_training_registrations():
+    """List all events with website signup counts, including zero signups."""
+    db = get_db()
+    try:
+        counts = (
+            db.query(
+                EventTrainingRegistration.event_id,
+                func.count(EventTrainingRegistration.id).label("registration_count"),
+            )
+            .group_by(EventTrainingRegistration.event_id)
+            .subquery()
+        )
+        rows = (
+            db.query(Event, func.coalesce(counts.c.registration_count, 0))
+            .outerjoin(counts, counts.c.event_id == Event.id)
+            .order_by(Event.id.desc())
+            .all()
+        )
+        events = [{
+            "event_id": event.id,
+            "title": event.title,
+            "course_title": event.course_title,
+            "start_date": event.start_date.isoformat() if event.start_date else None,
+            "end_date": event.end_date.isoformat() if event.end_date else None,
+            "is_published": event.is_published,
+            "registration_count": int(count),
+        } for event, count in rows]
+        response = jsonify({
+            "status": "success",
+            "data": {
+                "total_events": len(events),
+                "total_registrations": sum(event["registration_count"] for event in events),
+                "events": events,
+            },
+        })
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except Exception:
+        logger.exception("Unable to summarize training registrations")
+        return jsonify({"status": "error", "message": "Unable to load registration summaries"}), 500
+    finally:
+        db.close()
+
+
+@public_invitations_bp.route("/api/events/<int:event_id>/registrations", methods=["GET"])
+@jwt_required()
+def list_training_registrations(event_id):
+    """Internal view of website signups, including unpublished events."""
+    db = get_db()
+    try:
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if event is None:
+            return jsonify({"status": "error", "message": "Event not found"}), 404
+        rows = (
+            db.query(EventTrainingRegistration)
+            .filter(EventTrainingRegistration.event_id == event_id)
+            .order_by(EventTrainingRegistration.id.desc())
+            .all()
+        )
+        registrations = [{
+            "id": row.id,
+            "event_id": row.event_id,
+            "first_name": row.first_name,
+            "middle_name": row.middle_name,
+            "last_name": row.last_name,
+            "address": row.address,
+            "email": row.email,
+            "organization": row.organization,
+            "phone": row.phone,
+            "status": row.status,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        } for row in rows]
+        response = jsonify({
+            "status": "success",
+            "data": {
+                "event_id": event_id,
+                "total": len(registrations),
+                "registrations": registrations,
+            },
+        })
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except Exception:
+        logger.exception("Unable to list training registrations for event %s", event_id)
+        return jsonify({"status": "error", "message": "Unable to load training registrations"}), 500
     finally:
         db.close()
 

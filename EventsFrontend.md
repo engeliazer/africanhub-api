@@ -2,6 +2,63 @@
 
 Simple API for listing training events on the website and letting visitors download personalized invitation letter PDFs (same attachment style as the invitation mail batches).
 
+## Internal website registration list
+
+`GET /api/events/registrations` returns registration summaries for all events, including unpublished events and events with no website signups. Requires `Authorization: Bearer <JWT>`. Events are ordered by ID descending. Counts cover all website signup statuses and exclude the separate attendance roster.
+
+```json
+{
+  "status": "success",
+  "data": {
+    "total_events": 1,
+    "total_registrations": 12,
+    "events": [{
+      "event_id": 7,
+      "title": "November Training",
+      "course_title": "Python Fundamentals",
+      "start_date": "2026-11-13",
+      "end_date": "2026-11-14",
+      "is_published": true,
+      "registration_count": 12
+    }]
+  }
+}
+```
+
+With no events, returns `total_events: 0`, `total_registrations: 0`, and `events: []`. Server errors return `500` with `{"status": "error", "message": "Unable to load registration summaries"}`. Responses use `Cache-Control: private, no-store`.
+
+`GET /api/events/{id}/registrations`
+
+Requires `Authorization: Bearer <JWT>`. Returns website training signups for the event, newest first, including when the event is unpublished. The existing public `POST` submission endpoint remains unauthenticated.
+
+Successful response:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "event_id": 7,
+    "total": 1,
+    "registrations": [{
+      "id": 42,
+      "event_id": 7,
+      "first_name": "Asha",
+      "middle_name": "Juma",
+      "last_name": "Mushi",
+      "address": "P.O. Box 123",
+      "email": "asha@example.com",
+      "organization": "Example Ltd",
+      "phone": "+255712345678",
+      "status": "pending",
+      "created_at": "2026-11-13T10:00:00",
+      "updated_at": "2026-11-13T10:00:00"
+    }]
+  }
+}
+```
+
+An event with no signups returns `200` with `total: 0` and `registrations: []`. A missing event returns `404`. Responses use `Cache-Control: private, no-store`.
+
 ---
 
 ## Recommended setup workflow (steps)

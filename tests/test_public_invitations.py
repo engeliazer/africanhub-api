@@ -4,10 +4,12 @@ import sys
 import tempfile
 import types
 import unittest
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
+from flask_jwt_extended import JWTManager, create_access_token
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +53,10 @@ class PublicInvitationTests(unittest.TestCase):
         with patch.dict(sys.modules, stubs):
             spec.loader.exec_module(cls.controller)
         app = Flask(__name__)
+        app.config["JWT_SECRET_KEY"] = "test-secret-key-for-registration-tests"
+        JWTManager(app)
+        with app.app_context():
+            cls.auth_headers = {"Authorization": "Bearer " + create_access_token(identity="1")}
         app.register_blueprint(cls.controller.public_invitations_bp)
         cls.client = app.test_client()
 
@@ -177,6 +183,105 @@ class PublicInvitationTests(unittest.TestCase):
         self.db.close.assert_called_once()
         self.assertEqual(self.db.query.call_count, 1)
         self.controller.render_invitation_pdf_bytes.assert_not_called()
+
+    def test_list_registrations_requires_jwt(self):
+        response = self.client.get("/api/events/7/registrations")
+        self.assertEqual(response.status_code, 401)
+        self.db.query.assert_not_called()
+
+    def test_registration_summary_requires_jwt(self):
+        response = self.client.get("/api/events/registrations")
+        self.assertEqual(response.status_code, 401)
+        self.db.query.assert_not_called()
+
+    def test_registration_summary_includes_events_without_signups(self):
+        events = [
+            (types.SimpleNamespace(id=7, title="Training", course_title="Python",
+                                   start_date=date(2026, 11, 13), end_date=date(2026, 11, 14),
+                                   is_published=True), 3),
+            (types.SimpleNamespace(id=6, title="Draft", course_title="SQL",
+                                   start_date=None, end_date=None, is_published=False), 0),
+        ]
+        query = self.invitation_query.outerjoin.return_value.order_by.return_value
+        query.all.return_value = events
+        response = self.client.get("/api/events/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["data"], {
+            "total_events": 2, "total_registrations": 3,
+            "events": [
+                {"event_id": 7, "title": "Training", "course_title": "Python",
+                 "start_date": "2026-11-13", "end_date": "2026-11-14",
+                 "is_published": True, "registration_count": 3},
+                {"event_id": 6, "title": "Draft", "course_title": "SQL",
+                 "start_date": None, "end_date": None,
+                 "is_published": False, "registration_count": 0},
+            ],
+        })
+        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        self.db.close.assert_called_once()
+
+    def test_registration_summary_empty(self):
+        self.invitation_query.outerjoin.return_value.order_by.return_value.all.return_value = []
+        response = self.client.get("/api/events/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["data"], {
+            "total_events": 0, "total_registrations": 0, "events": [],
+        })
+
+    def test_registration_summary_database_failure(self):
+        self.db.query.side_effect = RuntimeError("private database detail")
+        with self.assertLogs(self.controller.logger, level="ERROR"):
+            response = self.client.get("/api/events/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn(b"private database detail", response.data)
+        self.db.close.assert_called_once()
+
+    def test_list_registrations_rejects_invalid_jwt(self):
+        response = self.client.get("/api/events/7/registrations",
+                                   headers={"Authorization": "Bearer invalid"})
+        self.assertEqual(response.status_code, 422)
+        self.db.query.assert_not_called()
+
+    def test_list_registrations_returns_website_details(self):
+        row = types.SimpleNamespace(
+            id=42, event_id=7, status="pending", created_at=datetime(2026, 11, 13, 10),
+            updated_at=None, **self.payload,
+        )
+        self.invitation_query.filter.return_value.order_by.return_value.all.return_value = [row]
+        response = self.client.get("/api/events/7/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        data = response.json["data"]
+        self.assertEqual(data["event_id"], 7)
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["registrations"], [dict(
+            self.payload, id=42, event_id=7, status="pending",
+            created_at="2026-11-13T10:00:00", updated_at=None,
+        )])
+        self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(len(self.event_query.filter.call_args.args), 1)
+        self.controller.EventTrainingRegistration.event_id.__eq__.assert_called_with(7)
+        self.db.close.assert_called_once()
+
+    def test_list_registrations_empty(self):
+        self.invitation_query.filter.return_value.order_by.return_value.all.return_value = []
+        response = self.client.get("/api/events/7/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["data"], {"event_id": 7, "total": 0, "registrations": []})
+
+    def test_list_registrations_missing_event(self):
+        self.event_query.filter.return_value.first.return_value = None
+        response = self.client.get("/api/events/7/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.db.query.call_count, 1)
+        self.db.close.assert_called_once()
+
+    def test_list_registrations_database_failure(self):
+        self.db.query.side_effect = RuntimeError("private database detail")
+        with self.assertLogs(self.controller.logger, level="ERROR"):
+            response = self.client.get("/api/events/7/registrations", headers=self.auth_headers)
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn(b"private database detail", response.data)
+        self.db.close.assert_called_once()
 
     def test_registration_rejects_invalid_details(self):
         response = self.client.post("/api/events/public/7/registrations", json=dict(self.payload, phone="bad"))
