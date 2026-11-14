@@ -5,7 +5,6 @@ Handles video upload, OTP generation, and video management
 
 import requests
 import os
-import json
 import time
 from typing import Dict, Optional
 from functools import wraps
@@ -92,13 +91,13 @@ class VdoCipherService:
     def generate_otp(self, video_id: str, user_id: int, user_email: str, 
                      user_name: str, ip_address: str = None) -> Dict:
         """
-        Generate OTP and playback info for video playback with user watermark
+        Generate OTP and playback info without a user watermark.
         
         Args:
             video_id: VdoCipher video ID
             user_id: Application user ID
-            user_email: User email for watermarking
-            user_name: User name for watermarking
+            user_email: User email (retained for caller compatibility)
+            user_name: User name (retained for caller compatibility)
             ip_address: Optional IP address restriction
             
         Returns:
@@ -109,19 +108,7 @@ class VdoCipherService:
         """
         url = f"{self.BASE_URL}/videos/{video_id}/otp"
         
-        # Create watermark annotation
-        payload = {
-            "annotate": json.dumps([
-                {
-                    "type": "rtext",  # Rolling text watermark
-                    "text": f"{user_name} ({user_email})",
-                    "alpha": "0.60",  # 60% opacity
-                    "color": "0xFF0000",  # Red color
-                    "size": "15",  # Font size
-                    "interval": "5000"  # Show every 5 seconds
-                }
-            ])
-        }
+        payload = {}
         
         # Optional: Restrict to specific IP address
         if ip_address:

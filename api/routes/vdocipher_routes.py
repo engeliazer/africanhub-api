@@ -102,7 +102,7 @@ def get_video_otp(video_id):
         # Get user IP address
         ip_address = request.remote_addr
         
-        # Generate OTP with user watermark
+        # Generate playback credentials
         vdocipher_service = get_vdocipher_service()
         if not vdocipher_service:
             return jsonify({
