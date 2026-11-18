@@ -70,8 +70,9 @@ flowchart LR
   A[1. Event details] --> B[2. Payment & bank]
   B --> C[3. Assign trainers]
   C --> D[4. Invitation template]
-  D --> E[5. Publish]
-  E --> F[Live on website]
+  D --> E[5. Learning resources]
+  E --> F[6. Publish]
+  F --> G[Live on website]
 ```
 
 | Step | Key | Screen | API |
@@ -80,7 +81,8 @@ flowchart LR
 | 2 | `payment` | Fee, deposit, deadline, bank details | `PUT /api/events/{id}` (payment fields) |
 | 3 | `trainers` | Pick/create trainers | `GET/POST /api/events/trainers`, `PUT /api/events/{id}` with `trainer_ids` |
 | 4 | `invitation_letter` | Custom HTML template *(optional)* | `POST /api/events/{id}/template` |
-| 5 | `publish` | Go live on website | `PUT /api/events/{id}` `{ "is_published": true }` |
+| 5 | `resources` | Zip learning packs *(optional)* | `POST/GET/DELETE /api/events/{id}/resources` |
+| 6 | `publish` | Go live on website | `PUT /api/events/{id}` `{ "is_published": true }` |
 
 **Poll progress:** `GET /api/events/{id}/setup` or `GET /api/events/{id}` (includes full `setup.steps`).
 
@@ -107,7 +109,7 @@ If the client sends `is_published: true` before requirements are met, the API **
     "current_step": "payment",
     "current_step_label": "Payment & bank details",
     "completed_steps": 1,
-    "total_steps": 5,
+    "total_steps": 6,
     "required_steps_complete": false,
     "blocking_publish": ["payment", "course_fee", "bank_account_name"],
     "steps": [
@@ -151,9 +153,20 @@ If the client sends `is_published: true` before requirements are met, the API **
         "hint": "Optional — upload a custom HTML template or use the built-in default."
       },
       {
+        "key": "resources",
+        "label": "Learning resources",
+        "order": 5,
+        "required": false,
+        "completed": false,
+        "skipped": true,
+        "missing": ["resources"],
+        "resource_count": 0,
+        "hint": "Optional — upload zip packs attendees can download with their attendance number after the event."
+      },
+      {
         "key": "publish",
         "label": "Publish to website",
-        "order": 5,
+        "order": 6,
         "required": true,
         "completed": false,
         "missing": ["is_published"],
@@ -562,8 +575,107 @@ flowchart LR
 2. `GET /api/events/{id}/setup` — show wizard / highlight missing fields
 3. `PUT /api/events/{id}` — complete payment, assign `trainer_ids`
 4. `POST /api/events/{id}/template` — optional custom letter
-5. `PUT /api/events/{id}` `{ "is_published": true }` — publish when `ready_to_publish` is true
-6. `GET /api/events/public` — verify on website
+5. `POST /api/events/{id}/resources` — optional zip learning packs
+6. `PUT /api/events/{id}` `{ "is_published": true }` — publish when `ready_to_publish` is true
+7. `GET /api/events/public` — verify on website
+
+---
+
+## 8. Learning resources (zip packs)
+
+Same idea as course `RESOURCES`: admins attach zip files to an event. After the event, attendees open those packs with the **attendance number** SMS’d for certificates (`serial_no` on the certificate roster for that event).
+
+### Admin — upload / list / delete
+
+Requires `Authorization: Bearer <JWT>`.
+
+`POST /api/events/{event_id}/resources`
+
+`multipart/form-data`:
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `file` | Yes | `.zip` only; empty / corrupt / path-traversal zips are rejected |
+| `name` | Yes | Display name |
+| `description` | No | Short note for the pack |
+
+**Response `201`:**
+
+```json
+{
+  "status": "success",
+  "message": "Resource uploaded successfully",
+  "data": {
+    "id": 3,
+    "event_id": 7,
+    "name": "Course handouts",
+    "description": "Slides and worksheets",
+    "extension_type": "zip",
+    "file_type": "resource",
+    "file_size": 2048000,
+    "download_url": "/api/events/7/resources/3/download",
+    "created_at": "2026-11-18T12:00:00",
+    "updated_at": "2026-11-18T12:00:00"
+  }
+}
+```
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/events/{id}/resources` | List active packs |
+| `GET` | `/api/events/{id}/resources/{resource_id}/download` | Admin download |
+| `DELETE` | `/api/events/{id}/resources/{resource_id}` | Soft delete |
+
+Admin event payloads include `resource_count` and `has_resources`.
+
+### Public — list / download with attendance number
+
+No JWT. The attendance number is the certificate `serial_no` for a training context with `training_type: event`. Query alias `serial_no` also works.
+
+`GET /api/events/public/resources?attendance_number=AH/ORG/EVTCODE/AB12CD`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "attendance_number": "AH/ORG/EVTCODE/AB12CD",
+    "participant_name": "CPA. Asha Mushi",
+    "event": {
+      "id": 7,
+      "title": "November Training",
+      "course_title": "Python Fundamentals",
+      "venue": "Dar es Salaam",
+      "start_date": "2026-11-13",
+      "end_date": "2026-11-14",
+      "subject_title": "Python Fundamentals"
+    },
+    "resource_count": 1,
+    "resources": [
+      {
+        "id": 3,
+        "event_id": 7,
+        "name": "Course handouts",
+        "description": "Slides and worksheets",
+        "extension_type": "zip",
+        "file_type": "resource",
+        "file_size": 2048000,
+        "download_url": "/api/events/public/resources/3/download?attendance_number=AH%2FORG%2FEVTCODE%2FAB12CD"
+      }
+    ]
+  }
+}
+```
+
+`GET /api/events/public/resources/{resource_id}/download?attendance_number=...`
+
+Returns the zip (`Content-Type: application/zip`, attachment).
+
+| Status | When |
+|--------|------|
+| `404` | Unknown attendance number, not linked to an event, missing event, or missing resource/file |
+| `400` | Admin upload rejected (not a zip, empty archive, etc.) |
+
+Suggested public UI: one form field for attendance number → list packs → each row downloads via `download_url`.
 
 ---
 
@@ -571,5 +683,6 @@ flowchart LR
 
 - **Full invitation campaigns** (`/api/invitations`) — batch email, trainers, invitees, scheduling
 - **Invitation mail batches** (`/api/mail/invitation-batches`) — bulk email with PDF attachments
+- **Certificates** — attendance numbers (`serial_no`) used here for public resource access
 
 This events API is the lightweight public-facing layer for the website.

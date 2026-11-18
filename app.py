@@ -77,6 +77,7 @@ from public.controllers.invitations_controller import invitations_bp
 from public.controllers.public_invitations_controller import public_invitations_bp
 from events.controllers.events_controller import events_bp
 from events.controllers.event_participants_controller import event_participants_bp
+from events.controllers.event_resources_controller import event_resources_bp
 from notifications.controllers.notifications_controller import notifications_bp
 from api.routes.bank_reconciliation_routes import bank_reconciliation_bp
 from auth.middleware.token_middleware import token_refresh_middleware, add_refreshed_token_to_response
@@ -200,6 +201,7 @@ app.register_blueprint(invitations_bp)
 app.register_blueprint(public_invitations_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(event_participants_bp)
+app.register_blueprint(event_resources_bp)
 app.register_blueprint(notifications_bp)
 
 # Register new blueprints from route files

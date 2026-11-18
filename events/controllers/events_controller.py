@@ -38,6 +38,7 @@ from events.services.event_letter_request_service import (
     validate_phone_verification_payload,
     verification_codes_match,
 )
+from events.services.event_resource_service import count_active_resources
 from events.services.event_setup_service import build_event_setup
 from public.controllers.invitation_trainer_photo_utils import handle_invitation_trainer_photo_upload
 from public.services.invitation_campaign_pdf_service import render_event_invitation_pdf_bytes
@@ -184,11 +185,14 @@ def _event_to_dict(
         "trainers": _trainers_for_event(event, db, public=public),
     }
     if not public:
+        resource_count = count_active_resources(db, event.id)
         data.update({
             "is_published": event.is_published,
             "has_template": bool(event.invitation_template_path),
             "invitation_template_filename": event.invitation_template_filename,
             "uses_default_template": not bool(event.invitation_template_path),
+            "resource_count": resource_count,
+            "has_resources": resource_count > 0,
             "created_by": event.created_by,
             "updated_by": event.updated_by,
             "created_at": event.created_at.isoformat() if event.created_at else None,

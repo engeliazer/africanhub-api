@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 from applications.models.models import InvitationTrainer
 from events.models.models import Event
+from events.services.event_resource_service import count_active_resources
 
 
 def _missing_event_info_fields(event: Event) -> List[str]:
@@ -102,11 +103,30 @@ def _step_invitation_letter(event: Event) -> Dict[str, Any]:
     }
 
 
+def _step_resources(event: Event, db) -> Dict[str, Any]:
+    count = count_active_resources(db, event.id)
+    has_resources = count > 0
+    return {
+        "key": "resources",
+        "label": "Learning resources",
+        "order": 5,
+        "required": False,
+        "completed": has_resources,
+        "skipped": not has_resources,
+        "missing": [] if has_resources else ["resources"],
+        "resource_count": count,
+        "hint": (
+            "Optional — upload zip packs attendees can download with their "
+            "attendance number after the event."
+        ),
+    }
+
+
 def _step_publish(event: Event) -> Dict[str, Any]:
     return {
         "key": "publish",
         "label": "Publish to website",
-        "order": 5,
+        "order": 6,
         "required": True,
         "completed": bool(event.is_published),
         "missing": [] if event.is_published else ["is_published"],
@@ -120,6 +140,7 @@ def build_event_setup(event: Event, db, *, detailed: bool = True) -> Dict[str, A
         _step_payment(event),
         _step_trainers(event, db),
         _step_invitation_letter(event),
+        _step_resources(event, db),
         _step_publish(event),
     ]
 

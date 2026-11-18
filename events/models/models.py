@@ -50,6 +50,12 @@ class Event(Base):
         cascade="all, delete-orphan",
         order_by="EventParticipant.id",
     )
+    resources = relationship(
+        "EventResource",
+        back_populates="event",
+        cascade="all, delete-orphan",
+        order_by="EventResource.id",
+    )
 
 
 class EventTrainerAssignment(Base):
@@ -187,3 +193,35 @@ class EventTrainingRegistration(Base):
         DateTime, nullable=False, server_default=func.current_timestamp(),
         onupdate=func.current_timestamp(),
     )
+
+
+class EventResource(Base):
+    """Downloadable zip pack attached to a training event (admin-managed)."""
+
+    __tablename__ = "event_resources"
+
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
+    event_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    file_path = Column(String(500), nullable=False)
+    original_filename = Column(String(255), nullable=True)
+    extension_type = Column(String(20), nullable=False, default="zip", server_default="zip")
+    file_size = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
+    created_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    updated_by = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+    deleted_at = Column(DateTime, nullable=True)
+
+    event = relationship("Event", back_populates="resources")
