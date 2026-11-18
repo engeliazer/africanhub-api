@@ -7,7 +7,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'storage', 'uploads'))
 ALLOWED_EXTENSIONS = {
     # Documents
-    'pdf', 'doc', 'docx', 'txt', 
+    'pdf', 'doc', 'docx', 'txt',
+    # Downloadable learning resources
+    'zip',
     # Images
     'png', 'jpg', 'jpeg', 'gif',
     # Videos

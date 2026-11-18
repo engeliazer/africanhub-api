@@ -7,6 +7,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import db_session
 from subjects.models.models import Subject, Topic, SubTopic
 from subjects.models.schemas import subject_badge_fields
+from studies.controllers.subtopic_materials_controller import material_file_type
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 from video_tracking.controllers.tracking_controller import (
     TrackingController,
@@ -203,15 +204,21 @@ def get_approved_courses():
                     }
                 
                 # Add file information
+                file_type = material_file_type(row.extension_type)
                 file_entry = {
                     "id": row.material_id,
                     "name": row.material_name,
                     "path": row.material_path,
                     "extension_type": row.extension_type,
+                    "file_type": file_type,
                     "video_duration": row.video_duration,
                     "file_size": row.file_size,
                     "material_category_id": row.material_category_id,
                 }
+                if file_type == "resource":
+                    file_entry["download_url"] = (
+                        f"/api/study-materials/subtopic-materials/{row.material_id}/download"
+                    )
 
                 if is_video_material(row.extension_type):
                     file_entry["watch_progress"] = progress_map.get(

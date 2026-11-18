@@ -19,6 +19,7 @@ import json
 import struct
 import wave
 import uuid
+import zipfile
 import subprocess
 import shutil
 import tempfile
@@ -36,6 +37,72 @@ import ffmpeg
 logger = logging.getLogger(__name__)
 
 subtopic_materials_bp = Blueprint('subtopic_materials', __name__)
+
+RESOURCE_CATEGORY_CODE = 'RESOURCES'
+VIDEO_FILE_EXTENSIONS = {'mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv'}
+RESOURCE_FILE_EXTENSIONS = {'zip'}
+RESOURCE_UPLOAD_PATH = '/api/study-materials/subtopic-materials/upload-resources'
+RESOURCES_ONLY_MESSAGE = (
+    "The RESOURCES category only accepts zip files. "
+    f"POST them to {RESOURCE_UPLOAD_PATH}."
+)
+
+
+def material_file_type(extension_type: str) -> str:
+    ext = (extension_type or '').lower()
+    if ext in RESOURCE_FILE_EXTENSIONS:
+        return 'resource'
+    if ext in VIDEO_FILE_EXTENSIONS:
+        return 'video'
+    return 'document'
+
+
+def is_resource_category(category) -> bool:
+    return (getattr(category, 'code', None) or '').strip().upper() == RESOURCE_CATEGORY_CODE
+
+
+def resource_download_name(material) -> str:
+    base = re.sub(r'[^A-Za-z0-9._ -]+', '_', material.name or 'resource').strip(' ._')
+    if not base:
+        base = f"resource-{material.id}"
+    if not base.lower().endswith('.zip'):
+        base = f"{base}.zip"
+    return base
+
+
+def unsafe_zip_member(name: str) -> bool:
+    normalized = (name or '').replace('\\', '/')
+    if normalized.startswith('/'):
+        return True
+    parts = [part for part in normalized.split('/') if part not in ('', '.')]
+    return any(part == '..' for part in parts)
+
+
+def zip_archive_error(path: str):
+    """Return an error message when a saved file is not a safe, non-empty zip."""
+    if not zipfile.is_zipfile(path):
+        return "File is not a valid zip archive"
+    try:
+        with zipfile.ZipFile(path) as archive:
+            infos = archive.infolist()
+            if not any(not info.is_dir() for info in infos):
+                return "Zip archive is empty"
+            for info in infos:
+                if unsafe_zip_member(info.filename):
+                    return "Zip archive contains unsafe paths"
+            bad_member = archive.testzip()
+            if bad_member is not None:
+                return "Zip archive is corrupted"
+    except zipfile.BadZipFile:
+        return "File is not a valid zip archive"
+    return None
+
+
+def local_material_path(material) -> str:
+    stored = material.material_path or ''
+    if stored.startswith('storage/'):
+        return stored
+    return os.path.join(UPLOAD_FOLDER, stored)
 
 # Create HLS directory
 HLS_FOLDER = os.path.join(UPLOAD_FOLDER, 'hls')
@@ -405,7 +472,7 @@ def get_materials():
                     "file_size": material.file_size,
                     "created_at": material.created_at.isoformat() if material.created_at else None,
                     "updated_at": material.updated_at.isoformat() if material.updated_at else None,
-                    "file_type": "video" if material.extension_type in ['mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv'] else "document",
+                    "file_type": material_file_type(material.extension_type),
                     "processing_status": material.processing_status,
                     "processing_progress": material.processing_progress,
                     "processing_error": material.processing_error,
@@ -508,6 +575,9 @@ def upload_material():
             
         if not category:
             return jsonify({"error": "Material category not found"}), 404
+
+        if is_resource_category(category):
+            return jsonify({"error": RESOURCES_ONLY_MESSAGE}), 400
         
         # Create temporary file for processing
         current_date = datetime.now()
@@ -658,6 +728,9 @@ def upload_document_material():
             .first()
         if not category:
             return jsonify({"error": "Material category not found"}), 404
+
+        if is_resource_category(category):
+            return jsonify({"error": RESOURCES_ONLY_MESSAGE}), 400
 
         # Build storage path under uploads/documents/<YYYY>/<MM>/<uuid>/<filename>
         now = datetime.now()
@@ -896,6 +969,121 @@ def upload_document_material():
             try:
                 os.unlink(temp_file_path)
             except Exception:
+                pass
+        return jsonify({"error": str(e)}), 500
+
+@subtopic_materials_bp.route('/study-materials/subtopic-materials/upload-resources', methods=['POST'])
+@jwt_required()
+def upload_resource_material():
+    """Store a zip archive on a RESOURCES category for learners to download."""
+    absolute_path = None
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part"}), 400
+
+        file = request.files['file']
+        subtopic_id = request.form.get('subtopic_id')
+        material_category_id = request.form.get('material_category_id')
+        name = request.form.get('name')
+
+        if not all([file, subtopic_id, material_category_id, name]):
+            return jsonify({"error": "Missing required fields"}), 400
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in RESOURCE_FILE_EXTENSIONS:
+            return jsonify({"error": "Only .zip files are allowed for RESOURCES"}), 400
+
+        try:
+            subtopic_id_int = int(subtopic_id)
+            category_id_int = int(material_category_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "subtopic_id and material_category_id must be integers"}), 400
+
+        subtopic = db_session.query(SubTopic).filter(SubTopic.id == subtopic_id_int).first()
+        if not subtopic:
+            return jsonify({"error": "Subtopic not found"}), 404
+
+        category = db_session.query(StudyMaterialCategory).filter(
+            StudyMaterialCategory.id == category_id_int,
+            StudyMaterialCategory.deleted_at.is_(None),
+        ).first()
+        if not category:
+            return jsonify({"error": "Material category not found"}), 404
+        if not is_resource_category(category):
+            return jsonify({
+                "error": (
+                    "Zip files must be registered under the RESOURCES category. "
+                    f"Category {category.code} is not RESOURCES."
+                )
+            }), 400
+
+        now = datetime.now()
+        resource_uuid = str(uuid.uuid4())
+        safe_name = re.sub(r'[^a-zA-Z0-9]', '_', name).strip('_') or 'resource'
+        filename = f"{safe_name}_{now.strftime('%Y%m%d_%H%M%S')}.zip"
+        relative_dir = os.path.join('resources', f"{now.year}", f"{now.month:02d}", resource_uuid)
+        absolute_dir = os.path.join(UPLOAD_FOLDER, relative_dir)
+        os.makedirs(absolute_dir, exist_ok=True)
+
+        absolute_path = os.path.join(absolute_dir, filename)
+        file.save(absolute_path)
+
+        archive_error = zip_archive_error(absolute_path)
+        if archive_error:
+            os.remove(absolute_path)
+            absolute_path = None
+            return jsonify({"error": archive_error}), 400
+
+        file_size = os.path.getsize(absolute_path)
+        relative_path = os.path.join(relative_dir, filename).replace('\\', '/')
+        current_user_id = int(get_jwt_identity())
+
+        material_data = SubtopicMaterialCreate(
+            subtopic_id=subtopic_id_int,
+            material_category_id=category_id_int,
+            name=name,
+            material_path=relative_path,
+            extension_type='zip',
+            file_size=file_size,
+            video_duration=None,
+            created_by=current_user_id,
+            updated_by=current_user_id,
+        )
+        material = SubtopicMaterial(**material_data.dict())
+        material.processing_status = 'completed'
+        material.processing_progress = 100
+        material.storage_location = 'local'
+        db_session.add(material)
+        db_session.commit()
+        db_session.refresh(material)
+        absolute_path = None
+
+        return jsonify({
+            "status": "success",
+            "message": "Resource uploaded successfully.",
+            "data": {
+                "id": material.id,
+                "name": material.name,
+                "material_path": material.material_path,
+                "extension_type": material.extension_type,
+                "file_type": "resource",
+                "file_size": material.file_size,
+                "download_url": f"/api/study-materials/subtopic-materials/{material.id}/download",
+                "created_at": material.created_at.isoformat() if material.created_at else None,
+                "updated_at": material.updated_at.isoformat() if material.updated_at else None,
+                "processing_status": material.processing_status,
+                "processing_progress": material.processing_progress,
+            }
+        }), 201
+    except Exception as e:
+        logger.error(f"Error in upload_resource_material: {str(e)}")
+        db_session.rollback()
+        if absolute_path and os.path.exists(absolute_path):
+            try:
+                os.remove(absolute_path)
+            except OSError:
                 pass
         return jsonify({"error": str(e)}), 500
 
@@ -1141,6 +1329,14 @@ def view_material(material_id):
                 **common_params,
                 mimetype='application/pdf',
                 as_attachment=False
+            )
+        elif material_file_type(material.extension_type) == 'resource' or path_ext == '.zip':
+            return send_file(
+                path_or_file=file_path,
+                conditional=True,
+                download_name=resource_download_name(material),
+                mimetype='application/zip',
+                as_attachment=True,
             )
         else:
             # For other files, we'll send them as attachments
@@ -1418,6 +1614,35 @@ def get_material_status(material_id):
         print(f"Error getting material status: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@subtopic_materials_bp.route('/study-materials/subtopic-materials/<int:material_id>/download', methods=['GET'])
+@jwt_required()
+def download_resource_material(material_id):
+    """Send a RESOURCES zip archive as a file download."""
+    try:
+        material = db_session.query(SubtopicMaterial).filter(
+            SubtopicMaterial.id == material_id
+        ).first()
+        if not material:
+            return jsonify({"error": "Material not found"}), 404
+
+        if material_file_type(material.extension_type) != 'resource':
+            return jsonify({"error": "This material is not a downloadable resource"}), 400
+
+        file_path = local_material_path(material)
+        if not os.path.exists(file_path):
+            return jsonify({"error": "File not found"}), 404
+
+        return send_file(
+            path_or_file=file_path,
+            conditional=True,
+            download_name=resource_download_name(material),
+            mimetype='application/zip',
+            as_attachment=True,
+        )
+    except Exception as e:
+        logger.error(f"Error in download_resource_material: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 @subtopic_materials_bp.route('/study-materials/subtopic-materials/<int:material_id>/view-document', methods=['GET'])
 @jwt_required()
 def view_document(material_id):
@@ -1429,13 +1654,14 @@ def view_document(material_id):
         
         if not material:
             return jsonify({"error": "Material not found"}), 404
-            
-        # Check if this is a document
-        if material.extension_type.lower() not in ['pdf', 'doc', 'docx', 'txt']:
+
+        extension = (material.extension_type or '').lower()
+        # Check if this is a document or a downloadable resource archive
+        if extension not in ['pdf', 'doc', 'docx', 'txt', 'zip']:
             return jsonify({"error": "Not a document file"}), 400
             
         # Get the file path
-        file_path = os.path.join(UPLOAD_FOLDER, material.material_path)
+        file_path = local_material_path(material)
         
         # Check if file exists
         if not os.path.exists(file_path):
@@ -1458,8 +1684,11 @@ def view_document(material_id):
             except Exception as e:
                 print(f"Error reading PDF metadata: {str(e)}")
         
-        # Generate document URL
-        document_url = f"/api/study-materials/subtopic-materials/{material_id}/view"
+        # Zip resources download as an attachment. Documents stay on the inline view URL.
+        if extension == 'zip':
+            document_url = f"/api/study-materials/subtopic-materials/{material_id}/download"
+        else:
+            document_url = f"/api/study-materials/subtopic-materials/{material_id}/view"
         
         # Generate access token if document is protected
         access_token = None

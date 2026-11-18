@@ -1244,6 +1244,16 @@ For `pdf`, `doc`, `docx`, or `txt`:
 
 `access_token` is present only when the PDF is encrypted. Download or display `document_url` with the bearer token. `400` means the file is not a document. `404` means the file is missing.
 
+For a zip resource, `document_type` is `zip` and `document_url` is the download route below. Save that response as a file.
+
+### 12.5.1 Download a resource archive
+
+Learning files in the `RESOURCES` category are zip archives. In the approved-courses tree they have `file_type` `resource` and a `download_url`. `watch_progress` stays `null`.
+
+`GET /api/study-materials/subtopic-materials/{material_id}/download`
+
+Auth required. The response is the zip file (`Content-Type: application/zip`, `Content-Disposition: attachment`). `400` means the material is not a zip resource. `404` means the material or the file is missing.
+
 ### 12.6 Material categories
 
 `GET /api/study-materials/categories`
