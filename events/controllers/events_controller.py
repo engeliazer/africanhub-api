@@ -444,7 +444,7 @@ def list_events():
         today = date.today()
         rows = (
             _upcoming_filter(_events_query(db), today)
-            .order_by(Event.start_date.asc(), Event.id.asc())
+            .order_by(Event.start_date.desc(), Event.id.desc())
             .all()
         )
         return jsonify({
