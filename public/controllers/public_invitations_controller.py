@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from applications.models.models import Invitation, InvitationCampaignStatus
 from database.db_connector import get_db
+from subjects.models.models import Subject
 from events.models.models import Event, EventTrainingRegistration
 from public.services.invitation_campaign_pdf_service import render_invitation_pdf_bytes
 
@@ -112,6 +113,73 @@ def public_invitation_attachment(event_id):
         )
     except Exception:
         logger.exception("public_invitation_attachment failed for event %s", event_id)
+        return jsonify({"status": "error", "message": "Unable to load invitation attachment"}), 500
+    finally:
+        db.close()
+
+
+def _public_subject_invitation(db, subject_id):
+    event = db.query(Subject).filter(Subject.id == subject_id, Subject.is_active.is_(True), Subject.deleted_at.is_(None)).first()
+    if event is None:
+        return None
+    # Both public endpoints must resolve to the same campaign, even if the
+    # newest campaign has no additional attachment.
+    return (
+        db.query(Invitation)
+        .filter(
+            Invitation.subject_id == subject_id,
+            Invitation.status != InvitationCampaignStatus.cancelled,
+        )
+        .order_by(Invitation.id.desc())
+        .first()
+    )
+
+
+@public_invitations_bp.route("/api/subjects/public/<int:subject_id>/self-invitation", methods=["POST"])
+def subject_self_invitation(subject_id):
+    """Render the campaign letter with submitted details; no account or email send."""
+    try:
+        invitee = _self_invitee(request.get_json(silent=True))
+    except ValueError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+    db = get_db()
+    try:
+        invitation = _public_subject_invitation(db, subject_id)
+        if invitation is None:
+            return jsonify({"status": "error", "message": "Invitation not available for this subject"}), 404
+        pdf_bytes, filename = render_invitation_pdf_bytes(invitation, invitee)
+        response = send_file(
+            BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=False,
+            download_name=filename, max_age=0,
+        )
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except Exception:
+        logger.exception("self_invitation failed for event %s", subject_id)
+        return jsonify({"status": "error", "message": "Unable to generate invitation PDF"}), 500
+    finally:
+        db.close()
+
+
+@public_invitations_bp.route("/api/subjects/public/<int:subject_id>/invitation/attachment", methods=["GET"])
+def public_subject_invitation_attachment(subject_id):
+    """View the additional campaign PDF inline, without authentication."""
+    db = get_db()
+    try:
+        invitation = _public_subject_invitation(db, subject_id)
+        if invitation is None:
+            return jsonify({"status": "error", "message": "Invitation not available for this subject"}), 404
+        path = invitation.additional_attachment_path
+        if not path or not Path(path).is_file():
+            return jsonify({"status": "error", "message": "No attachment on this invitation"}), 404
+        return send_file(
+            str(Path(path).resolve()), mimetype="application/pdf", as_attachment=False,
+            download_name=invitation.additional_attachment_filename or Path(path).name,
+            max_age=0,
+        )
+    except Exception:
+        logger.exception("public_invitation_attachment failed for event %s", subject_id)
         return jsonify({"status": "error", "message": "Unable to load invitation attachment"}), 500
     finally:
         db.close()

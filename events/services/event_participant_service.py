@@ -84,6 +84,7 @@ def participant_display_names(
 
 
 def existing_phones(db: Session, event_id: int) -> Set[str]:
+    """Active roster phones for this event (soft-deleted leftovers are purged on create)."""
     rows = (
         db.query(EventParticipant.phone)
         .filter(
@@ -93,6 +94,44 @@ def existing_phones(db: Session, event_id: int) -> Set[str]:
         .all()
     )
     return {row[0] for row in rows if row[0]}
+
+
+def purge_soft_deleted_phone(db: Session, event_id: int, phone: str) -> None:
+    """Remove soft-deleted rows that would block the unique (event_id, phone) key."""
+    stale = (
+        db.query(EventParticipant)
+        .filter(
+            EventParticipant.event_id == event_id,
+            EventParticipant.phone == phone,
+            EventParticipant.deleted_at.isnot(None),
+        )
+        .all()
+    )
+    for row in stale:
+        db.delete(row)
+    if stale:
+        db.flush()
+
+
+def find_active_participant_by_phone(
+    db: Session,
+    event_id: int,
+    phone: str,
+    *,
+    exclude_id: Optional[int] = None,
+) -> Optional[EventParticipant]:
+    query = db.query(EventParticipant).filter(
+        EventParticipant.event_id == event_id,
+        EventParticipant.phone == phone,
+        EventParticipant.deleted_at.is_(None),
+    )
+    if exclude_id is not None:
+        query = query.filter(EventParticipant.id != exclude_id)
+    return query.first()
+
+
+def duplicate_phone_message(phone: str) -> str:
+    return f"Phone {phone} is already on this event roster"
 
 
 def build_participant_view(db: Session, participant: EventParticipant) -> Dict[str, Any]:
@@ -127,8 +166,11 @@ def create_participant_row(
     phone = normalize_phone(data.get("phone") or "")
     if not phone:
         return None, "phone is required and must be a valid Tanzania mobile number"
-    if phone in seen_phones:
-        return None, f"Phone {phone} is already on this event roster"
+    if phone in seen_phones or find_active_participant_by_phone(db, event_id, phone):
+        return None, duplicate_phone_message(phone)
+
+    # Soft-deleted rows still occupy the unique phone key; remove them so re-add works.
+    purge_soft_deleted_phone(db, event_id, phone)
 
     email_error = validate_email(data.get("email"))
     if email_error:

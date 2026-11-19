@@ -25,6 +25,7 @@ from applications.models.models import (
 )
 from database.db_connector import get_db
 from events.models.models import Event
+from subjects.models.models import Subject
 from public.controllers.invitation_trainer_photo_utils import (
     handle_invitation_trainer_photo_upload,
 )
@@ -225,6 +226,7 @@ def _invitation_to_dict(
     data: Dict[str, Any] = {
         "id": invitation.id,
         "event_id": invitation.event_id,
+        "subject_id": invitation.subject_id,
         "title": invitation.title,
         "course_title": invitation.course_title,
         "course_description": invitation.course_description,
@@ -298,6 +300,23 @@ def _apply_invitation_fields(invitation: Invitation, data: dict, partial: bool =
             if db.query(Event.id).filter(Event.id == event_id).first() is None:
                 return "Event not found"
             invitation.event_id = event_id
+
+    if "subject_id" in data:
+        value = data["subject_id"]
+        if value is None:
+            invitation.subject_id = None
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                return "subject_id must be a positive integer or null"
+            try:
+                subject_id = int(value)
+            except (ValueError, TypeError):
+                return "subject_id must be a positive integer or null"
+            if subject_id <= 0:
+                return "subject_id must be a positive integer or null"
+            if db.query(Subject.id).filter(Subject.id == subject_id).first() is None:
+                return "Subject not found"
+            invitation.subject_id = subject_id
 
     field_map = {
         "title": "title",

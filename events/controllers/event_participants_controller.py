@@ -6,25 +6,36 @@ This roster is separate from certificate assignment — use it to record attenda
 first, then pull from it when issuing certificates.
 """
 
-from datetime import datetime
-
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy.exc import IntegrityError
 
 from events.models.models import EventParticipant
 from events.models.schemas import EventParticipantBulkInput, EventParticipantUpdateInput
 from events.services.event_participant_service import (
     build_participant_view,
     create_participant_row,
+    duplicate_phone_message,
     existing_phones,
+    find_active_participant_by_phone,
     get_event_or_error,
     get_salutation_or_error,
     list_event_participants,
+    purge_soft_deleted_phone,
     validate_email,
 )
 from database.db_connector import get_db
 
 event_participants_bp = Blueprint("event_participants", __name__)
+
+
+def _integrity_error_message(exc: IntegrityError, *, phone: str = None) -> str:
+    text = str(getattr(exc, "orig", exc))
+    if "uq_event_participants_event_phone" in text or "Duplicate entry" in text:
+        if phone:
+            return duplicate_phone_message(phone)
+        return "A participant with this phone is already on this event roster"
+    return "Could not save participant because of a data conflict"
 
 
 @event_participants_bp.route("/api/events/<int:event_id>/participants", methods=["GET"])
@@ -121,7 +132,15 @@ def add_participants(event_id: int):
             db.add(row)
             created.append(row)
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            conflict_phone = created[-1].phone if created else None
+            return jsonify({
+                "status": "error",
+                "message": _integrity_error_message(exc, phone=conflict_phone),
+            }), 400
 
         return jsonify({
             "status": "success",
@@ -194,13 +213,35 @@ def update_participant(event_id: int, participant_id: int):
             if salutation_error:
                 return jsonify({"status": "error", "message": salutation_error}), 400
 
+        if "phone" in updates and updates["phone"] is not None:
+            new_phone = updates["phone"]
+            if find_active_participant_by_phone(
+                db, event_id, new_phone, exclude_id=row.id
+            ):
+                return jsonify({
+                    "status": "error",
+                    "message": duplicate_phone_message(new_phone),
+                }), 400
+            purge_soft_deleted_phone(db, event_id, new_phone)
+
         for field, value in updates.items():
             if field in {"organization", "email", "phone", "notes"}:
                 value = (value or "").strip() or None if value is not None else None
             setattr(row, field, value)
         row.updated_by = current_user_id
 
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            return jsonify({
+                "status": "error",
+                "message": _integrity_error_message(
+                    exc,
+                    phone=updates.get("phone") if "phone" in updates else row.phone,
+                ),
+            }), 400
+
         return jsonify({
             "status": "success",
             "message": "Participant updated successfully",
@@ -226,15 +267,13 @@ def delete_participant(event_id: int, participant_id: int):
             .filter(
                 EventParticipant.id == participant_id,
                 EventParticipant.event_id == event_id,
-                EventParticipant.deleted_at.is_(None),
             )
             .first()
         )
         if not row:
             return jsonify({"status": "error", "message": "Participant not found"}), 404
 
-        row.deleted_at = datetime.utcnow()
-        row.updated_by = int(get_jwt_identity())
+        db.delete(row)
         db.commit()
         return jsonify({
             "status": "success",
