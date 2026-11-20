@@ -33,6 +33,8 @@ JWT_SECRET_KEY=your-secret-key-here
 
 # VdoCipher
 VDOCIPHER_API_SECRET=your-vdocipher-api-secret
+# Restricted key for public promo playback (create token + view only)
+VDOCIPHER_PROMO_API_SECRET=your-vdocipher-promo-api-secret
 
 # LMS (Books / Library Management System)
 LMS_BASE_URL=https://your-lms.example.com

@@ -45,9 +45,13 @@ class VdoCipherService:
     
     BASE_URL = "https://dev.vdocipher.com/api"
     
-    def __init__(self):
-        """Initialize VdoCipher service with API credentials"""
-        self.api_secret = os.getenv('VDOCIPHER_API_SECRET')
+    def __init__(self, api_secret: Optional[str] = None):
+        """Initialize VdoCipher service with API credentials.
+
+        Pass api_secret to use a restricted key (for example the promo playback key).
+        The default remains VDOCIPHER_API_SECRET, which can upload and delete.
+        """
+        self.api_secret = api_secret or os.getenv('VDOCIPHER_API_SECRET')
         
         if not self.api_secret:
             raise ValueError("VDOCIPHER_API_SECRET not set in environment variables")
@@ -129,6 +133,19 @@ class VdoCipherService:
                 raise Exception("VdoCipher rate limit exceeded")
             else:
                 raise Exception(f"Failed to generate OTP: {e.response.text}")
+
+    def generate_playback_otp(self, video_id: str) -> Dict:
+        """Mint a playback OTP without a user identity.
+
+        Used for public promotional videos. The caller should pass a key that
+        can only create tokens and view videos.
+        """
+        return self.generate_otp(
+            video_id=video_id,
+            user_id=0,
+            user_email="",
+            user_name="",
+        )
     
     @retry_on_failure(max_retries=3, delay=2)
     def upload_video(self, title: str, folder_id: Optional[str] = None) -> Dict:

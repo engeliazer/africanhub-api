@@ -18,4 +18,5 @@ def register_all_models() -> None:
     import instructors.models.models  # noqa: F401
     import partner_organizations.models.models  # noqa: F401
     import testimonials.models.models  # noqa: F401
+    import promo_videos.models.models  # noqa: F401
     import video_tracking.models.models  # noqa: F401
