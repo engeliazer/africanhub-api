@@ -295,8 +295,27 @@ def send_sms_batch():
     if not recipients or not isinstance(recipients, list):
         return jsonify({
             'success': False,
-            'message': 'recipients (array of {phone, message}) is required',
+            'message': 'recipients must be a non-empty array',
         }), 400
+
+    # A shared template with named recipients; retain legacy per-row messages.
+    if 'message' in data:
+        template = data.get('message')
+        if not isinstance(template, str) or not template.strip():
+            return jsonify(success=False, message='message must be non-empty text'), 400
+        prepared = []
+        for recipient in recipients:
+            if not isinstance(recipient, dict):
+                return jsonify(success=False, message='Each recipient requires number and name'), 400
+            number = recipient.get('number')
+            name = recipient.get('name')
+            if (not isinstance(number, str) or not _normalize_phone(number) or
+                    not isinstance(name, str) or not name.strip()):
+                return jsonify(success=False, message='Each recipient requires a valid number and name'), 400
+            prepared.append({'phone': number, 'message': template.replace('[NAME]', name.strip())})
+        recipients = prepared
+    elif any(not isinstance(recipient, dict) for recipient in recipients):
+        return jsonify(success=False, message='Each recipient must be an object'), 400
 
     result = SMSService.send_messages(
         recipients, default_sender=sender, process_name='api_send_batch'

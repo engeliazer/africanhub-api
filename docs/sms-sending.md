@@ -110,3 +110,23 @@ Registration and password reset send the same six-digit temporary password throu
 The existing `MAIL_TRANSPORT` configuration selects SES, SendGrid or SMTP. Set the default sender with `MAIL_FROM` (or the existing `MAIL_SMTP_USER` fallback), because these messages do not supply an invitation-specific source address. No separate email credentials or worker are required; these notifications are sent during the API request.
 
 Both responses expose channel results as `data.sms` and `data.email`, each containing `success` and `message`. A channel failure does not prevent attempting the other channel or undo a committed registration/password reset. Success means provider acceptance; users should check their inbox and spam folder. The frontend should use the channel results when displaying delivery feedback.
+
+## Bulk SMS with named recipients
+
+Submit `POST /api/sms/send-batch` with a shared message and named recipients:
+
+```json
+{
+  "message": "Dear [NAME], welcome to AfricanHub.",
+  "recipients": [
+    {"number": "+255712345678", "name": "Hamis"},
+    {"number": "+255787654321", "name": "Asha"}
+  ]
+}
+```
+
+The frontend submits JSON containing each recipient’s `number` and `name`, plus the shared message template. No Excel file is required by this API.
+The backend replaces every `[NAME]` with the recipient's name before sending and auditing.
+A message without `[NAME]` is sent unchanged to everyone. Invalid numbers or missing names
+reject the whole request before sending. The legacy per-recipient `{phone, message}` format
+remains supported when the shared `message` field is absent.
