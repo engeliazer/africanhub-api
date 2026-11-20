@@ -756,3 +756,30 @@ def get_sms_logs():
     except Exception as e:
         logger.exception("get_sms_logs: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@sms_bp.route('/api/sms/reports', methods=['GET'])
+@jwt_required()
+def get_sms_report():
+    """Filtered audit report with totals across all matching messages, not just the page."""
+    from public.services.sms_report_service import parse_report_filters, build_sms_report
+    try:
+        filters = parse_report_filters(request.args)
+    except ValueError as exc:
+        return jsonify(status='error', message=str(exc)), 400
+    try:
+        SessionLocal, SmsLog = _get_session_and_model()
+        db = SessionLocal()
+        try:
+            summary, rows, pagination = build_sms_report(db, SmsLog, filters)
+            response = jsonify(status='success', message='SMS report retrieved successfully', data={
+                'summary': summary, 'logs': [_sms_log_to_dict(row) for row in rows],
+                'pagination': pagination,
+            })
+            response.headers['Cache-Control'] = 'no-store, private'
+            return response
+        finally:
+            db.close()
+    except Exception:
+        logger.exception('SMS report retrieval failed')
+        return jsonify(status='error', message='Unable to retrieve SMS report'), 500

@@ -163,3 +163,52 @@ alembic upgrade head
 ```
 
 Revision `gg7b8c9d0e1f` adds the three audit fields and category/batch indexes. Known historical registration/reset/direct sends are marked single, and known batch/broadcast/custom sends are marked bulk. Unclassified historical categories remain NULL; historical names and batch labels remain NULL. No historical message or provider response is changed.
+
+## SMS reports endpoint
+
+`GET /api/sms/reports` requires `Authorization: Bearer <access_token>`. The frontend calls AfricanHub, not Mastercodes. Reports read local audit records and do not require a provider request.
+
+Supported optional query parameters:
+
+- `from_date`, `to_date`: inclusive UTC calendar dates in `YYYY-MM-DD`. Either boundary can be supplied alone.
+- `batch_name`: exact batch reference.
+- `category`: `single` or `bulk`.
+- `recipient_name`: partial recipient name.
+- `recipient`: partial phone number.
+- `status`: `sent` or `failed`.
+- `process_name`, `provider`: exact values.
+- `page`: positive integer, default 1.
+- `per_page`: positive integer, default 20, capped at 100.
+
+Example (URL-encode query values):
+
+```http
+GET /api/sms/reports?from_date=2026-11-01&to_date=2026-11-30&category=bulk&batch_name=November%20welcome%20messages&recipient_name=Hamis&page=1&per_page=20
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+Response structure:
+
+```json
+{
+  "status": "success",
+  "message": "SMS report retrieved successfully",
+  "data": {
+    "summary": {
+      "total_messages": 2,
+      "total_sms_count": 3,
+      "sent": 1,
+      "failed": 1,
+      "unique_recipients": 2,
+      "sent_sms_count": 2,
+      "failed_sms_count": 1
+    },
+    "logs": [],
+    "pagination": {"total": 2, "page": 1, "per_page": 20, "total_pages": 1}
+  }
+}
+```
+
+`logs` above is abbreviated; actual entries have the same fields as `/api/sms/logs`, including message, recipient, recipient_name, category, batch_name, response and SMS count. Summary totals cover every matching row, independent of pagination. `total_sms_count` includes failed attempts; `sent_sms_count` and `failed_sms_count` separate their segment estimates. `sent` means gateway acceptance, not handset delivery or confirmed billing. Empty matches return zero totals and an empty list. Invalid filters return HTTP 400; unexpected report failures return HTTP 500 with a generic message. Successful responses use `Cache-Control: no-store, private`.
+
+As with the existing logs endpoint, access requires a valid JWT and has no additional role restriction. Audit messages may contain temporary credentials; expose the report only in the appropriate authenticated administration interface.
