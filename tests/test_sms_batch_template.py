@@ -24,14 +24,15 @@ class BatchTemplateTests(unittest.TestCase):
 
     def test_named_recipients_get_individual_messages(self):
         self.request.get_json.return_value = {
-            'message': 'Dear [NAME], welcome [NAME].',
+            'message': 'Dear [NAME], welcome [NAME].', 'batch_name': 'Welcome',
             'recipients': [{'number': '+255712345678', 'name': 'Hamis'},
                            {'number': '+255787654321', 'name': 'Asha'}]}
         self.route()
+        self.assertEqual(self.service.send_messages.call_args.kwargs['batch_name'], 'Welcome')
         recipients = self.service.send_messages.call_args.args[0]
         self.assertEqual(recipients, [
-            {'phone': '+255712345678', 'message': 'Dear Hamis, welcome Hamis.'},
-            {'phone': '+255787654321', 'message': 'Dear Asha, welcome Asha.'}])
+            {'phone': '+255712345678', 'name': 'Hamis', 'message': 'Dear Hamis, welcome Hamis.'},
+            {'phone': '+255787654321', 'name': 'Asha', 'message': 'Dear Asha, welcome Asha.'}])
 
     def test_plain_message_remains_unchanged(self):
         self.request.get_json.return_value = {'message': 'Welcome everyone.',

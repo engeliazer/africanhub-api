@@ -98,6 +98,52 @@ class SMSServiceTests(unittest.TestCase):
         self.assertEqual(result['data']['failed'], 1)
         self.assertEqual(self.log.call_count, 2)
 
+    def test_bulk_audit_keeps_name_batch_personalized_message_and_response(self):
+        self.requests.post.return_value = self.response()
+        self.service.send_messages([
+            {'number': '+255712345678', 'name': 'Hamis', 'message': 'Dear Hamis'},
+            {'number': '+255787654321', 'name': 'Asha', 'message': 'Dear Asha'},
+        ], batch_name='Welcome November')
+        records = [c.kwargs for c in self.log.call_args_list]
+        self.assertEqual([r['recipient_name'] for r in records], ['Hamis', 'Asha'])
+        self.assertEqual([r['message'] for r in records], ['Dear Hamis', 'Dear Asha'])
+        self.assertEqual([r['recipient'] for r in records], ['+255712345678', '+255787654321'])
+        for record in records:
+            self.assertEqual(record['category'], 'bulk')
+            self.assertEqual(record['batch_name'], 'Welcome November')
+            self.assertEqual(record['api_response_raw'], 'provider response')
+
+    def test_database_row_contains_audit_metadata_and_segment_count(self):
+        tree = ast.parse((Path(__file__).resolve().parents[1] /
+                          'public/controllers/sms_controller.py').read_text())
+        session, model = Mock(), Mock()
+        ns = dict(self.ns, _get_session_and_model=lambda: (lambda: session, model))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in {'_sms_count_from_length', '_log_sms'}:
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<audit>', 'exec'), ns)
+        ns['_log_sms'](sender_id='AFRICANHUB', recipient='+255712345678',
+                       message='x' * 161, message_length=161, process_name='api_send_batch',
+                       status='sent', recipient_name='Hamis', category='bulk', batch_name='Welcome',
+                       api_response_raw='provider response')
+        row = model.call_args.kwargs
+        self.assertEqual(row['sms_count'], 2)
+        self.assertEqual(row['provider'], 'mastercodes')
+        self.assertEqual(row['recipient_name'], 'Hamis')
+        self.assertEqual(row['batch_name'], 'Welcome')
+        self.assertEqual(row['category'], 'bulk')
+        self.assertEqual(row['message'], 'x' * 161)
+        session.add.assert_called_once_with(model.return_value)
+        session.commit.assert_called_once()
+        session.close.assert_called_once()
+
+    def test_single_audit_defaults_and_optional_name(self):
+        self.requests.post.return_value = self.response()
+        self.service.send_message('0755344162', 'hello', recipient_name='Hamis')
+        record = self.log.call_args.kwargs
+        self.assertEqual(record['category'], 'single')
+        self.assertIsNone(record['batch_name'])
+        self.assertEqual(record['recipient_name'], 'Hamis')
+
     def test_international_number_is_preserved(self):
         normalize = self.ns['_normalize_phone']
         self.assertEqual(normalize('+254712345678'), '+254712345678')

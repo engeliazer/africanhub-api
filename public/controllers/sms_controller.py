@@ -38,6 +38,9 @@ def _log_sms(
     process_name: str,
     status: str,
     provider: str = "mastercodes",
+    recipient_name: Optional[str] = None,
+    category: str = "single",
+    batch_name: Optional[str] = None,
     external_id: Optional[str] = None,
     api_response_raw: Optional[str] = None,
     error_message: Optional[str] = None,
@@ -52,6 +55,9 @@ def _log_sms(
             row = SmsLog(
                 sender_id=sender_id,
                 recipient=recipient,
+                recipient_name=recipient_name,
+                category=category,
+                batch_name=batch_name,
                 message=message,
                 message_length=message_length,
                 sms_count=sms_count,
@@ -222,6 +228,8 @@ class SMSService:
         phone: str, message: str, sender: Optional[str] = None,
         use_last_nine: bool = True, process_name: str = "unknown",
         created_by: Optional[int] = None,
+        recipient_name: Optional[str] = None, category: str = "single",
+        batch_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send and audit one message. Success means gateway acceptance, not delivery."""
         normalized = _normalize_phone(phone, use_last_nine)
@@ -234,7 +242,8 @@ class SMSService:
                  message=message or '', message_length=len(message or ''),
                  process_name=process_name, status='sent' if out['success'] else 'failed',
                  external_id=out['external_id'], api_response_raw=out['text'],
-                 error_message=out['error'], created_by=created_by)
+                 error_message=out['error'], created_by=created_by,
+                 recipient_name=recipient_name, category=category, batch_name=batch_name)
         return {'success': out['success'],
                 'data': {'response': out['text']} if out['success'] else None,
                 'message': 'SMS accepted by provider' if out['success'] else out['error']}
@@ -243,7 +252,7 @@ class SMSService:
     def send_messages(
         recipients: List[Dict[str, str]], default_sender: Optional[str] = None,
         use_last_nine: bool = True, process_name: str = "batch",
-        created_by: Optional[int] = None,
+        created_by: Optional[int] = None, batch_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Send individually to retain per-recipient messages and acceptance logs."""
         results = [SMSService.send_message(
@@ -251,6 +260,7 @@ class SMSService:
             message=r.get('message') or r.get('msg') or '',
             sender=r.get('sender') or default_sender, use_last_nine=use_last_nine,
             process_name=process_name, created_by=created_by,
+            recipient_name=r.get("name"), category="bulk", batch_name=batch_name,
         ) for r in recipients]
         successful = sum(bool(r['success']) for r in results)
         return {'success': bool(results) and successful == len(results),
@@ -265,6 +275,8 @@ def send_sms():
     phone = data.get('phone')
     message = data.get('message')
     sender = data.get('sender')
+    if data.get('name') is not None and (not isinstance(data['name'], str) or len(data['name']) > 255):
+        return jsonify(success=False, message='name must be text up to 255 characters'), 400
 
     if not phone or not message:
         return jsonify({
@@ -273,7 +285,8 @@ def send_sms():
         }), 400
 
     result = SMSService.send_message(
-        phone, message, sender=sender, process_name='api_send'
+        phone, message, sender=sender, process_name='api_send',
+        recipient_name=data.get('name')
     )
     if not result['success']:
         return jsonify(result), 400
@@ -291,6 +304,10 @@ def send_sms_batch():
     data = request.get_json() or {}
     recipients = data.get('recipients', [])
     sender = data.get('sender')
+    batch_name = data.get('batch_name')
+    if batch_name is not None and (not isinstance(batch_name, str) or len(batch_name) > 255):
+        return jsonify(success=False, message='batch_name must be text up to 255 characters'), 400
+    batch_name = batch_name.strip() or None if batch_name is not None else None
 
     if not recipients or not isinstance(recipients, list):
         return jsonify({
@@ -310,15 +327,17 @@ def send_sms_batch():
             number = recipient.get('number')
             name = recipient.get('name')
             if (not isinstance(number, str) or not _normalize_phone(number) or
-                    not isinstance(name, str) or not name.strip()):
+                    not isinstance(name, str) or not name.strip() or len(name) > 255):
                 return jsonify(success=False, message='Each recipient requires a valid number and name'), 400
-            prepared.append({'phone': number, 'message': template.replace('[NAME]', name.strip())})
+            prepared.append({'phone': number, 'name': name.strip(),
+                             'message': template.replace('[NAME]', name.strip())})
         recipients = prepared
     elif any(not isinstance(recipient, dict) for recipient in recipients):
         return jsonify(success=False, message='Each recipient must be an object'), 400
 
     result = SMSService.send_messages(
-        recipients, default_sender=sender, process_name='api_send_batch'
+        recipients, default_sender=sender, process_name='api_send_batch',
+        batch_name=batch_name
     )
     if not result['success']:
         return jsonify(result), 400
@@ -389,6 +408,10 @@ def send_broadcast():
         from database.db_connector import get_db
 
         data = request.get_json() or {}
+        batch_name = data.get('batch_name')
+        if batch_name is not None and (not isinstance(batch_name, str) or len(batch_name) > 255):
+            return jsonify(success=False, message='batch_name must be text up to 255 characters'), 400
+        batch_name = batch_name.strip() or None if batch_name is not None else None
         category = (data.get("category") or "").strip()
         message = (data.get("message") or "").strip()
 
@@ -422,7 +445,9 @@ def send_broadcast():
                 r = SMSService.send_message(
                     phone, msg,
                     process_name="broadcast",
-                    created_by=uid,
+                    created_by=uid, category="bulk",
+                    recipient_name=" ".join(filter(None, [u.first_name, u.last_name])),
+                    batch_name=batch_name,
                 )
                 if r.get("success"):
                     sent += 1
@@ -479,6 +504,10 @@ def send_custom():
         from auth.models.models import User
 
         data = request.get_json() or {}
+        batch_name = data.get('batch_name')
+        if batch_name is not None and (not isinstance(batch_name, str) or len(batch_name) > 255):
+            return jsonify(success=False, message='batch_name must be text up to 255 characters'), 400
+        batch_name = batch_name.strip() or None if batch_name is not None else None
         message = (data.get("message") or "").strip()
         recipients = data.get("recipients")
 
@@ -543,7 +572,8 @@ def send_custom():
                 r = SMSService.send_message(
                     phone, msg,
                     process_name="custom",
-                    created_by=uid,
+                    created_by=uid, category="bulk", batch_name=batch_name,
+                    recipient_name=" ".join(filter(None, [u.first_name, u.last_name])),
                 )
                 if r.get("success"):
                     sent += 1
@@ -561,7 +591,7 @@ def send_custom():
                 r = SMSService.send_message(
                     phone, message,
                     process_name="custom",
-                    created_by=uid,
+                    created_by=uid, category="bulk", batch_name=batch_name,
                 )
                 if r.get("success"):
                     sent += 1
@@ -597,6 +627,9 @@ def _sms_log_to_dict(row) -> Dict[str, Any]:
         "id": row.id,
         "sender_id": row.sender_id,
         "recipient": row.recipient,
+        "recipient_name": row.recipient_name,
+        "category": row.category,
+        "batch_name": row.batch_name,
         "message": row.message,
         "message_length": row.message_length,
         "sms_count": row.sms_count,
@@ -647,6 +680,10 @@ def get_sms_logs():
             process_name = request.args.get('process_name', '').strip() or None
             status = request.args.get('status', '').strip().lower() or None
             recipient = request.args.get('recipient', '').strip() or None
+            category = request.args.get('category', '').strip() or None
+            batch_name = request.args.get('batch_name', '').strip() or None
+            if category and category not in ('single', 'bulk'):
+                return jsonify(status='error', message='category must be single or bulk'), 400
             from_date = _parse_date(request.args.get('from_date', ''))
             to_date = _parse_date(request.args.get('to_date', ''))
 
@@ -667,6 +704,10 @@ def get_sms_logs():
                 }), 400
 
             def _apply_filters(q):
+                if category:
+                    q = q.filter(SmsLog.category == category)
+                if batch_name:
+                    q = q.filter(SmsLog.batch_name == batch_name)
                 if process_name:
                     q = q.filter(SmsLog.process_name == process_name)
                 if status:

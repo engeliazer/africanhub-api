@@ -107,6 +107,7 @@ def self_registration():
         notifications = send_credential_notifications(
             phone=formatted_phone, email=new_user.email, password=plain_password,
             process_name='registration', user_id=new_user.id,
+            recipient_name=" ".join(filter(None, [new_user.first_name, new_user.last_name])),
         )
 
         return jsonify({

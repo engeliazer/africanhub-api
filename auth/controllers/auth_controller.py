@@ -730,6 +730,7 @@ def reset_password():
             notifications = send_credential_notifications(
                 phone=formatted_phone, email=user.email, password=new_password,
                 process_name='password_reset', user_id=user.id,
+                recipient_name=" ".join(filter(None, [user.first_name, user.last_name])),
             )
 
             return jsonify({

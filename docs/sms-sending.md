@@ -15,7 +15,7 @@ MASTERCODES_SMS_SENDER=AFRICANHUB
 MASTERCODES_SMS_API_URL=https://api.mastercodes.co.tz/api/v1/gateway/sms
 ```
 
-Use sender credentials issued by Mastercodes. mShastra credentials are no longer used. Restart the application's Gunicorn service after deploying code and configuring credentials. No schema migration or new dependencies are needed. Existing audit records retain their historical provider values.
+Use sender credentials issued by Mastercodes. mShastra credentials are no longer used. Restart the application's Gunicorn service after deploying code and configuring credentials. Apply the audit metadata migration described below before restarting; no new dependencies are needed. Existing audit records retain their historical provider values.
 
 ## Gateway contract
 
@@ -130,3 +130,36 @@ The backend replaces every `[NAME]` with the recipient's name before sending and
 A message without `[NAME]` is sent unchanged to everyone. Invalid numbers or missing names
 reject the whole request before sending. The legacy per-recipient `{phone, message}` format
 remains supported when the shared `message` field is absent.
+
+## SMS audit records and batch references
+
+Each attempted SMS stores the final message text, normalized `recipient` number, optional `recipient_name`, provider response (`api_response_raw`), `error_message`, `status`, `external_id`, sender, creator, timestamp, `message_length` and estimated `sms_count`. The current count is one segment per 160 characters, rounded up with a minimum of one; it is an estimate rather than the provider's final billing count.
+
+New sends record `category` as `single` or `bulk`. Batch, broadcast and custom sends are `bulk`, even when there is only one recipient. Other callers default to `single`. A failed provider attempt is also logged. Database audit write failures are currently logged as warnings and do not undo provider acceptance.
+
+For a single send, include optional `name` alongside `phone` and `message`. For a batch send, include an optional top-level `batch_name` (up to 255 characters):
+
+```json
+{
+  "batch_name": "November welcome messages",
+  "message": "Dear [NAME], welcome to AfricanHub.",
+  "recipients": [
+    {"number": "+255712345678", "name": "Hamis"},
+    {"number": "+255787654321", "name": "Asha"}
+  ]
+}
+```
+
+Each recipient has a separate audit row with the same batch name and their personalized message. Batch names are reference labels, not unique IDs or deduplication keys. Broadcast/custom routes also accept optional `batch_name`. Registration/reset notifications store the user's name when available.
+
+`GET /api/sms/logs` returns `recipient_name`, `category` and `batch_name` alongside the existing fields. Optional `category=single|bulk` and exact `batch_name` filters apply to both rows and SMS-count totals.
+
+### Deploying the audit metadata
+
+Run the migration before restarting the updated application, using the project environment with dependencies installed:
+
+```bash
+alembic upgrade head
+```
+
+Revision `gg7b8c9d0e1f` adds the three audit fields and category/batch indexes. Known historical registration/reset/direct sends are marked single, and known batch/broadcast/custom sends are marked bulk. Unclassified historical categories remain NULL; historical names and batch labels remain NULL. No historical message or provider response is changed.
