@@ -684,7 +684,8 @@ def format_phone_number(phone: str) -> str:
     # Add 255 prefix
     return f"255{digits}"
 
-@auth.route('/api/auth/reset-password', methods=['POST'])
+@auth.route('/auth/reset-password', methods=['POST'])
+@auth.route('/api/auth/reset-password', methods=['POST'])  # Legacy double-prefix URL
 def reset_password():
     """Reset password and notify the registered phone number and email address"""
     try:
