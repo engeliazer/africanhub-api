@@ -107,16 +107,21 @@ def self_registration():
         # Send welcome SMS with the new format
         welcome_message = f"Welcome to The African Hub. Your account is ready. Initial password: {plain_password}. Please log in to change it."
 
-        SMSService.send_message(
+        sms_result = SMSService.send_message(
             phone=formatted_phone,
             message=welcome_message,
             process_name='registration',
+            created_by=new_user.id,
         )
 
         return jsonify({
             "status": "success",
             "message": "Registration successful",
             "data": {
+                "sms": {
+                    "success": sms_result["success"],
+                    "message": sms_result["message"],
+                },
                 "token": access_token,
                 "session_id": session_id,
                 "user": {

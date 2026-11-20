@@ -1,21 +1,13 @@
-"""
-SMS service using mShastra API.
+"""Shared Mastercodes SMS gateway service and audited HTTP endpoints.
 
-Provider: mShastra (https://mshastra.com)
-- JSON API: POST to sendsms_api_json.aspx
-- Optional URL APIs: sendurl.aspx (single), sendurlcomma.aspx (multiple)
-
-Env vars (recommended):
-  MSHASTRA_USER     – Profile ID (e.g. AFRICANHUB)
-  MSHASTRA_PWD      – Password
-  MSHASTRA_SENDER   – Sender ID (e.g. AFRICANHUB)
-
-All SMS are logged to sms_logs for audit and reconciliation.
+Configure MASTERCODES_SMS_SENDER_KEY and MASTERCODES_SMS_SENDER_SECRET.
+Sender identity is selected by gateway credentials; sender arguments are audit labels.
 """
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-import json
+import uuid
+from time import sleep
 import re
 import os
 import logging
@@ -44,7 +36,7 @@ def _log_sms(
     message_length: int,
     process_name: str,
     status: str,
-    provider: str = "mshastra",
+    provider: str = "mastercodes",
     external_id: Optional[str] = None,
     api_response_raw: Optional[str] = None,
     error_message: Optional[str] = None,
@@ -77,271 +69,125 @@ def _log_sms(
     except Exception as e:
         logger.warning("SMS audit log write failed: %s", e)
 
-# mShastra JSON API endpoint
-MSHASTRA_JSON_URL = os.getenv('MSHASTRA_API_URL', 'https://mshastra.com/sendsms_api_json.aspx')
-DEFAULT_COUNTRY_CODE = '255'
-DEFAULT_LANGUAGE = 'English'
-
-# GSM-7 segment size. 1–160 chars → 1 SMS, 161–320 → 2, etc. Used for billing reconciliation.
 SMS_CHARS_PER_SEGMENT = 160
 
 
 def _sms_count_from_length(message_length: int) -> int:
-    """Number of SMS segments for billing. 0 length → 1; 1–160 → 1; 161–320 → 2; etc."""
-    n = max(0, int(message_length))
-    if n == 0:
-        return 1
-    return max(1, (n + SMS_CHARS_PER_SEGMENT - 1) // SMS_CHARS_PER_SEGMENT)
+    return max(1, (max(0, int(message_length)) + 159) // 160)
 
 
 def _normalize_phone(phone: str, use_last_nine: bool = True) -> str:
-    """
-    Normalize phone for mShastra (Tanzania).
-    - use_last_nine=True: strip to digits, take last 9, prefix 255 (e.g. 0712001002 -> 255712001002).
-    - use_last_nine=False: strip to digits only; if missing 255 prefix, add it.
-    """
-    if not phone or not isinstance(phone, str):
-        return ''
-    digits = re.sub(r'\D', '', phone)
-    if not digits:
-        return ''
+    """Normalize Tanzanian local numbers; preserve explicit international numbers.
 
-    if use_last_nine:
-        last_nine = digits[-9:] if len(digits) >= 9 else digits
-        return DEFAULT_COUNTRY_CODE + last_nine
-
-    if not digits.startswith(DEFAULT_COUNTRY_CODE):
-        digits = DEFAULT_COUNTRY_CODE + digits.lstrip('0')
-    return digits
+    use_last_nine is retained for compatibility, without truncating destinations.
+    """
+    if not isinstance(phone, str):
+        return ''
+    value = phone.strip()
+    digits = re.sub(r'\D', '', value)
+    if value.startswith('+'):
+        normalized = '+' + digits
+    elif digits.startswith('00'):
+        normalized = '+' + digits[2:]
+    elif len(digits) == 10 and digits.startswith('0'):
+        normalized = '+255' + digits[1:]
+    elif len(digits) == 9:
+        normalized = '+255' + digits
+    else:
+        normalized = '+' + digits
+    return normalized if re.fullmatch(r'\+[1-9][0-9]{7,14}', normalized) else ''
 
 
 def _config() -> Dict[str, str]:
-    cfg = {
-        'user': os.getenv('MSHASTRA_USER', 'AFRICANHUB'),
-        'pwd': os.getenv('MSHASTRA_PWD', ''),
-        'sender': os.getenv('MSHASTRA_SENDER', 'AFRICANHUB'),
+    return {
+        'key': os.getenv('MASTERCODES_SMS_SENDER_KEY', ''),
+        'secret': os.getenv('MASTERCODES_SMS_SENDER_SECRET', ''),
+        'sender': os.getenv('MASTERCODES_SMS_SENDER', 'AFRICANHUB'),
+        'url': os.getenv('MASTERCODES_SMS_API_URL',
+                         'https://api.mastercodes.co.tz/api/v1/gateway/sms').rstrip('/'),
     }
-    if not cfg['pwd']:
-        logger.warning("MSHASTRA_PWD is not set; SMS API may reject requests")
-    return cfg
 
 
-def _send_json_payload(payload: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """POST JSON array to mShastra JSON API. payload = list of {user, pwd, number, msg, sender, language}."""
-    # Log request with masked password
-    mask = [{**p, 'pwd': '***'} for p in payload]
-    logger.info(
-        "SMS API request: url=%s payload=%s",
-        MSHASTRA_JSON_URL,
-        mask,
-        extra={'sms_payload_masked': mask},
-    )
+def _send_mastercodes(phone: str, message: str) -> Dict[str, Any]:
+    cfg = _config()
+    if not cfg['key'] or not cfg['secret']:
+        return {'success': False, 'text': '', 'external_id': None,
+                'error': 'Mastercodes sender credentials are not configured'}
+    payload = {'request_id': str(uuid.uuid4()), 'recipient': phone, 'message': message}
+    headers = {'X-Sender-Key': cfg['key'], 'X-Sender-Secret': cfg['secret'],
+               'Accept': 'application/json', 'Content-Type': 'application/json'}
+    for attempt in range(2):
+        try:
+            response = requests.post(cfg['url'] + '/send', json=payload,
+                                     headers=headers, timeout=(5, 10), allow_redirects=False)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 0:
+                sleep(0.2)
+                continue
+            return {'success': False, 'text': '', 'external_id': None,
+                    'error': 'Mastercodes request outcome could not be confirmed'}
+        except requests.RequestException:
+            return {'success': False, 'text': '', 'external_id': None,
+                    'error': 'Mastercodes request failed'}
+        if response.status_code >= 500 and attempt == 0:
+            sleep(0.2)
+            continue
+        break
     try:
-        resp = requests.post(
-            MSHASTRA_JSON_URL,
-            json=payload,
-            headers={'Content-Type': 'application/json'},
-            timeout=30,
-        )
-        logger.info(
-            "SMS API response: status=%s body=%s",
-            resp.status_code,
-            resp.text,
-            extra={'sms_status': resp.status_code, 'sms_response': resp.text},
-        )
-        # Grep-friendly line: "SMS API says: ..."
-        logger.info("SMS API says: [status=%s] %s", resp.status_code, resp.text)
-        return {'success': resp.status_code == 200, 'status_code': resp.status_code, 'text': resp.text}
-    except Exception as e:
-        logger.exception("SMS API error: %s", e)
-        return {'success': False, 'status_code': None, 'text': str(e)}
-
-
-def _parse_external_id(response_text: str) -> Optional[str]:
-    """Extract msg_id from mShastra JSON response [{"msg_id":"...", ...}]."""
-    try:
-        arr = json.loads(response_text)
-        if arr and isinstance(arr[0], dict) and arr[0].get("msg_id"):
-            return str(arr[0]["msg_id"])
-    except Exception:
-        pass
-    return None
+        body = response.json()
+        messages = body.get('data', {}).get('messages', [])
+        entry = messages[0] if messages and isinstance(messages[0], dict) else {}
+    except (ValueError, AttributeError, TypeError, KeyError):
+        entry = {}
+    accepted = 200 <= response.status_code < 300 and entry.get('status') == 'sent'
+    external_id = entry.get('id') or entry.get('message_id')
+    logger.info('Mastercodes SMS response: http=%s accepted=%s request_id=%s',
+                response.status_code, accepted, payload['request_id'])
+    return {'success': accepted, 'text': response.text,
+            'external_id': str(external_id) if external_id is not None else None,
+            'error': None if accepted else 'Mastercodes did not confirm SMS acceptance (HTTP %s)' % response.status_code}
 
 
 class SMSService:
     @staticmethod
     def send_message(
-        phone: str,
-        message: str,
-        sender: Optional[str] = None,
-        use_last_nine: bool = True,
-        process_name: str = "unknown",
+        phone: str, message: str, sender: Optional[str] = None,
+        use_last_nine: bool = True, process_name: str = "unknown",
         created_by: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Send a single SMS via mShastra JSON API. Always logged to sms_logs.
-
-        Args:
-            phone: Recipient number (e.g. 0712001002 or 255712001002).
-            message: SMS text.
-            sender: Sender ID override; if None, uses MSHASTRA_SENDER env.
-            use_last_nine: If True, use last 9 digits + 255; else use full normalized number.
-            process_name: Process/campaign name for audit (e.g. registration, password_reset).
-            created_by: Optional user id for audit.
-
-        Returns:
-            {'success': bool, 'data': {...} | None, 'message': str}
-        """
-        cfg = _config()
-        sender_id = sender or cfg["sender"]
-        msg_len = len(message or "")
-        normalized = _normalize_phone(phone, use_last_nine=use_last_nine)
-
-        logger.info(
-            "SMS send_message: phone=%r normalized=%r sender=%r msg_len=%d process=%s",
-            phone,
-            normalized,
-            sender_id,
-            msg_len,
-            process_name,
-        )
-        if not normalized:
-            _log_sms(
-                sender_id=sender_id,
-                recipient=phone or "",
-                message=message or "",
-                message_length=msg_len,
-                process_name=process_name,
-                status="failed",
-                error_message="Invalid or empty phone number",
-                created_by=created_by,
-            )
-            return {'success': False, 'data': None, 'message': 'Invalid or empty phone number'}
-
-        item = {
-            'user': cfg['user'],
-            'pwd': cfg['pwd'],
-            'number': normalized,
-            'msg': message,
-            'sender': sender_id,
-            'language': DEFAULT_LANGUAGE,
-        }
-        out = _send_json_payload([item])
-
-        if out['success']:
-            ext_id = _parse_external_id(out['text'])
-            _log_sms(
-                sender_id=sender_id,
-                recipient=normalized,
-                message=message or "",
-                message_length=msg_len,
-                process_name=process_name,
-                status="sent",
-                external_id=ext_id,
-                api_response_raw=out['text'],
-                created_by=created_by,
-            )
-            return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS sent'}
-        _log_sms(
-            sender_id=sender_id,
-            recipient=normalized,
-            message=message or "",
-            message_length=msg_len,
-            process_name=process_name,
-            status="failed",
-            api_response_raw=out['text'],
-            error_message=out['text'],
-            created_by=created_by,
-        )
-        return {'success': False, 'data': None, 'message': f"SMS sending failed: {out['text']}"}
+        """Send and audit one message. Success means gateway acceptance, not delivery."""
+        normalized = _normalize_phone(phone, use_last_nine)
+        if not normalized or not isinstance(message, str) or not message.strip():
+            out = {'success': False, 'text': '', 'external_id': None,
+                   'error': 'Invalid phone number or empty message'}
+        else:
+            out = _send_mastercodes(normalized, message)
+        _log_sms(sender_id=sender or _config()['sender'], recipient=normalized or phone or '',
+                 message=message or '', message_length=len(message or ''),
+                 process_name=process_name, status='sent' if out['success'] else 'failed',
+                 external_id=out['external_id'], api_response_raw=out['text'],
+                 error_message=out['error'], created_by=created_by)
+        return {'success': out['success'],
+                'data': {'response': out['text']} if out['success'] else None,
+                'message': 'SMS accepted by provider' if out['success'] else out['error']}
 
     @staticmethod
     def send_messages(
-        recipients: List[Dict[str, str]],
-        default_sender: Optional[str] = None,
-        use_last_nine: bool = True,
-        process_name: str = "batch",
+        recipients: List[Dict[str, str]], default_sender: Optional[str] = None,
+        use_last_nine: bool = True, process_name: str = "batch",
         created_by: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """
-        Send multiple SMS via mShastra JSON API. Each SMS is logged to sms_logs.
-
-        Args:
-            recipients: List of {'phone': str, 'message': str}. Optional 'sender' per item.
-            default_sender: Default sender ID; overridden by recipient['sender'] if present.
-            use_last_nine: Same as send_message.
-            process_name: Process name for audit.
-            created_by: Optional user id for audit.
-
-        Returns:
-            {'success': bool, 'data': {...}, 'message': str}
-        """
-        cfg = _config()
-        default_sid = default_sender or cfg['sender']
-        payload = []
-
-        for r in recipients:
-            phone = r.get('phone') or r.get('number')
-            msg = r.get('message') or r.get('msg') or ''
-            if not phone or not msg:
-                continue
-            normalized = _normalize_phone(phone, use_last_nine=use_last_nine)
-            if not normalized:
-                _log_sms(
-                    sender_id=default_sid,
-                    recipient=phone or "",
-                    message=msg,
-                    message_length=len(msg),
-                    process_name=process_name,
-                    status="failed",
-                    error_message="Invalid or empty phone number",
-                    created_by=created_by,
-                )
-                continue
-            payload.append({
-                'user': cfg['user'],
-                'pwd': cfg['pwd'],
-                'number': normalized,
-                'msg': msg,
-                'sender': r.get('sender') or default_sid,
-                'language': DEFAULT_LANGUAGE,
-            })
-
-        if not payload:
-            logger.warning("SMS send_messages: no valid recipients")
-            return {'success': False, 'data': None, 'message': 'No valid recipients'}
-
-        logger.info("SMS send_messages: count=%d numbers=%s", len(payload), [p['number'] for p in payload])
-        out = _send_json_payload(payload)
-
-        try:
-            resp_arr = json.loads(out['text']) if out.get('text') else []
-        except Exception:
-            resp_arr = []
-
-        for i, p in enumerate(payload):
-            rec = p['number']
-            msg = p['msg']
-            sid = p['sender']
-            entry = resp_arr[i] if i < len(resp_arr) and isinstance(resp_arr[i], dict) else {}
-            ok = out['success'] and (entry.get('str_response') or '').lower().find('success') >= 0
-            ext_id = str(entry['msg_id']) if entry.get('msg_id') else None
-            _log_sms(
-                sender_id=sid,
-                recipient=rec,
-                message=msg,
-                message_length=len(msg),
-                process_name=process_name,
-                status="sent" if ok else "failed",
-                external_id=ext_id,
-                api_response_raw=json.dumps(entry) if entry else out.get('text'),
-                error_message=None if ok else (out.get('text') or 'Batch send failed'),
-                created_by=created_by,
-            )
-
-        if out['success']:
-            return {'success': True, 'data': {'response': out['text']}, 'message': 'SMS batch sent'}
-        return {'success': False, 'data': None, 'message': f"SMS batch failed: {out['text']}"}
+        """Send individually to retain per-recipient messages and acceptance logs."""
+        results = [SMSService.send_message(
+            phone=r.get('phone') or r.get('number'),
+            message=r.get('message') or r.get('msg') or '',
+            sender=r.get('sender') or default_sender, use_last_nine=use_last_nine,
+            process_name=process_name, created_by=created_by,
+        ) for r in recipients]
+        successful = sum(bool(r['success']) for r in results)
+        return {'success': bool(results) and successful == len(results),
+                'data': {'results': results, 'accepted': successful, 'failed': len(results) - successful},
+                'message': 'SMS accepted by provider for %s of %s recipients' % (successful, len(results))}
 
 
 @sms_bp.route('/api/sms/send', methods=['POST'])

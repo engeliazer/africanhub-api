@@ -357,7 +357,7 @@ class SmsLog(Base):
     sms_count = Column(Integer, nullable=False)  # segments used (1 per 160 chars; for billing reconciliation)
     process_name = Column(String(100), nullable=False, index=True)
     status = Column(String(20), nullable=False)  # 'sent' | 'failed'
-    provider = Column(String(50), nullable=False, default="mshastra")
+    provider = Column(String(50), nullable=False, default="mastercodes")
     external_id = Column(String(100), nullable=True)  # e.g. msg_id from provider
     api_response_raw = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
