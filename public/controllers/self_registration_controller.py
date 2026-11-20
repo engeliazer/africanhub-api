@@ -9,7 +9,7 @@ import logging
 import random
 import string
 from sqlalchemy import text
-from public.controllers.sms_controller import SMSService
+from auth.services.credential_notifications import send_credential_notifications
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -104,24 +104,17 @@ def self_registration():
         db_session.commit()
         access_token = create_login_token(new_user, session_id)
 
-        # Send welcome SMS with the new format
-        welcome_message = f"Welcome to The African Hub. Your account is ready. Initial password: {plain_password}. Please log in to change it."
-
-        sms_result = SMSService.send_message(
-            phone=formatted_phone,
-            message=welcome_message,
-            process_name='registration',
-            created_by=new_user.id,
+        notifications = send_credential_notifications(
+            phone=formatted_phone, email=new_user.email, password=plain_password,
+            process_name='registration', user_id=new_user.id,
         )
 
         return jsonify({
             "status": "success",
             "message": "Registration successful",
             "data": {
-                "sms": {
-                    "success": sms_result["success"],
-                    "message": sms_result["message"],
-                },
+                "sms": notifications["sms"],
+                "email": notifications["email"],
                 "token": access_token,
                 "session_id": session_id,
                 "user": {
@@ -132,8 +125,7 @@ def self_registration():
                     "email": new_user.email,
                     "phone": formatted_phone,  # Return formatted phone number
                     "status": new_user.status,
-                    "reset_password": new_user.reset_password,
-                    "password": plain_password  # Include the plain password in the response
+                    "reset_password": new_user.reset_password
                 }
             }
         }), 201

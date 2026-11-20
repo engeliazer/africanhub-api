@@ -102,3 +102,11 @@ bash scripts/run_send_test_sms.sh 255700000001 "Mastercodes test from AfricanHub
 Replace the example number. Run `bash scripts/troubleshoot_sms.sh` for credential-presence and journal checks. Inspect `sms_logs.api_response_raw` and `error_message` for provider details; do not share message bodies containing passwords. A `sent` row indicates provider acceptance only. No delivery webhook or automatic replay of historical failures is implemented.
 
 The supplied `mastercodes_sms_integration.md` is the reference for the gateway contract; its Laravel frontend routes and deployment commands belong to a separate application.
+
+## Registration and password-reset email
+
+Registration and password reset send the same six-digit temporary password through SMS and email. This temporary login credential is delivered only by SMS and email and is omitted from both API responses. The registration session JWT remains in the response for signing in. Both paths use `auth/services/credential_notifications.py`; email reuses `send_batch_email` from the invitation mailing service with a plain-text body and no attachments.
+
+The existing `MAIL_TRANSPORT` configuration selects SES, SendGrid or SMTP. Set the default sender with `MAIL_FROM` (or the existing `MAIL_SMTP_USER` fallback), because these messages do not supply an invitation-specific source address. No separate email credentials or worker are required; these notifications are sent during the API request.
+
+Both responses expose channel results as `data.sms` and `data.email`, each containing `success` and `message`. A channel failure does not prevent attempting the other channel or undo a committed registration/password reset. Success means provider acceptance; users should check their inbox and spam folder. The frontend should use the channel results when displaying delivery feedback.

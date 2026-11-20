@@ -18,7 +18,7 @@ from auth.services.login_session import (
     session_was_replaced,
     touch_last_seen,
 )
-from public.controllers.sms_controller import SMSService
+from auth.services.credential_notifications import send_credential_notifications
 import random
 import string
 
@@ -686,7 +686,7 @@ def format_phone_number(phone: str) -> str:
 
 @auth.route('/api/auth/reset-password', methods=['POST'])
 def reset_password():
-    """Reset password for a user and send it via SMS using their registered phone number"""
+    """Reset password and notify the registered phone number and email address"""
     try:
         # Get JSON data
         data = request.get_json()
@@ -713,7 +713,6 @@ def reset_password():
 
         # Generate a random 6-digit password
         new_password = ''.join(random.choices(string.digits, k=6))
-        logger.info(f"Generated new password: {new_password}")
         
         try:
             # Update password and set reset_password flag to 1 (True)
@@ -728,21 +727,15 @@ def reset_password():
             db_session.commit()
             logger.info(f"Password updated for user ID: {user.id}")
 
-            # Send SMS with new password
-            message = f"Your password for The African Hub has been reset. Your new password is: {new_password}. Please log in and change it."
-            logger.info(f"Sending SMS to {formatted_phone} with message: {message}")
-            
-            sms_result = SMSService.send_message(
-                phone=formatted_phone,
-                message=message,
-                process_name='password_reset',
+            notifications = send_credential_notifications(
+                phone=formatted_phone, email=user.email, password=new_password,
+                process_name='password_reset', user_id=user.id,
             )
-            
-            logger.info(f"SMS sending result: {sms_result}")
 
             return jsonify({
                 "status": "success",
-                "message": "Password reset successful. New password has been sent to your registered phone number."
+                "message": "Password reset successful. Check SMS and email notification results.",
+                "data": notifications,
             }), 200
 
         except Exception as e:
