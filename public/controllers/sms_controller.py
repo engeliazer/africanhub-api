@@ -7,6 +7,7 @@ Sender identity is selected by gateway credentials; sender arguments are audit l
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import uuid
+from urllib.parse import urlparse
 from time import sleep
 import re
 import os
@@ -146,6 +147,73 @@ def _send_mastercodes(phone: str, message: str) -> Dict[str, Any]:
     return {'success': accepted, 'text': response.text,
             'external_id': str(external_id) if external_id is not None else None,
             'error': None if accepted else 'Mastercodes did not confirm SMS acceptance (HTTP %s)' % response.status_code}
+
+
+
+def _safe_sms_url(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed = urlparse(value)
+        return (parsed.scheme == 'https' and parsed.hostname in
+                {'mastercodes.co.tz', 'www.mastercodes.co.tz'} and
+                not parsed.username and not parsed.password and parsed.port in (None, 443))
+    except ValueError:
+        return False
+
+
+def _sms_account_request(path):
+    cfg = _config()
+    if not cfg['key'] or not cfg['secret']:
+        raise ValueError('Missing sender credentials')
+    method = requests.get if path == '/balance' else requests.post
+    response = method(cfg['url'] + path, headers={
+        'X-Sender-Key': cfg['key'], 'X-Sender-Secret': cfg['secret'],
+        'Accept': 'application/json'}, timeout=(5, 10), allow_redirects=False)
+    if not 200 <= response.status_code < 300:
+        raise ValueError('Gateway request failed')
+    body = response.json()
+    if not isinstance(body, dict) or body.get('success') is False or not isinstance(body.get('data'), dict):
+        raise ValueError('Invalid gateway response')
+    return body['data']
+
+
+@sms_bp.route('/api/sms/sms-balance', methods=['GET'])
+@jwt_required()
+def get_sms_balance():
+    try:
+        data = _sms_account_request('/balance')
+        units = data.get('available_units')
+        if isinstance(units, bool) or not isinstance(units, (int, float)) or not 0 <= units < float('inf'):
+            raise ValueError('Invalid available units')
+        public = {key: data[key] for key in (
+            'available_units', 'reserved_units', 'sender_name', 'service_provider',
+            'sender_id_registration_id') if key in data}
+        if _safe_sms_url(data.get('top_up_url')):
+            public['top_up_url'] = data['top_up_url']
+        response = jsonify(success=True, data=public, message='SMS balance retrieved')
+        response.headers['Cache-Control'] = 'no-store, private'
+        return response
+    except (requests.RequestException, ValueError, TypeError):
+        return jsonify(success=False, message='Unable to retrieve SMS balance'), 502
+
+
+@sms_bp.route('/api/sms/portal-access', methods=['POST'])
+@jwt_required()
+def get_sms_portal_access():
+    try:
+        data = _sms_account_request('/portal-access')
+        expiry = data.get('expires_in')
+        if (not _safe_sms_url(data.get('url')) or type(expiry) is not int or expiry <= 0):
+            raise ValueError('Invalid portal response')
+        response = jsonify(success=True, data={'url': data['url'], 'expires_in': expiry},
+                           message='Mastercodes portal access granted')
+        status = 200
+    except (requests.RequestException, ValueError, TypeError):
+        response = jsonify(success=False, message='Unable to request Mastercodes portal access')
+        status = 502
+    response.headers['Cache-Control'] = 'no-store, private'
+    return response, status
 
 
 class SMSService:

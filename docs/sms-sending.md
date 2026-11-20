@@ -29,6 +29,62 @@ Every attempted message writes a `sms_logs` row with provider `mastercodes`, acc
 
 Registration still returns HTTP 201 for a created account, with an additional `data.sms` object containing `success` and `message`. A failed SMS does not undo registration. The frontend can show a notification failure using this object.
 
+## Balance and top-up
+
+The supplied integration reference describes Mastercodes balance and portal access. AfricanHub now exposes authenticated `GET /api/sms/sms-balance` and `POST /api/sms/portal-access` routes. Both return `{ "success": true, "data": { ... } }` on success and HTTP 502 with a safe error message when the gateway response cannot be confirmed. Portal responses use `Cache-Control: no-store, private`. Sender credentials remain on the server. Deploy the updated API before using these frontend controls.
+
+### Checking the gateway balance
+
+From a backend, call:
+
+```http
+GET https://api.mastercodes.co.tz/api/v1/gateway/sms/balance
+X-Sender-Key: YOUR_SENDER_KEY
+X-Sender-Secret: YOUR_SENDER_SECRET
+Accept: application/json
+```
+
+Use the same credentials as sending. Keep them on the server. The reference describes these fields under the response's `data` object:
+
+```json
+{
+  "sender_id_registration_id": 7,
+  "available_units": 1500,
+  "reserved_units": 0,
+  "sender_name": "AFRICANHUB",
+  "service_provider": "MASTERCODES",
+  "top_up_url": "https://mastercodes.co.tz/account/home/sms?tab=purchase"
+}
+```
+
+These values are illustrative. Display `available_units` as available SMS units, optionally with `reserved_units` and `sender_name`. A balance of zero is a valid result. An upstream error or malformed response should show a lookup failure, rather than a zero balance. The AfricanHub proxy requires authentication and returns HTTP 502 when the lookup cannot be confirmed.
+
+### Adding SMS credit
+
+The balance response's `top_up_url` points to the regular Mastercodes account purchase page. Open that URL, sign in as needed, and complete the purchase in Mastercodes. Refresh the balance afterwards to confirm the available units. Use the actual provider-returned URL rather than assuming the example is permanent.
+
+For a short-lived authenticated portal link, the reference describes this backend gateway request:
+
+```http
+POST https://api.mastercodes.co.tz/api/v1/gateway/sms/portal-access
+X-Sender-Key: YOUR_SENDER_KEY
+X-Sender-Secret: YOUR_SENDER_SECRET
+Accept: application/json
+```
+
+No request body is required. Expected response data:
+
+```json
+{
+  "url": "https://www.mastercodes.co.tz/sms/access#ticket=ONE_TIME_TICKET",
+  "expires_in": 60
+}
+```
+
+The AfricanHub proxy requires authentication, validates an HTTPS Mastercodes portal URL and a positive integer expiry, and returns `Cache-Control: no-store, private`. Request a link when the user clicks **Top up**, open it immediately, and avoid storing or logging the ticket URL. The frontend should open a blank tab synchronously on the click, then navigate it once the backend returns the link, to avoid popup blocking. After payment, refresh the balance when the user returns or clicks **Refresh**.
+
+The regular purchase URL and the one-time portal link are separate mechanisms. The reference records a previous HTTP 404 from the gateway's portal-access route; its current availability has not been verified. If portal access fails, show a clear error and offer the regular purchase page when available. Never expose sender credentials to the browser.
+
 ## Verification
 
 Run the mocked gateway checks locally:
