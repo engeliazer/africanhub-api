@@ -28,7 +28,7 @@ DATABASE_URL=mysql+pymysql://username:password@localhost/dbname
 JWT_SECRET_KEY=your-secret-key-here
 
 # CORS (comma-separated origins allowed to call the API)
-# Default: https://africanhub.ac.tz, https://www.africanhub.ac.tz, localhost
+# Default also allows any localhost, 127.0.0.1, and [::1] port.
 # CORS_ORIGINS=https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://localhost:5173
 
 # VdoCipher

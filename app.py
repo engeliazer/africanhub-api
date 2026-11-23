@@ -147,11 +147,21 @@ def user_lookup_callback(_jwt_header, jwt_data):
     identity = jwt_data["sub"]
     return db_session.query(User).filter(User.id == int(identity)).first()
 
-# Configure CORS - required for frontend at africanhub.ac.tz to call API
-_cors_origins = os.environ.get("CORS_ORIGINS", "https://online.africanhub.ac.tz,https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000")
+# Configure CORS - required for frontend at africanhub.ac.tz to call API.
+# Local Vite often moves to another port (5174, [::1], …). Those must be allowed
+# or the browser reports a CORS failure and the public page looks missing.
+_cors_origins = os.environ.get("CORS_ORIGINS", "https://online.africanhub.ac.tz,https://africanhub.ac.tz,https://www.africanhub.ac.tz,http://africanhub.ac.tz,http://www.africanhub.ac.tz,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000")
+_cors_origin_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+_cors_origin_list.extend([
+    r"https?://(www\.)?africanhub\.ac\.tz$",
+    r"https?://online\.africanhub\.ac\.tz$",
+    r"http://localhost:\d+$",
+    r"http://127\.0\.0\.1:\d+$",
+    r"http://\[::1\]:\d+$",
+])
 CORS(app, resources={
     r".*": {  # All routes
-        "origins": [o.strip() for o in _cors_origins.split(",") if o.strip()],
+        "origins": _cors_origin_list,
         "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"],
         "supports_credentials": True,
