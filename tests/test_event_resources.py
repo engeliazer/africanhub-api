@@ -97,6 +97,47 @@ class EventResourcesTests(unittest.TestCase):
         self.controller.absolute_resource_path.reset_mock()
         self.controller.soft_delete_event_resource.reset_mock()
 
+    def test_share_link_requires_login_and_expires(self):
+        open_page = self.client.get("/api/events/public/7/resources?format=json")
+        self.assertEqual(open_page.status_code, 403)
+
+        created = self.client.post(
+            "/api/events/7/resources/share-link",
+            headers=self.auth_headers,
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        url = created.get_json()["data"]["url"]
+        self.assertTrue(url.startswith("https://africanhub.ac.tz/learning-resources/7?token="))
+        self.assertEqual(created.get_json()["data"]["expires_in_seconds"], 3600)
+
+        self.event.start_time = None
+        self.event.end_time = None
+        self.resource.description = "Slides"
+        self.resource.file_size = 100
+        self.controller.list_active_resources.return_value = [self.resource]
+        token = self.controller.make_share_token(7)
+        page = self.client.get(
+            "/api/events/public/7/resources",
+            query_string={"format": "json", "token": token},
+            headers={"Accept": "application/json"},
+        )
+        self.assertEqual(page.status_code, 200, page.get_json())
+        data = page.get_json()["data"]
+        self.assertEqual(data["event"]["course_title"], "Python Fundamentals")
+        self.assertEqual(data["resources"][0]["name"], "Handouts")
+        self.assertIn("token=", data["resources"][0]["download_url"])
+
+        self.controller.SHARE_LINK_TTL_SECONDS = -1
+        try:
+            expired = self.client.get(
+                "/api/events/public/7/resources",
+                query_string={"format": "json", "token": token},
+            )
+        finally:
+            self.controller.SHARE_LINK_TTL_SECONDS = 3600
+        self.assertEqual(expired.status_code, 403)
+        self.assertIn("expired", expired.get_json()["message"])
+
     def test_learning_resources_alias_returns_current_zip(self):
         self.resource.original_filename = "handouts.zip"
         self.controller.list_active_resources.return_value = [self.resource]
