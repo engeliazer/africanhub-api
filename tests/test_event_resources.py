@@ -97,6 +97,24 @@ class EventResourcesTests(unittest.TestCase):
         self.controller.absolute_resource_path.reset_mock()
         self.controller.soft_delete_event_resource.reset_mock()
 
+    def test_learning_resources_alias_returns_current_zip(self):
+        self.resource.original_filename = "handouts.zip"
+        self.controller.list_active_resources.return_value = [self.resource]
+
+        response = self.client.get(
+            "/api/events/7/learning-resources",
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        data = response.get_json()["data"]
+        self.assertTrue(data["has_learning_resources"])
+        self.assertEqual(data["learning_resources_filename"], "handouts.zip")
+        self.assertEqual(
+            data["learning_resources_url"],
+            "/api/events/7/learning-resources/download",
+        )
+
     def test_admin_list_requires_auth(self):
         response = self.client.get("/api/events/7/resources")
         self.assertEqual(response.status_code, 401)

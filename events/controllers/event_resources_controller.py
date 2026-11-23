@@ -180,6 +180,149 @@ def delete_event_resource(event_id: int, resource_id: int):
         db.close()
 
 
+def _learning_resources_payload(event_id: int, resources) -> dict:
+    latest = resources[-1] if resources else None
+    filename = None
+    if latest is not None:
+        filename = getattr(latest, "original_filename", None) or latest.name
+    return {
+        "event_id": event_id,
+        "has_learning_resources": bool(resources),
+        "learning_resources_filename": filename,
+        "learning_resources_name": latest.name if latest else None,
+        "learning_resources_url": (
+            f"/api/events/{event_id}/learning-resources/download" if latest else None
+        ),
+        "resource_count": len(resources),
+    }
+
+
+@event_resources_bp.route("/api/events/<int:event_id>/learning-resources", methods=["GET"])
+@jwt_required()
+def get_learning_resources(event_id: int):
+    """Single-zip view used by the admin calendar."""
+    db = get_db()
+    try:
+        event, error_response = _get_event_or_404(db, event_id)
+        if error_response:
+            return error_response
+        resources = list_active_resources(db, event.id)
+        return jsonify({
+            "status": "success",
+            "data": _learning_resources_payload(event.id, resources),
+        })
+    except Exception as exc:
+        logger.exception("get_learning_resources: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
+@event_resources_bp.route("/api/events/<int:event_id>/learning-resources", methods=["POST"])
+@jwt_required()
+def upload_learning_resources(event_id: int):
+    """Replace the event zip. Accepts the admin field name learning_resources."""
+    db = get_db()
+    try:
+        event, error_response = _get_event_or_404(db, event_id)
+        if error_response:
+            return error_response
+
+        upload = request.files.get("learning_resources") or request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify({"status": "error", "message": "A zip file is required"}), 400
+
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            name = os.path.splitext(upload.filename)[0] or "Learning resources"
+
+        resource, error = create_event_resource(
+            db,
+            event,
+            name=name,
+            description=(request.form.get("description") or "").strip() or None,
+            file_storage=upload,
+            user_id=int(get_jwt_identity()),
+        )
+        if error:
+            return jsonify({"status": "error", "message": error}), 400
+
+        for existing in list_active_resources(db, event.id):
+            if existing.id != resource.id:
+                soft_delete_event_resource(db, existing, int(get_jwt_identity()))
+
+        return jsonify({
+            "status": "success",
+            "data": _learning_resources_payload(event.id, [resource]),
+        }), 201
+    except Exception as exc:
+        logger.exception("upload_learning_resources: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
+@event_resources_bp.route(
+    "/api/events/<int:event_id>/learning-resources/download",
+    methods=["GET"],
+)
+@jwt_required()
+def download_learning_resources(event_id: int):
+    """Download the current event zip."""
+    db = get_db()
+    try:
+        event, error_response = _get_event_or_404(db, event_id)
+        if error_response:
+            return error_response
+
+        resources = list_active_resources(db, event.id)
+        if not resources:
+            return jsonify({"status": "error", "message": "Learning resources not found"}), 404
+
+        resource = resources[-1]
+        file_path = absolute_resource_path(resource)
+        if not os.path.isfile(file_path):
+            return jsonify({"status": "error", "message": "File not found"}), 404
+
+        return send_file(
+            path_or_file=file_path,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=resource_download_name(resource),
+            conditional=True,
+        )
+    except Exception as exc:
+        logger.exception("download_learning_resources: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
+@event_resources_bp.route("/api/events/<int:event_id>/learning-resources", methods=["DELETE"])
+@jwt_required()
+def delete_learning_resources(event_id: int):
+    """Remove every zip attached to the event."""
+    db = get_db()
+    try:
+        event, error_response = _get_event_or_404(db, event_id)
+        if error_response:
+            return error_response
+
+        user_id = int(get_jwt_identity())
+        for resource in list_active_resources(db, event.id):
+            soft_delete_event_resource(db, resource, user_id)
+
+        return jsonify({
+            "status": "success",
+            "data": _learning_resources_payload(event.id, []),
+        })
+    except Exception as exc:
+        logger.exception("delete_learning_resources: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db.close()
+
+
 @event_resources_bp.route("/api/events/public/resources", methods=["GET"])
 def list_public_event_resources():
     """
