@@ -16,6 +16,29 @@ import requests
 logger = logging.getLogger(__name__)
 vdocipher_bp = Blueprint('vdocipher', __name__)
 
+
+@vdocipher_bp.before_request
+def guard_vdocipher_study_period():
+    """Playback credentials require an open study period. Upload routes do not."""
+    if request.method == "OPTIONS":
+        return None
+    view_name = (request.endpoint or "").rsplit(".", 1)[-1]
+    from study_access.guards import block_material_response
+    if view_name == "get_material_video_info":
+        material_id = (request.view_args or {}).get("material_id")
+        if material_id is None:
+            return None
+        return block_material_response(db_session, int(material_id))
+    if view_name == "get_video_otp":
+        video_id = (request.view_args or {}).get("video_id")
+        if not video_id:
+            return None
+        material = db_session.query(SubtopicMaterial).filter_by(vdocipher_video_id=video_id).first()
+        if not material:
+            return None
+        return block_material_response(db_session, material.id)
+    return None
+
 # Lazy initialization - only create service when needed
 _vdocipher_service = None
 
@@ -93,11 +116,8 @@ def get_video_otp(video_id):
                 'message': 'Video is still processing. Please try again in a few minutes.'
             }), 425  # Too Early status code
         
-        # TODO: Add access control check
-        # For now, allow all authenticated users (for testing)
-        # In production, check if user has enrolled in the course/subject
-        # if not user.has_access_to_material(material.id):
-        #     raise Forbidden('You do not have access to this video')
+        # Study-period access is enforced before this view runs.
+        # Upload and status routes are left open for staff.
         
         # Get user IP address
         ip_address = request.remote_addr

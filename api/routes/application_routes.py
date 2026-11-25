@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from werkzeug.exceptions import BadRequest
+from werkzeug.exceptions import BadRequest, NotFound
 from database.db_connector import get_db, db_session
 from applications.models.models import (
     Application, ApplicationDetail, PaymentStatus as ApplicationPaymentStatus, 
@@ -8,6 +8,10 @@ from applications.models.models import (
 )
 from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB, SeasonApplicationCreate
 from applications.controllers.applications_controller import ApplicationsController
+from study_access.services.access_service import (
+    application_link_summary,
+    open_periods_for_approved_application,
+)
 from sqlalchemy import desc
 from datetime import datetime
 import random
@@ -50,9 +54,11 @@ def get_application(application_id):
                 "status": "error",
                 "message": "Application not found"
             }), 404
+        payload = ApplicationInDB.from_orm(application).dict()
+        payload.update(application_link_summary(db, application))
         return jsonify({
             "status": "success",
-            "data": ApplicationInDB.from_orm(application).dict()
+            "data": payload
         })
     except Exception as e:
         return jsonify({
@@ -129,6 +135,12 @@ def update_application(application_id):
         
         for key, value in application_data.dict(exclude_unset=True).items():
             setattr(application, key, value)
+
+        from study_access.services.access_service import open_periods_for_approved_application
+        status_value = application.status.value if hasattr(application.status, "value") else application.status
+        if status_value == "approved":
+            actor = data.get("updated_by") or get_jwt_identity()
+            open_periods_for_approved_application(db, application, int(actor))
         
         db.commit()
         db.refresh(application)
@@ -451,6 +463,29 @@ def create_season_application():
     finally:
         db_session.remove()
 
+@applications_bp.route('/applications/<int:application_id>/extend', methods=['POST'])
+@applications_bp.route('/season-applications/<int:application_id>/extend', methods=['POST'])
+@jwt_required()
+def extend_application(application_id):
+    """Create a linked extension application from one the student already has."""
+    try:
+        controller = ApplicationsController(db_session)
+        application = controller.extend_application(application_id, int(get_jwt_identity()))
+        return jsonify({
+            "status": "success",
+            "message": "Extension application created",
+            "data": application,
+        }), 201
+    except BadRequest as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+    except NotFound as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 404
+    except Exception as exc:
+        db_session.rollback()
+        return jsonify({"status": "error", "message": str(exc)}), 500
+    finally:
+        db_session.remove()
+
 # Payment routes
 @payments_bp.route('/payments', methods=['GET'])
 @jwt_required()
@@ -633,10 +668,9 @@ def process_application_payment():
             
             # Update application status based on payment method
             if is_mno_payment:
-                # For MNO payments, set status to approved
                 app.status = ApplicationStatus.approved
+                open_periods_for_approved_application(db_session, app, int(current_user_id))
             else:
-                # For non-MNO payments, set status to pending
                 app.status = ApplicationStatus.pending
             
             app.updated_by = current_user_id

@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from studies.models.models import SubtopicMaterial, StudyMaterialCategory
 from studies.models.schemas import SubtopicMaterialCreate, SubtopicMaterialUpdate, SubtopicMaterialInDB
-from subjects.models.models import SubTopic
+from subjects.models.models import SubTopic, Topic
 from database.db_connector import db_session
 from auth.services.device_fingerprint_service import (
     DeviceFingerprintService,
@@ -37,6 +37,37 @@ import ffmpeg
 logger = logging.getLogger(__name__)
 
 subtopic_materials_bp = Blueprint('subtopic_materials', __name__)
+
+_STUDY_GATED_VIEWS = {
+    "get_material",
+    "view_material",
+    "stream_hls_material_old",
+    "stream_hls_segment",
+    "serve_hls_segment",
+    "download_resource_material",
+    "view_document",
+    "view_material_b2",
+    "stream_hls_material_smart",
+    "stream_hls_material_local",
+    "stream_hls_segment_local",
+    "stream_hls_material_b2",
+    "stream_hls_segment_b2",
+}
+
+
+@subtopic_materials_bp.before_request
+def guard_study_period():
+    """Block lesson files when the student has not started, or the period has ended."""
+    if request.method == "OPTIONS":
+        return None
+    view_name = (request.endpoint or "").rsplit(".", 1)[-1]
+    if view_name not in _STUDY_GATED_VIEWS:
+        return None
+    material_id = (request.view_args or {}).get("material_id")
+    if material_id is None:
+        return None
+    from study_access.guards import block_material_response
+    return block_material_response(db_session, int(material_id))
 
 RESOURCE_CATEGORY_CODE = 'RESOURCES'
 VIDEO_FILE_EXTENSIONS = {'mp4', 'webm', 'avi', 'mov', 'wmv', 'mkv'}
@@ -448,6 +479,15 @@ def get_materials():
             query = query.filter(SubtopicMaterial.subtopic_id == subtopic_id)
         if material_category_id:
             query = query.filter(SubtopicMaterial.material_category_id == material_category_id)
+
+        from study_access.services.access_service import active_subject_ids, user_is_staff
+        if not user_is_staff(db_session, current_user_id):
+            allowed_subjects = active_subject_ids(db_session, current_user_id)
+            query = (
+                query.join(SubTopic, SubtopicMaterial.subtopic_id == SubTopic.id)
+                .join(Topic, SubTopic.topic_id == Topic.id)
+                .filter(Topic.subject_id.in_(allowed_subjects or [-1]))
+            )
 
         # Get total count
         total = query.count()

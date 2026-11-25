@@ -77,6 +77,8 @@ def get_courses_public():
                 "code": s.code,
                 "description": s.description,
                 "current_price": s.current_price,
+                "duration_days": s.duration_days,
+                "extension_price": s.extension_price,
                 "details_document_url": s.details_document_url,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
@@ -252,6 +254,18 @@ def get_approved_courses():
             subject["summary"] = derive_subject_summary(
                 collect_video_entries_from_subject_tree(subject)
             )
+
+        from study_access.services.access_service import StudyAccessService
+        windows = StudyAccessService(db_session).windows_for_user(
+            int(current_user_id),
+            [subject["id"] for subject in ordered_subjects],
+        )
+        for subject in ordered_subjects:
+            window = windows.get(subject["id"])
+            subject["study_access"] = window
+            if not window or not window["can_study"]:
+                subject["topics"] = []
+                subject["summary"] = derive_subject_summary([])
 
         return jsonify({
             "status": "success",

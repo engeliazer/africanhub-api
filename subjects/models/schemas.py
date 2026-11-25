@@ -39,6 +39,7 @@ class SubjectBase(BaseModel):
     current_price: Optional[int] = None
     duration_days: Optional[int] = None
     trial_duration_days: Optional[int] = None
+    extension_price: Optional[int] = None
     display_rank: Optional[int] = None
     is_most_popular: bool = False
     is_best_price: bool = False
@@ -57,6 +58,7 @@ class SubjectUpdate(BaseModel):
     current_price: Optional[int] = None
     duration_days: Optional[int] = None
     trial_duration_days: Optional[int] = None
+    extension_price: Optional[int] = None
     display_rank: Optional[int] = None
     is_most_popular: Optional[bool] = None
     is_best_price: Optional[bool] = None

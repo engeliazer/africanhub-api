@@ -94,6 +94,7 @@ class Subject(Base):
     current_price = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True)
     duration_days = Column(Integer, nullable=True, comment="Standard access duration in days")
     trial_duration_days = Column(Integer, nullable=True, comment="Trial period duration in days")
+    extension_price = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=True, comment="Price charged for one study extension application")
     display_rank = Column(Integer, nullable=True, comment="Lower = shown first")
     is_most_popular = Column(Boolean, nullable=False, default=False)
     is_best_price = Column(Boolean, nullable=False, default=False)

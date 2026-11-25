@@ -16,6 +16,7 @@ from applications.models.models import (
 from auth.models.models import User, UserRole, Role
 from database.db_connector import db_session, DBConnector
 from public.controllers.sms_controller import SMSService
+from study_access.services.access_service import open_periods_for_approved_application
 
 accounting_bp = Blueprint('accounting_controller', __name__)
 
@@ -702,6 +703,7 @@ class AccountingController:
             for application in applications:
                 if status == 'approved':
                     application.status = ApplicationStatus.approved
+                    open_periods_for_approved_application(self.db, application, user_id)
                     # Get the applicant's information with a join to User
                     applicant = self.db.query(User).filter(User.id == application.user_id).first()
                     if applicant and applicant.phone:

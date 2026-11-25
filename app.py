@@ -33,6 +33,7 @@ from studies.models.schemas import (
 )
 from studies.controllers.material_categories_controller import material_categories_bp
 from studies.controllers.subtopic_materials_controller import subtopic_materials_bp
+from study_access.controllers import study_access_bp
 from applications.models.models import Application, PaymentStatus as ApplicationPaymentStatus
 from applications.models.schemas import ApplicationCreate, ApplicationUpdate, ApplicationInDB
 from applications.controllers.applications_controller import applications_bp
@@ -227,6 +228,7 @@ app.register_blueprint(season_subjects_bp, url_prefix='/api', name='api_season_s
 app.register_blueprint(subjects_courses_bp, name='subjects_courses')  # Contains /api/courses/approved (refactored to subjects)
 app.register_blueprint(material_categories_bp, url_prefix='/api', name='api_material_categories')
 app.register_blueprint(subtopic_materials_bp, url_prefix='/api', name='api_subtopic_materials')
+app.register_blueprint(study_access_bp, url_prefix='/api', name='api_study_access')
 app.register_blueprint(applications_bp, url_prefix='/api', name='api_applications')
 app.register_blueprint(payments_bp, url_prefix='/api', name='api_payments')
 app.register_blueprint(instructors_bp, url_prefix='/api', name='api_instructors')

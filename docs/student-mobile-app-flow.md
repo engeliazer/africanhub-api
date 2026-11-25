@@ -88,7 +88,7 @@ Suggested tabs after login: **Subjects**, **Applications**, **Learn**, **Profile
 
 **Payment status** (`payment_status`): `pending_payment`, `paid`, `failed`, `refunded`.
 
-**Learning access.** `GET /api/courses/approved` returns a subject only when the application `status` is `approved`. Mobile-money payments set that status immediately. Bank, card, cash, and other methods leave it `pending`, so the Learn tab stays empty until approval.
+**Learning access.** `GET /api/courses/approved` lists a subject when the application `status` is `approved`. Lesson files are included only while a study period is open. The student starts the first period with `POST /api/study-periods/start`, passing that application id. After `expected_end_date`, the files are removed until a new application for the same subject is paid and approved. The student creates that extension with `POST /api/applications/{application_id}/extend` (the same handler is also at `POST /api/season-applications/{application_id}/extend`). It copies the subjects, prices them with `extension_price`, and stores `original_application_id` so every extension stays linked to the first application. An application can have at most three extensions. Mobile-money payments set an application to `approved` immediately. Bank, card, cash, and other methods leave it `pending`, so a new window is not opened until approval.
 
 **Video watch status:** `not_started`, `in_progress`, `completed`. A video counts as completed at 90% watched.
 
@@ -527,7 +527,7 @@ Subject objects include the stored subject fields (`id`, `name`, `code`, `descri
 }
 ```
 
-`access_expired` and `days_remaining` are filled when the application is `approved` and the subject has `duration_days`. `days_remaining` is how many of those days are left since the application detail was created. Show remaining days on applied subjects. Keep the Apply action on `available_subjects` only.
+`access_expired` and `days_remaining` describe the logged study window, and only after the application is `approved`. Before the student starts, `study_status` is `not_started`, `can_study` is false, and `days_remaining` is the subject's `duration_days` (the allocation they will receive when they start). While a period is open, `study_status` is `active` and `days_remaining` counts down to `expected_end_date`, which is included. After that date, `study_status` is `expired`, `access_expired` is true, and `days_remaining` is 0. `study_access` carries the same window plus any open extension request. The clock does not start on the application date.
 
 Build the apply flow on this endpoint. Season-scoped lists (`/api/seasons/available-seasons`, `/api/seasons/{season_id}/user-available-subjects`, `/api/seasons/{season_id}/available-subjects-list`) filter on `application_details.season_id`, and creating an application does not write a season id, so those lists will not stay in step with applications the app creates.
 
@@ -933,13 +933,31 @@ Auth required. Pass the logged-in user id. The controller payload is nested agai
 
 ## 12. Learning
 
-Learning content is the approved-application tree. Do not call the upload, delete, or admin material routes from the student app.
+Learning content is the approved-application tree, and only during an open study period. Do not call the upload, delete, or admin material routes from the student app.
+
+### 12.0 Study time and extensions
+
+An approved application does not start the clock. The student chooses when to begin, and that call stores one application id on the study period.
+
+`POST /api/study-periods/start`
+
+```json
+{ "application_id": 301, "subject_id": 12 }
+```
+
+The server writes one row with that `application_id`, the user, the subject, `start_date` (today), `allocated_days` (the subject's `duration_days`), and `expected_end_date` (`start_date` plus `allocated_days`). The end date is still a study day. The next day, lesson files, downloads, video OTP, and watch heartbeats return `403` with `code` `study_period_ended`.
+
+Calling start again with the same application while the window is open returns that row with `200`. After it ends, start is rejected. The student extends with `POST /api/applications/{application_id}/extend`, which is also available as `POST /api/season-applications/{application_id}/extend`. The body is empty. The server copies the subjects from that application, creates a new application id, sets `original_application_id` to the first application in the chain, and prices each subject with `extension_price`. Pay and approval use the same application and payment routes as enrollment. The first application can have at most three extensions. Rejected and withdrawn extensions do not count. A fourth attempt returns `400`.
+
+`GET /api/applications/{application_id}` includes `original_application_id`, `root_application_id`, `extension_count`, `extensions_remaining`, and `extensions`. Mobile-money approval, and staff approval of a bank, card, or cash payment, write a new study-period row for the new application id. If the current window is still open, the new window starts the day after it ends. If it has already ended, the new window starts on the approval day. `allocated_days` is again the subject's `duration_days`.
+
+`GET /api/study-periods/mine` lists every logged window. `study_access.extension_price`, `study_access.extensions_remaining`, and `study_access.can_apply_for_extension` on an approved subject tell the app when another extension can be submitted. `can_apply_for_extension` is false once three extensions already count.
 
 ### 12.1 Approved subjects, topics, and files
 
 `GET /api/courses/approved`
 
-Auth required. Subjects where this user has an active application with `status` `approved`, including topics, subtopics, material categories, files, and watch progress.
+Auth required. Subjects where this user has an active application with `status` `approved`. Each subject includes `study_access`. Topics, files, and watch progress are included only when `study_access.can_study` is true. Otherwise `topics` is empty and the app should offer Start studying or Apply for extension.
 
 ```json
 {

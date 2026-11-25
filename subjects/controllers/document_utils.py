@@ -96,6 +96,7 @@ def parse_subject_create_payload() -> Tuple[Optional[Dict[str, Any]], Optional[s
             "current_price": _parse_int_optional(request.form.get("current_price")),
             "duration_days": _parse_int_optional(request.form.get("duration_days")),
             "trial_duration_days": _parse_int_optional(request.form.get("trial_duration_days")),
+            "extension_price": _parse_int_optional(request.form.get("extension_price")),
             "display_rank": _parse_int_optional(request.form.get("display_rank")),
             "is_most_popular": _parse_bool(request.form.get("is_most_popular")),
             "is_best_price": _parse_bool(request.form.get("is_best_price")),
@@ -117,10 +118,14 @@ def parse_subject_update_payload() -> Tuple[Optional[Dict[str, Any]], Optional[s
         data = {}
         for field in (
             "name", "code", "description", "current_price", "duration_days",
-            "trial_duration_days", "display_rank", "updated_by",
+            "trial_duration_days", "extension_price",
+            "display_rank", "updated_by",
         ):
             if field in request.form and request.form.get(field) not in (None, ""):
-                if field in ("current_price", "duration_days", "trial_duration_days", "display_rank"):
+                if field in (
+                    "current_price", "duration_days", "trial_duration_days",
+                    "extension_price", "display_rank",
+                ):
                     data[field] = _parse_int_optional(request.form.get(field))
                 elif field == "updated_by":
                     data[field] = int(request.form.get(field))

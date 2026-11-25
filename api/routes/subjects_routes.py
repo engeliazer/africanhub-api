@@ -232,14 +232,39 @@ def get_available_seasons():
     finally:
         db.close()
 
+def _annotate_study_windows(db, user_id, applied_subjects):
+    """Replace the application-date clock with the logged study window."""
+    from study_access.services.access_service import StudyAccessService
+
+    windows = StudyAccessService(db).windows_for_user(
+        user_id,
+        [item["id"] for item in applied_subjects],
+    )
+    for item in applied_subjects:
+        status = item.get("application_status")
+        status_value = status.value if hasattr(status, "value") else status
+        window = windows.get(item["id"])
+        if status_value != ApplicationStatus.approved.value or not window:
+            item["access_expired"] = False
+            item["days_remaining"] = None
+            item["study_status"] = "unavailable"
+            item["can_study"] = False
+            continue
+        item["access_expired"] = window["access_expired"]
+        item["days_remaining"] = window["days_remaining"]
+        item["study_status"] = window["status"]
+        item["can_study"] = window["can_study"]
+        item["study_access"] = window
+
+
 @subjects_bp.route('/available-subjects', methods=['GET'])
 @jwt_required()
 def get_available_subjects():
     """Get subjects available to the current user.
     
-    Returns subjects that:
-    1. The user hasn't applied for, OR
-    2. The user applied for but access has expired (days past > duration_days)
+    Returns subjects the student has not applied for, plus subjects they have
+    already applied for. Study access is tracked separately and begins when the
+    student starts studying.
     """
     try:
         from datetime import datetime
@@ -297,25 +322,18 @@ def get_available_subjects():
                 application = db.query(Application).filter(Application.id == app_detail.application_id).first()
 
                 subject_dict = subject_to_dict(subject)
+                subject_dict['application_id'] = application.id if application else None
                 subject_dict['application_status'] = application.status if application else "unknown"
                 subject_dict['application_date'] = app_detail.created_at.isoformat() if app_detail.created_at else None
                 subject_dict['fee'] = app_detail.fee
 
-                # Calculate days since application
                 if app_detail.created_at:
-                    days_since = (current_date - app_detail.created_at).days
-                    subject_dict['days_since_application'] = days_since
-
-                    # Check if access has expired (only for approved applications)
-                    if application and application.status == ApplicationStatus.approved.value and subject.duration_days:
-                        subject_dict['access_expired'] = days_since > subject.duration_days
-                        subject_dict['days_remaining'] = max(0, subject.duration_days - days_since)
-                    else:
-                        subject_dict['access_expired'] = False
-                        subject_dict['days_remaining'] = None
+                    subject_dict['days_since_application'] = (current_date - app_detail.created_at).days
 
                 subject_dict['duration_days'] = subject.duration_days
                 applied_subjects.append(subject_dict)
+
+        _annotate_study_windows(db, int(current_user_id), applied_subjects)
 
         return jsonify({
             "status": "success",
@@ -712,6 +730,7 @@ def create_subject_with_topic_subtopic():
                 current_price=subject_data.current_price,
                 duration_days=subject_data.duration_days,
                 trial_duration_days=subject_data.trial_duration_days,
+                extension_price=subject_data.extension_price,
                 display_rank=subject_data.display_rank,
                 is_most_popular=subject_data.is_most_popular,
                 is_best_price=subject_data.is_best_price,

@@ -7,6 +7,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from database.db_connector import db_session
 from video_tracking.controllers.tracking_controller import TrackingController
+from video_tracking.models.models import VideoWatchSession
 
 video_tracking_bp = Blueprint("video_tracking", __name__)
 
@@ -23,6 +24,11 @@ def _error_response(result: dict):
     return jsonify({"status": "error", "message": result["error"]}), result["status_code"]
 
 
+def _study_block(material_id: int):
+    from study_access.guards import block_material_response
+    return block_material_response(db_session, material_id)
+
+
 @video_tracking_bp.route("/api/video-tracking/sessions/start", methods=["POST"])
 @jwt_required()
 def start_session():
@@ -36,6 +42,10 @@ def start_session():
         material_id = int(material_id)
     except (TypeError, ValueError):
         return jsonify({"status": "error", "message": "material_id must be an integer"}), 400
+
+    blocked = _study_block(material_id)
+    if blocked:
+        return blocked
 
     try:
         result = _controller().start_session(_current_user_id(), material_id)
@@ -73,6 +83,16 @@ def heartbeat(session_token: str):
                 "message": "current_position and watched_delta must be numbers",
             }
         ), 400
+
+    session = (
+        db_session.query(VideoWatchSession)
+        .filter_by(session_token=session_token, user_id=_current_user_id())
+        .first()
+    )
+    if session:
+        blocked = _study_block(session.material_id)
+        if blocked:
+            return blocked
 
     result = _controller().heartbeat(
         user_id=_current_user_id(),

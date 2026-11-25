@@ -12,6 +12,7 @@ def register_all_models() -> None:
     import applications.models.models  # noqa: F401
     import subjects.models.models  # noqa: F401
     import studies.models.models  # noqa: F401
+    import study_access.models.models  # noqa: F401
     import books.models.models  # noqa: F401
     import certificates.models.models  # noqa: F401
     import events.models.models  # noqa: F401

@@ -26,6 +26,7 @@ class SubjectsController:
                 current_price=subject.current_price,
                 duration_days=subject.duration_days,
                 trial_duration_days=subject.trial_duration_days,
+                extension_price=subject.extension_price,
                 display_rank=subject.display_rank,
                 is_most_popular=subject.is_most_popular,
                 is_best_price=subject.is_best_price,

@@ -18,6 +18,7 @@ from applications.models.models import (
 from applications.models.schemas import PaymentCreate, PaymentUpdate, PaymentInDB
 from auth.models.models import User
 from database.db_connector import db_session
+from study_access.services.access_service import open_periods_for_approved_application
 
 payments_bp = Blueprint('payments_controller', __name__)
 
@@ -134,6 +135,7 @@ class PaymentsController:
                 if is_mno_payment:
                     # For MNO payments, set status to approved
                     app.status = ApplicationStatus.approved
+                    open_periods_for_approved_application(self.db, app, payment_data.updated_by)
                 else:
                     # For non-MNO payments, set status to pending
                     app.status = ApplicationStatus.pending
@@ -536,6 +538,7 @@ def process_application_payment():
             # Only change status if it's currently in pending state to avoid overriding other statuses
             if app.status == ApplicationStatus.pending:
                 app.status = ApplicationStatus.approved  # Or whatever status is appropriate after payment
+                open_periods_for_approved_application(db_session, app, int(current_user_id) if current_user_id else app.updated_by)
             
             app.updated_by = current_user_id
             app.updated_at = datetime.now()  # Ensure the updated_at field is updated

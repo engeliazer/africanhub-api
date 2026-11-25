@@ -53,6 +53,12 @@ class Application(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
     updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     deleted_at = Column(DateTime, nullable=True)
+    original_application_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("applications.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref="applications")

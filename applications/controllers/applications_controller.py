@@ -12,6 +12,18 @@ from applications.models.schemas import ApplicationCreate, ApplicationUpdate, Ap
 from subjects.models.models import Subject
 from auth.models.models import User
 from database.db_connector import db_session
+from study_access.services.access_service import (
+    _status_value,
+    application_already_logged,
+    application_link_summary,
+    assert_extension_allowed,
+    extension_root_id_for_subject,
+    open_application_for_subject,
+    open_periods_for_approved_application,
+    price_for_new_application,
+    subject_has_study_period,
+)
+from study_access.services.rules import StudyAccessError
 
 applications_bp = Blueprint('applications_controller', __name__)
 
@@ -73,23 +85,29 @@ class ApplicationsController:
                     # Pydantic object
                     subject_id = detail.subject_id
 
-                # Check if application detail already exists
-                existing_detail = self.db.query(ApplicationDetail).join(Application).filter(
+                existing_details = self.db.query(ApplicationDetail).join(Application).filter(
                     Application.user_id == user_id,
                     ApplicationDetail.subject_id == subject_id,
                     ApplicationDetail.deleted_at.is_(None),
-                    Application.deleted_at.is_(None)
-                ).first()
+                    Application.deleted_at.is_(None),
+                    Application.is_active == True,
+                    ApplicationDetail.is_active == True,
+                ).all()
 
-                if existing_detail:
-                    # Get the full application for this existing detail
-                    existing_app = self.db.query(Application).options(
+                open_application = None
+                for existing_detail in existing_details:
+                    if application_already_logged(self.db, existing_detail.application_id, subject_id):
+                        continue
+                    open_application = self.db.query(Application).options(
                         joinedload(Application.details).joinedload(ApplicationDetail.subject),
                         joinedload(Application.user)
                     ).filter(Application.id == existing_detail.application_id).first()
+                    if open_application:
+                        break
 
-                    if existing_app and existing_app not in existing_applications:
-                        existing_applications.append(existing_app)
+                if open_application:
+                    if open_application not in existing_applications:
+                        existing_applications.append(open_application)
                 else:
                     subject_ids_to_process.append((detail, subject_id))
 
@@ -125,17 +143,36 @@ class ApplicationsController:
                 result['is_existing'] = True
                 return result
 
+            extension_roots = []
+            enrolling = False
+            for _detail, subject_id in subject_ids_to_process:
+                root_id = extension_root_id_for_subject(self.db, user_id, subject_id)
+                if root_id is None:
+                    enrolling = True
+                else:
+                    extension_roots.append(root_id)
+            if enrolling and extension_roots:
+                self.db.rollback()
+                raise BadRequest("Submit a new subject and an extension as separate applications")
+            if extension_roots:
+                if len(set(extension_roots)) != 1:
+                    self.db.rollback()
+                    raise BadRequest("Extend one application at a time")
+                try:
+                    assert_extension_allowed(self.db, extension_roots[0])
+                except StudyAccessError as exc:
+                    self.db.rollback()
+                    raise BadRequest(exc.message)
+                db_application.original_application_id = extension_roots[0]
+
             # Process new details for subjects that don't have applications yet
             total_fee = 0
             for detail, subject_id in subject_ids_to_process:
                 # Handle case where detail might be a dict (from JSON) or Pydantic object
                 if isinstance(detail, dict):
-                    fee = detail.get('fee')
                     status = detail.get('status', ApplicationStatus.pending.value)
                     is_active = detail.get('is_active', True)
                 else:
-                    # Pydantic object
-                    fee = detail.fee
                     status = detail.status
                     is_active = detail.is_active
 
@@ -147,8 +184,10 @@ class ApplicationsController:
                 if not subject:
                     raise BadRequest(f"Subject with ID {subject_id} not found or not active")
 
-                # Set fee from subject if not provided
-                fee = fee if fee is not None else subject.current_price or 0
+                try:
+                    fee = price_for_new_application(self.db, user_id, subject)
+                except StudyAccessError as exc:
+                    raise BadRequest(exc.message)
                 total_fee += fee
 
                 # Create detail
@@ -215,6 +254,7 @@ class ApplicationsController:
                     }
 
             result['is_existing'] = False
+            result.update(application_link_summary(self.db, application_with_details))
             return result
 
         except IntegrityError:
@@ -437,6 +477,11 @@ class ApplicationsController:
         # Always update the updated_by and updated_at fields
         db_application.updated_by = application_update.updated_by
         db_application.updated_at = datetime.utcnow()
+
+        if _status_value(db_application.status) == ApplicationStatus.approved.value:
+            open_periods_for_approved_application(
+                self.db, db_application, application_update.updated_by
+            )
         
         try:
             self.db.commit()
@@ -523,22 +568,39 @@ class ApplicationsController:
                 missing_ids = [sid for sid in subject_ids if sid not in found_ids]
                 raise BadRequest(f"Some subjects not found or not active: {missing_ids}")
             
-            # Check for existing active applications for this user/subjects
-            existing_details = self.db.query(ApplicationDetail).join(Application).filter(
-                Application.user_id == user_id,
-                ApplicationDetail.subject_id.in_(subject_ids),
-                Application.is_active == True,
-                ApplicationDetail.is_active == True,
-                Application.deleted_at.is_(None),
-                ApplicationDetail.deleted_at.is_(None)
-            ).all()
-            
-            existing_subject_ids = [detail.subject_id for detail in existing_details]
-            new_subject_ids = [sid for sid in subject_ids if sid not in existing_subject_ids]
+            # An application that already has a study row does not block another one.
+            # That next application is an extension and is priced from extension_price.
+            new_subject_ids = []
+            for subject_id in subject_ids:
+                if open_application_for_subject(self.db, user_id, subject_id):
+                    continue
+                new_subject_ids.append(subject_id)
             
             # Validate before any database modifications
             if not new_subject_ids:
                 raise BadRequest("Applications already exist for all specified subjects")
+
+            extension_roots = []
+            enrolling = False
+            for subject in subjects:
+                if subject.id not in new_subject_ids:
+                    continue
+                root_id = extension_root_id_for_subject(self.db, user_id, subject.id)
+                if root_id is None:
+                    enrolling = True
+                else:
+                    extension_roots.append(root_id)
+            if enrolling and extension_roots:
+                raise BadRequest("Submit a new subject and an extension as separate applications")
+            original_application_id = None
+            if extension_roots:
+                if len(set(extension_roots)) != 1:
+                    raise BadRequest("Extend one application at a time")
+                try:
+                    assert_extension_allowed(self.db, extension_roots[0])
+                except StudyAccessError as exc:
+                    raise BadRequest(exc.message)
+                original_application_id = extension_roots[0]
             
             # Create new application
             application = Application(
@@ -546,6 +608,7 @@ class ApplicationsController:
                 payment_status=payment_status,
                 status=status,
                 is_active=True,
+                original_application_id=original_application_id,
                 created_by=created_by,
                 updated_by=updated_by
             )
@@ -560,7 +623,10 @@ class ApplicationsController:
                 if subject.id not in new_subject_ids:
                     continue
                 
-                fee = subject.current_price or 0
+                try:
+                    fee = price_for_new_application(self.db, user_id, subject)
+                except StudyAccessError as exc:
+                    raise BadRequest(exc.message)
                 total_fee += fee
                 
                 # Create application detail
@@ -614,6 +680,7 @@ class ApplicationsController:
                         'description': getattr(db_detail.subject, 'description', None)
                     }
             
+            result.update(application_link_summary(self.db, application_with_details))
             return result
             
         except IntegrityError as e:
@@ -623,6 +690,103 @@ class ApplicationsController:
         except Exception as e:
             self.db.rollback()
             raise e
+
+    def extend_application(self, application_id: int, user_id: int) -> Dict[str, Any]:
+        """Create an extension application linked to an existing one.
+
+        The new row copies the existing subjects and prices them at
+        extension_price. original_application_id always points at the first
+        application, and that first application can have at most three extensions.
+        """
+        source = self.db.query(Application).options(
+            joinedload(Application.details).joinedload(ApplicationDetail.subject),
+        ).filter(
+            Application.id == application_id,
+            Application.deleted_at.is_(None),
+            Application.is_active.is_(True),
+        ).first()
+        if not source:
+            raise NotFound("Application not found")
+        if source.user_id != int(user_id):
+            raise BadRequest("You can only extend your own application")
+        if _status_value(source.status) != ApplicationStatus.approved.value:
+            raise BadRequest("Only an approved application can be extended")
+
+        details = [
+            detail for detail in source.details
+            if detail.is_active and detail.deleted_at is None
+        ]
+        if not details:
+            raise BadRequest("This application has no subjects to extend")
+
+        for detail in details:
+            if not subject_has_study_period(self.db, source.user_id, detail.subject_id):
+                raise BadRequest("Start studying before extending this application")
+            if open_application_for_subject(self.db, source.user_id, detail.subject_id):
+                raise BadRequest("An application for this subject is already open")
+            subject = detail.subject
+            if subject is None or subject.extension_price is None:
+                raise BadRequest("Extension price is not configured for this subject")
+
+        root_id = source.original_application_id or source.id
+        try:
+            assert_extension_allowed(self.db, root_id)
+        except StudyAccessError as exc:
+            raise BadRequest(exc.message)
+
+        extension = Application(
+            user_id=source.user_id,
+            payment_status=PaymentStatus.pending_payment,
+            status=ApplicationStatus.pending,
+            is_active=True,
+            original_application_id=root_id,
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        self.db.add(extension)
+        self.db.flush()
+
+        total_fee = 0
+        for detail in details:
+            fee = float(detail.subject.extension_price)
+            total_fee += fee
+            self.db.add(ApplicationDetail(
+                application_id=extension.id,
+                subject_id=detail.subject_id,
+                fee=fee,
+                status=ApplicationStatus.pending,
+                is_active=True,
+                created_by=user_id,
+                updated_by=user_id,
+            ))
+        extension.total_fee = total_fee
+        self.db.commit()
+
+        saved = self.db.query(Application).options(
+            joinedload(Application.details).joinedload(ApplicationDetail.subject),
+            joinedload(Application.user),
+        ).filter(Application.id == extension.id).first()
+        result = ApplicationInDB.from_orm(saved).dict()
+        if saved.user:
+            result["user_details"] = {
+                "id": saved.user.id,
+                "email": saved.user.email,
+                "first_name": saved.user.first_name,
+                "last_name": saved.user.last_name,
+                "phone": saved.user.phone,
+            }
+        for index, detail in enumerate(result["details"]):
+            subject = saved.details[index].subject
+            if subject:
+                detail["subject_details"] = {
+                    "id": subject.id,
+                    "name": subject.name,
+                    "current_price": subject.current_price,
+                    "extension_price": subject.extension_price,
+                    "description": subject.description,
+                }
+        result.update(application_link_summary(self.db, saved))
+        return result
 
 # API Routes
 @applications_bp.route('/applications', methods=['POST'])

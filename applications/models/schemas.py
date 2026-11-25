@@ -92,6 +92,7 @@ class ApplicationUpdate(BaseModel):
 
 class ApplicationInDB(ApplicationBase):
     id: int
+    original_application_id: Optional[int] = None
     details: List[ApplicationDetailInDB] = []
     created_at: datetime
     updated_at: datetime
