@@ -133,7 +133,7 @@ class PublicInvitationTests(unittest.TestCase):
         with self.assertLogs(self.controller.logger, level="ERROR"):
             response = self.client.post(self.url, json=self.payload)
         self.assertEqual(response.status_code, 500)
-        self.assertNotIn(b"internal detail", response.data)
+        self.assertIn("RuntimeError: internal detail", response.get_json()["message"])
         self.db.close.assert_called_once()
 
     def test_attachment_without_auth_is_inline(self):

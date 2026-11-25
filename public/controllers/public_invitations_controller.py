@@ -88,9 +88,12 @@ def self_invitation(event_id):
         )
         response.headers["Cache-Control"] = "private, no-store"
         return response
-    except Exception:
+    except Exception as exc:
         logger.exception("self_invitation failed for event %s", event_id)
-        return jsonify({"status": "error", "message": "Unable to generate invitation PDF"}), 500
+        return jsonify({
+            "status": "error",
+            "message": f"Unable to generate invitation PDF: {type(exc).__name__}: {exc}",
+        }), 500
     finally:
         db.close()
 
@@ -155,9 +158,12 @@ def subject_self_invitation(subject_id):
         )
         response.headers["Cache-Control"] = "private, no-store"
         return response
-    except Exception:
+    except Exception as exc:
         logger.exception("self_invitation failed for event %s", subject_id)
-        return jsonify({"status": "error", "message": "Unable to generate invitation PDF"}), 500
+        return jsonify({
+            "status": "error",
+            "message": f"Unable to generate invitation PDF: {type(exc).__name__}: {exc}",
+        }), 500
     finally:
         db.close()
 
