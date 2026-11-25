@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from applications.models.models import Invitation, InvitationCampaignStatus
+from certificates.models.models import Salutation
 from database.db_connector import get_db
 from subjects.models.models import Subject
 from events.models.models import Event, EventTrainingRegistration
@@ -48,7 +49,37 @@ def _self_invitee(data):
         raise ValueError("Invalid phone number")
     invitee["phone"] = phone
     invitee["full_name"] = " ".join(invitee[key] for key in ("first_name", "middle_name", "last_name"))
+    invitee["salutation_id"] = _optional_salutation_id(data)
     return invitee
+
+
+def _optional_salutation_id(data):
+    if "salutation_id" not in data or data.get("salutation_id") in (None, ""):
+        return None
+    raw = data["salutation_id"]
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        raise ValueError("salutation_id must be a positive integer")
+    return raw
+
+
+def _apply_salutation(db, invitee):
+    salutation_id = invitee.pop("salutation_id", None)
+    if not salutation_id:
+        return None
+    salutation = (
+        db.query(Salutation)
+        .filter(Salutation.id == salutation_id, Salutation.is_active.is_(True))
+        .first()
+    )
+    if salutation is None:
+        return jsonify({
+            "status": "error",
+            "message": f"Salutation {salutation_id} not found or inactive",
+        }), 400
+    label = (salutation.label or "").strip()
+    if label and label.lower() != "none":
+        invitee["full_name"] = f"{label} {invitee['full_name']}".strip()
+    return None
 
 
 def _public_invitation(db, event_id):
@@ -81,6 +112,9 @@ def self_invitation(event_id):
         invitation = _public_invitation(db, event_id)
         if invitation is None:
             return jsonify({"status": "error", "message": "Invitation not available for this event"}), 404
+        salutation_error = _apply_salutation(db, invitee)
+        if salutation_error:
+            return salutation_error
         pdf_bytes, filename = render_invitation_pdf_bytes(invitation, invitee)
         response = send_file(
             BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=False,
@@ -151,6 +185,9 @@ def subject_self_invitation(subject_id):
         invitation = _public_subject_invitation(db, subject_id)
         if invitation is None:
             return jsonify({"status": "error", "message": "Invitation not available for this subject"}), 404
+        salutation_error = _apply_salutation(db, invitee)
+        if salutation_error:
+            return salutation_error
         pdf_bytes, filename = render_invitation_pdf_bytes(invitation, invitee)
         response = send_file(
             BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=False,
