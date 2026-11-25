@@ -95,10 +95,17 @@ class PublicInvitationTests(unittest.TestCase):
         self.db.commit.assert_not_called()
         self.db.close.assert_called_once()
 
+    def test_middle_name_may_be_blank(self):
+        response = self.client.post(self.url, json={**self.payload, "middle_name": " "})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        _, invitee = self.controller.render_invitation_pdf_bytes.call_args.args
+        self.assertEqual(invitee["middle_name"], "")
+        self.assertEqual(invitee["full_name"], "Asha Mushi")
+
     def test_invalid_payloads(self):
         for data in [None, [], "text", 123, {}, *[
             dict(self.payload, **{field: value})
-            for field, value in [("first_name", ""), ("middle_name", None), ("last_name", 123),
+            for field, value in [("first_name", ""), ("middle_name", 123), ("last_name", 123),
                                  ("email", "bad"), ("phone", "123"), ("phone", "abc1234567"),
                                  ("organization", "x" * 256), ("address", " ")]
         ]]:

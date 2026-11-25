@@ -36,6 +36,17 @@ def _self_invitee(data):
     invitee = {}
     for field, limit in limits.items():
         value = data.get(field)
+        if field == "middle_name":
+            if value is None or value == "":
+                invitee[field] = ""
+                continue
+            if not isinstance(value, str):
+                raise ValueError("middle_name must be a string")
+            value = value.strip()
+            if len(value) > limit:
+                raise ValueError(f"{field} must be at most {limit} characters")
+            invitee[field] = value
+            continue
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{field} is required and must be a non-empty string")
         value = value.strip()
@@ -48,7 +59,9 @@ def _self_invitee(data):
     if not re.fullmatch(r"\+?[0-9]{7,15}", phone):
         raise ValueError("Invalid phone number")
     invitee["phone"] = phone
-    invitee["full_name"] = " ".join(invitee[key] for key in ("first_name", "middle_name", "last_name"))
+    invitee["full_name"] = " ".join(
+        part for part in (invitee["first_name"], invitee["middle_name"], invitee["last_name"]) if part
+    )
     invitee["salutation_id"] = _optional_salutation_id(data)
     return invitee
 

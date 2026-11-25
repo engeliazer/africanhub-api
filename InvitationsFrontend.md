@@ -1332,7 +1332,7 @@ attachment endpoint does not fall back to an older campaign's attachment.
 }
 ```
 
-All seven name and contact fields are required non-empty strings. `salutation_id` is optional. When it is a positive integer for an active salutation, that salutation's label is placed before the name. `salutation_id` 1 uses the current label `CPA`, so the letter reads `Dear CPA Hamis Eliazer`. Omit it, send `null`, or use the salutation labeled `None` to leave the greeting as the name only. An unknown or inactive id returns 400. Load the choices from `GET /api/salutations/public`. Name parts allow 100 characters
+`first_name`, `last_name`, `address`, `email`, `organization`, and `phone` are required non-empty strings. `middle_name` is optional: omit it, send `null`, or send `""`. `salutation_id` is optional. When it is a positive integer for an active salutation, that salutation's label is placed before the name. `salutation_id` 1 uses the current label `CPA`, so the letter reads `Dear CPA Hamis Eliazer`. Omit it, send `null`, or use the salutation labeled `None` to leave the greeting as the name only. An unknown or inactive id returns 400. Load the choices from `GET /api/salutations/public`. Name parts allow 100 characters
 each, organization/email 255, address 2000 and phone 50. Email must be valid;
 phone must contain 7–15 digits, optionally prefixed with `+` (spaces, parentheses,
 dots and hyphens are accepted). Invalid bodies/fields return 400 JSON.
@@ -1368,8 +1368,8 @@ These routes do not change the existing event letter/phone verification flow.
 ## Public training registration
 
 `POST /api/events/public/{event_id}/registrations` — no JWT or account required.
-Send the same seven required fields as self-invitation: `first_name`,
-`middle_name`, `last_name`, `address`, `email`, `organization`, and `phone`.
+Send the same fields as self-invitation: `first_name`,
+`last_name`, `address`, `email`, `organization`, and `phone`. `middle_name` is optional.
 Validation and field limits are the same as self-invitation. Email is saved in
 lowercase and phone formatting is normalized.
 
