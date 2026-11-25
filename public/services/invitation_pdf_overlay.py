@@ -189,11 +189,14 @@ def apply_invitation_pdf_overlays(
 
     reader = PdfReader(BytesIO(pdf_bytes))
     page_count = len(reader.pages)
+    # pypdf 7 requires a page to belong to a writer before merge_page.
     writer = PdfWriter()
 
     for index, page in enumerate(reader.pages, start=1):
         page_w = float(page.mediabox.width)
         page_h = float(page.mediabox.height)
+        writer.add_page(page)
+        current = writer.pages[-1]
 
         if logo_data:
             logo, aspect = logo_data
@@ -204,10 +207,7 @@ def apply_invitation_pdf_overlays(
                 aspect,
                 width_ratio=width_ratio,
             )
-            combined = wm_reader.pages[0]
-            combined.merge_page(page)
-        else:
-            combined = page
+            current.merge_page(wm_reader.pages[0], over=False)
 
         if show_footer:
             footer_reader = _build_footer_layer(
@@ -217,9 +217,7 @@ def apply_invitation_pdf_overlays(
                 page_num=index,
                 page_count=page_count,
             )
-            combined.merge_page(footer_reader.pages[0])
-
-        writer.add_page(combined)
+            current.merge_page(footer_reader.pages[0])
 
     output = BytesIO()
     writer.write(output)

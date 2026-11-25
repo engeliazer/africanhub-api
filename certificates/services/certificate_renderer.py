@@ -637,10 +637,9 @@ class CertificateRenderer:
             raise ValueError("Certificate background PDF has no pages")
 
         writer = PdfWriter()
-        background_page = background_reader.pages[0]
         overlay_page = overlay_reader.pages[0]
-        background_page.merge_page(overlay_page)
-        writer.add_page(background_page)
+        writer.add_page(background_reader.pages[0])
+        writer.pages[0].merge_page(overlay_page)
         CertificateRenderer._compress_writer_pages(writer)
 
         output = BytesIO()
