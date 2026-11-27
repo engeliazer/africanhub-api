@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Text, Boolean, DateTime, Integer
+from sqlalchemy import Column, BigInteger, String, Text, Boolean, DateTime, Integer, ForeignKey
 from sqlalchemy.sql import func
 from database.base import Base
 
@@ -7,6 +7,13 @@ class Testimonial(Base):
 
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, index=True)
     user_id = Column(BigInteger().with_variant(Integer, "sqlite"), nullable=False)  # Link to users table
+    salutation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("salutations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    organization = Column(String(255), nullable=True)
     role = Column(String(255), nullable=True)  # e.g., "CPA Graduate, 2024"
     text = Column(Text, nullable=False)  # The testimonial text
     photo = Column(String(500), nullable=True)  # URL to testimonial photo

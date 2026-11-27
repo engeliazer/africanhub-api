@@ -4,6 +4,8 @@ from datetime import datetime
 
 class TestimonialBase(BaseModel):
     user_id: int
+    salutation_id: Optional[int] = None
+    organization: Optional[str] = None
     role: Optional[str] = None
     text: str
     photo: Optional[str] = None
@@ -15,6 +17,8 @@ class TestimonialCreate(TestimonialBase):
     updated_by: int
 
 class TestimonialUpdate(BaseModel):
+    salutation_id: Optional[int] = None
+    organization: Optional[str] = None
     role: Optional[str] = None
     text: Optional[str] = None
     photo: Optional[str] = None
@@ -44,6 +48,9 @@ class TestimonialInDB(TestimonialBase):
 class TestimonialPublic(BaseModel):
     id: int
     name: str  # Will be populated from user table
+    salutation_id: Optional[int] = None
+    salutation: Optional[str] = None
+    organization: Optional[str] = None
     role: Optional[str] = None
     text: str
     photo: Optional[str] = None

@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import get_db
+from certificates.models.models import Salutation
 from testimonials.models.models import Testimonial
 from testimonials.models.schemas import TestimonialCreate, TestimonialUpdate, TestimonialInDB, TestimonialReview, TestimonialPublic
 from testimonials.controllers.photo_utils import handle_testimonial_photo_upload
@@ -8,33 +9,92 @@ from datetime import datetime
 
 testimonials_bp = Blueprint('testimonials', __name__)
 
+
+def _blank(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_id(value):
+    if value in (None, ""):
+        return None
+    return int(value)
+
+
+def _clean_person_fields(data):
+    if "salutation_id" in data:
+        data["salutation_id"] = _optional_id(data.get("salutation_id"))
+    if "organization" in data:
+        data["organization"] = _blank(data.get("organization"))
+    return data
+
+
+def _require_active_salutation(db, salutation_id):
+    if salutation_id is None:
+        return
+    row = db.query(Salutation).filter(
+        Salutation.id == salutation_id,
+        Salutation.is_active.is_(True),
+    ).first()
+    if row is None:
+        raise ValueError(f"Salutation {salutation_id} not found or inactive")
+
+
+def _salutation_payload(salutation):
+    if salutation is None:
+        return None
+    return {"id": salutation.id, "label": salutation.label, "code": salutation.code}
+
+
+def _person_name(user):
+    return f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip()
+
+
+def _attach_salutation(db, testimonial, payload):
+    salutation = None
+    if testimonial.salutation_id:
+        salutation = db.query(Salutation).filter(Salutation.id == testimonial.salutation_id).first()
+    payload["salutation"] = _salutation_payload(salutation)
+    return payload
+
+
+def _admin_payload(testimonial, user, salutation):
+    payload = TestimonialInDB.from_orm(testimonial).dict()
+    payload.update({
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
+        "full_name": _person_name(user),
+        "salutation": _salutation_payload(salutation),
+    })
+    return payload
+
+
+def _testimonials_with_people(db):
+    from auth.models.models import User
+
+    return db.query(Testimonial, User, Salutation).join(
+        User, Testimonial.user_id == User.id
+    ).outerjoin(
+        Salutation, Testimonial.salutation_id == Salutation.id
+    )
+
 @testimonials_bp.route('/testimonials', methods=['GET'])
 @jwt_required()
 def get_testimonials():
     """Get all testimonials (admin only) - includes pending and approved with user details"""
     try:
         db = get_db()
-        from auth.models.models import User
-        
-        # Join testimonials with users table to get user details
-        testimonials = db.query(Testimonial, User).join(
-            User, Testimonial.user_id == User.id
-        ).filter(
+        testimonials = _testimonials_with_people(db).filter(
             Testimonial.deleted_at.is_(None)
         ).order_by(Testimonial.created_at.desc()).all()
-        
-        # Format response with user details
-        testimonials_data = []
-        for testimonial, user in testimonials:
-            testimonial_dict = TestimonialInDB.from_orm(testimonial).dict()
-            # Add user details
-            testimonial_dict.update({
-                "first_name": user.first_name,
-                "middle_name": user.middle_name,
-                "last_name": user.last_name,
-                "full_name": f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip()
-            })
-            testimonials_data.append(testimonial_dict)
+
+        testimonials_data = [
+            _admin_payload(testimonial, user, salutation)
+            for testimonial, user, salutation in testimonials
+        ]
         
         return jsonify({
             "status": "success",
@@ -54,12 +114,7 @@ def get_testimonial(testimonial_id):
     """Get a specific testimonial by ID with user details"""
     try:
         db = get_db()
-        from auth.models.models import User
-        
-        # Join testimonials with users table to get user details
-        result = db.query(Testimonial, User).join(
-            User, Testimonial.user_id == User.id
-        ).filter(
+        result = _testimonials_with_people(db).filter(
             Testimonial.id == testimonial_id,
             Testimonial.deleted_at.is_(None)
         ).first()
@@ -70,15 +125,8 @@ def get_testimonial(testimonial_id):
                 "message": "Testimonial not found"
             }), 404
         
-        testimonial, user = result
-        testimonial_dict = TestimonialInDB.from_orm(testimonial).dict()
-        # Add user details
-        testimonial_dict.update({
-            "first_name": user.first_name,
-            "middle_name": user.middle_name,
-            "last_name": user.last_name,
-            "full_name": f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip()
-        })
+        testimonial, user, salutation = result
+        testimonial_dict = _admin_payload(testimonial, user, salutation)
             
         return jsonify({
             "status": "success",
@@ -105,6 +153,8 @@ def create_testimonial():
             # Form data with file upload
             data = {
                 'user_id': int(request.form.get('user_id')),
+                'salutation_id': request.form.get('salutation_id'),
+                'organization': request.form.get('organization'),
                 'role': request.form.get('role'),
                 'text': request.form.get('text'),
                 'rating': int(request.form.get('rating', 5)),
@@ -131,6 +181,8 @@ def create_testimonial():
         data['created_by'] = current_user_id
         data['updated_by'] = current_user_id
         data['photo'] = photo_url
+        _clean_person_fields(data)
+        _require_active_salutation(db, data.get('salutation_id'))
         
         testimonial_data = TestimonialCreate(**data)
         testimonial = Testimonial(**testimonial_data.dict())
@@ -138,9 +190,10 @@ def create_testimonial():
         db.commit()
         db.refresh(testimonial)
         
+        payload = TestimonialInDB.from_orm(testimonial).dict()
         return jsonify({
             "status": "success",
-            "data": TestimonialInDB.from_orm(testimonial).dict()
+            "data": _attach_salutation(db, testimonial, payload)
         }), 201
     except Exception as e:
         db.rollback()
@@ -178,6 +231,10 @@ def update_testimonial(testimonial_id):
             data = {}
             
             # Only include fields that are present in the form data
+            if 'salutation_id' in request.form:
+                data['salutation_id'] = request.form.get('salutation_id')
+            if 'organization' in request.form:
+                data['organization'] = request.form.get('organization')
             if request.form.get('role') is not None:
                 data['role'] = request.form.get('role')
             if request.form.get('text') is not None:
@@ -204,6 +261,9 @@ def update_testimonial(testimonial_id):
         
         # Add updated_by
         data['updated_by'] = current_user_id
+        _clean_person_fields(data)
+        if 'salutation_id' in data:
+            _require_active_salutation(db, data.get('salutation_id'))
         
         update_data = TestimonialUpdate(**data)
         for field, value in update_data.dict(exclude_unset=True).items():
@@ -212,9 +272,10 @@ def update_testimonial(testimonial_id):
         db.commit()
         db.refresh(testimonial)
         
+        payload = TestimonialInDB.from_orm(testimonial).dict()
         return jsonify({
             "status": "success",
-            "data": TestimonialInDB.from_orm(testimonial).dict()
+            "data": _attach_salutation(db, testimonial, payload)
         })
     except Exception as e:
         db.rollback()
@@ -267,29 +328,25 @@ def get_testimonials_public():
     """Public endpoint - Get all approved testimonials (no authentication required)"""
     try:
         db = get_db()
-        from auth.models.models import User
-        
-        # Join testimonials with users table for optimized query
-        testimonials = db.query(Testimonial, User).join(
-            User, Testimonial.user_id == User.id
-        ).filter(
+        testimonials = _testimonials_with_people(db).filter(
             Testimonial.deleted_at.is_(None),
             Testimonial.is_active == True,
             Testimonial.is_approved == True  # Only approved testimonials
         ).order_by(Testimonial.created_at.desc()).all()
         
-        # Format response for public display
         testimonials_data = []
-        for testimonial, user in testimonials:
-            testimonial_dict = {
+        for testimonial, user, salutation in testimonials:
+            testimonials_data.append({
                 "id": testimonial.id,
-                "name": f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip(),
+                "name": _person_name(user),
+                "salutation_id": testimonial.salutation_id,
+                "salutation": salutation.label if salutation else None,
+                "organization": testimonial.organization,
                 "role": testimonial.role,
                 "text": testimonial.text,
                 "photo": testimonial.photo,
-                "rating": testimonial.rating
-            }
-            testimonials_data.append(testimonial_dict)
+                "rating": testimonial.rating,
+            })
         
         return jsonify({
             "status": "success",
@@ -309,28 +366,15 @@ def get_pending_testimonials():
     """Get all pending testimonials (admin only) with user details"""
     try:
         db = get_db()
-        from auth.models.models import User
-        
-        # Join testimonials with users table to get user details
-        testimonials = db.query(Testimonial, User).join(
-            User, Testimonial.user_id == User.id
-        ).filter(
+        testimonials = _testimonials_with_people(db).filter(
             Testimonial.deleted_at.is_(None),
             Testimonial.is_approved == False
         ).order_by(Testimonial.created_at.asc()).all()
-        
-        # Format response with user details
-        testimonials_data = []
-        for testimonial, user in testimonials:
-            testimonial_dict = TestimonialInDB.from_orm(testimonial).dict()
-            # Add user details
-            testimonial_dict.update({
-                "first_name": user.first_name,
-                "middle_name": user.middle_name,
-                "last_name": user.last_name,
-                "full_name": f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip()
-            })
-            testimonials_data.append(testimonial_dict)
+
+        testimonials_data = [
+            _admin_payload(testimonial, user, salutation)
+            for testimonial, user, salutation in testimonials
+        ]
         
         return jsonify({
             "status": "success",
@@ -375,9 +419,10 @@ def review_testimonial(testimonial_id):
         db.commit()
         db.refresh(testimonial)
         
+        payload = TestimonialInDB.from_orm(testimonial).dict()
         return jsonify({
             "status": "success",
-            "data": TestimonialInDB.from_orm(testimonial).dict()
+            "data": _attach_salutation(db, testimonial, payload)
         })
     except Exception as e:
         db.rollback()
