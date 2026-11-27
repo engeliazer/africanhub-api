@@ -155,7 +155,6 @@ def create_testimonial():
                 'user_id': int(request.form.get('user_id')),
                 'salutation_id': request.form.get('salutation_id'),
                 'organization': request.form.get('organization'),
-                'role': request.form.get('role'),
                 'text': request.form.get('text'),
                 'rating': int(request.form.get('rating', 5)),
                 'is_active': request.form.get('is_active', 'true').lower() == 'true'
@@ -181,6 +180,7 @@ def create_testimonial():
         data['created_by'] = current_user_id
         data['updated_by'] = current_user_id
         data['photo'] = photo_url
+        data.pop('role', None)
         _clean_person_fields(data)
         _require_active_salutation(db, data.get('salutation_id'))
         
@@ -235,8 +235,6 @@ def update_testimonial(testimonial_id):
                 data['salutation_id'] = request.form.get('salutation_id')
             if 'organization' in request.form:
                 data['organization'] = request.form.get('organization')
-            if request.form.get('role') is not None:
-                data['role'] = request.form.get('role')
             if request.form.get('text') is not None:
                 data['text'] = request.form.get('text')
             if request.form.get('rating') is not None:
@@ -261,6 +259,7 @@ def update_testimonial(testimonial_id):
         
         # Add updated_by
         data['updated_by'] = current_user_id
+        data.pop('role', None)
         _clean_person_fields(data)
         if 'salutation_id' in data:
             _require_active_salutation(db, data.get('salutation_id'))
@@ -342,7 +341,6 @@ def get_testimonials_public():
                 "salutation_id": testimonial.salutation_id,
                 "salutation": salutation.label if salutation else None,
                 "organization": testimonial.organization,
-                "role": testimonial.role,
                 "text": testimonial.text,
                 "photo": testimonial.photo,
                 "rating": testimonial.rating,

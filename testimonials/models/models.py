@@ -14,7 +14,6 @@ class Testimonial(Base):
         index=True,
     )
     organization = Column(String(255), nullable=True)
-    role = Column(String(255), nullable=True)  # e.g., "CPA Graduate, 2024"
     text = Column(Text, nullable=False)  # The testimonial text
     photo = Column(String(500), nullable=True)  # URL to testimonial photo
     rating = Column(Integer, nullable=False, default=5)  # Rating from 1-5 stars

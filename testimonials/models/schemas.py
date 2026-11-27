@@ -6,7 +6,6 @@ class TestimonialBase(BaseModel):
     user_id: int
     salutation_id: Optional[int] = None
     organization: Optional[str] = None
-    role: Optional[str] = None
     text: str
     photo: Optional[str] = None
     rating: int = 5  # Rating from 1-5 stars
@@ -19,7 +18,6 @@ class TestimonialCreate(TestimonialBase):
 class TestimonialUpdate(BaseModel):
     salutation_id: Optional[int] = None
     organization: Optional[str] = None
-    role: Optional[str] = None
     text: Optional[str] = None
     photo: Optional[str] = None
     rating: Optional[int] = None
@@ -51,7 +49,6 @@ class TestimonialPublic(BaseModel):
     salutation_id: Optional[int] = None
     salutation: Optional[str] = None
     organization: Optional[str] = None
-    role: Optional[str] = None
     text: str
     photo: Optional[str] = None
     rating: int
