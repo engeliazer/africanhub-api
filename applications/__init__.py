@@ -1,24 +1,26 @@
+import os
+
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
-from database.db_connector import init_db
-from applications.controllers.applications_controller import applications_bp
-from auth.controllers.auth_controller import auth
-import os
+
 
 def create_app():
+    # Imported here so loading application models does not pull this controller
+    # back into study_access while that module is still initializing.
+    from applications.controllers.applications_controller import applications_bp
+    from auth.controllers.auth_controller import auth
+    from database.db_connector import init_db
+
     app = Flask(__name__)
     CORS(app)
-    
-    # JWT configuration
+
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-secret-key')
-    jwt = JWTManager(app)
-    
-    # Initialize database
+    JWTManager(app)
+
     init_db()
-    
-    # Register blueprints
+
     app.register_blueprint(auth)
     app.register_blueprint(applications_bp)
-    
+
     return app 
