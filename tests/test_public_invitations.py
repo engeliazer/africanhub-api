@@ -101,9 +101,30 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertEqual(invitee["full_name"], "Asha Juma Mushi")
         self.assertEqual(invitee["phone"], "+255712345678")
         registration = self.controller.EventTrainingRegistration.return_value
+        fields = self.controller.EventTrainingRegistration.call_args.kwargs
+        self.assertEqual(fields["first_name"], "Asha")
+        self.assertEqual(fields["email"], "asha@example.com")
+        self.assertIsNone(fields["salutation_id"])
+        self.assertEqual(fields["status"], "pending")
         self.db.add.assert_called_once_with(registration)
         self.db.commit.assert_called_once()
         self.db.close.assert_called_once()
+
+    def test_self_invitation_stores_salutation_id(self):
+        salutation_query = MagicMock()
+        salutation_query.filter.return_value.first.return_value = types.SimpleNamespace(
+            id=1, label="CPA",
+        )
+        self._query_results.append(salutation_query)
+        response = self.client.post(self.url, json={**self.payload, "salutation_id": 1})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        _, invitee = self.controller.render_invitation_pdf_bytes.call_args.args
+        self.assertEqual(invitee["full_name"], "CPA Asha Juma Mushi")
+        fields = self.controller.EventTrainingRegistration.call_args.kwargs
+        self.assertEqual(fields["salutation_id"], 1)
+        self.assertEqual(fields["email"], "asha@example.com")
+        self.db.add.assert_called_once()
+        self.db.commit.assert_called_once()
 
     def test_middle_name_may_be_blank(self):
         response = self.client.post(self.url, json={**self.payload, "middle_name": " "})
@@ -193,6 +214,7 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertEqual(fields["status"], "pending")
         self.assertEqual(fields["email"], "asha@example.com")
         self.assertEqual(fields["first_name"], "Asha")
+        self.assertIsNone(fields["salutation_id"])
         self.assertEqual(fields["phone"], "+255712345678")
         self.assertEqual(fields["address"], self.payload["address"])
         self.db.add.assert_called_once_with(registration)

@@ -183,6 +183,12 @@ class EventTrainingRegistration(Base):
     first_name = Column(String(100), nullable=False)
     middle_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
+    salutation_id = Column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("salutations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     address = Column(Text, nullable=False)
     email = Column(String(255), nullable=False)
     organization = Column(String(255), nullable=False)

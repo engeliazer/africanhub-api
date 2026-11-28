@@ -76,7 +76,7 @@ def _optional_salutation_id(data):
 
 
 def _apply_salutation(db, invitee):
-    salutation_id = invitee.pop("salutation_id", None)
+    salutation_id = invitee.get("salutation_id")
     if not salutation_id:
         return None
     salutation = (
@@ -130,6 +130,7 @@ def _record_self_invitation(db, event_id, details):
         first_name=details["first_name"],
         middle_name=details["middle_name"],
         last_name=details["last_name"],
+        salutation_id=details.get("salutation_id"),
         address=details["address"],
         email=email,
         organization=details["organization"],
@@ -346,6 +347,7 @@ def list_training_registrations(event_id):
             "first_name": row.first_name,
             "middle_name": row.middle_name,
             "last_name": row.last_name,
+            "salutation_id": row.salutation_id,
             "address": row.address,
             "email": row.email,
             "organization": row.organization,
@@ -389,6 +391,7 @@ def register_for_training(event_id):
             first_name=details["first_name"],
             middle_name=details["middle_name"],
             last_name=details["last_name"],
+            salutation_id=details.get("salutation_id"),
             address=details["address"],
             email=details["email"].lower(),
             organization=details["organization"],
