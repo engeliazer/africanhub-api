@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from database.db_connector import get_db
@@ -8,6 +10,14 @@ from testimonials.controllers.photo_utils import handle_testimonial_photo_upload
 from datetime import datetime
 
 testimonials_bp = Blueprint('testimonials', __name__)
+logger = logging.getLogger(__name__)
+
+THANK_YOU_SMS = (
+    "Dear {name}, thank you for your testimony. It means a lot to The African Hub."
+)
+LIVE_SMS = (
+    "Dear {name}, your testimony is now live on The African Hub. Thank you for inspiring others."
+)
 
 
 def _blank(value):
@@ -50,6 +60,37 @@ def _salutation_payload(salutation):
 
 def _person_name(user):
     return f"{user.first_name} {user.middle_name or ''} {user.last_name}".strip()
+
+
+def _greeting_name(user):
+    parts = [getattr(user, "first_name", None), getattr(user, "last_name", None)]
+    name = " ".join(part.strip() for part in parts if part and str(part).strip())
+    return name or "friend"
+
+
+def _send_testimonial_sms(db, testimonial, template, process_name, actor_id):
+    """Tell the author by SMS. A failed send does not undo the testimonial."""
+    from auth.models.models import User
+    from public.controllers.sms_controller import SMSService
+
+    user = db.query(User).filter(User.id == testimonial.user_id).first()
+    if user is None or not getattr(user, "phone", None):
+        return
+    name = _greeting_name(user)
+    try:
+        SMSService.send_message(
+            phone=user.phone,
+            message=template.format(name=name),
+            process_name=process_name,
+            created_by=int(actor_id) if actor_id is not None else None,
+            recipient_name=name,
+        )
+    except Exception:
+        logger.warning(
+            "Testimonial SMS failed for user_id=%s process=%s",
+            testimonial.user_id,
+            process_name,
+        )
 
 
 def _attach_salutation(db, testimonial, payload):
@@ -189,6 +230,9 @@ def create_testimonial():
         db.add(testimonial)
         db.commit()
         db.refresh(testimonial)
+        _send_testimonial_sms(
+            db, testimonial, THANK_YOU_SMS, "testimonial_submitted", current_user_id
+        )
         
         payload = TestimonialInDB.from_orm(testimonial).dict()
         return jsonify({
@@ -407,6 +451,7 @@ def review_testimonial(testimonial_id):
         
         data = request.get_json()
         review_data = TestimonialReview(**data)
+        was_approved = bool(testimonial.is_approved)
         
         # Update testimonial with review
         testimonial.is_approved = review_data.is_approved
@@ -416,6 +461,10 @@ def review_testimonial(testimonial_id):
         
         db.commit()
         db.refresh(testimonial)
+        if review_data.is_approved and not was_approved:
+            _send_testimonial_sms(
+                db, testimonial, LIVE_SMS, "testimonial_live", current_user_id
+            )
         
         payload = TestimonialInDB.from_orm(testimonial).dict()
         return jsonify({
