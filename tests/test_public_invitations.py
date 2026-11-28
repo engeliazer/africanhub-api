@@ -69,7 +69,16 @@ class PublicInvitationTests(unittest.TestCase):
         self.event_query.filter.return_value.first.return_value = types.SimpleNamespace(id=7)
         self.invitation_query = MagicMock()
         self.invitation_query.filter.return_value.order_by.return_value.first.return_value = self.invitation
-        self.db.query.side_effect = [self.event_query, self.invitation_query]
+        self.registration_query = MagicMock()
+        self.registration_query.filter.return_value.first.return_value = None
+        self._query_results = [self.event_query, self.invitation_query]
+
+        def _next_query(*_args, **_kwargs):
+            if self._query_results:
+                return self._query_results.pop(0)
+            return self.registration_query
+
+        self.db.query.side_effect = _next_query
         self.controller.get_db.return_value = self.db
         self.controller.render_invitation_pdf_bytes.reset_mock()
         self.controller.render_invitation_pdf_bytes.side_effect = None
@@ -91,8 +100,9 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertIs(invitation, self.invitation)
         self.assertEqual(invitee["full_name"], "Asha Juma Mushi")
         self.assertEqual(invitee["phone"], "+255712345678")
-        self.db.add.assert_not_called()
-        self.db.commit.assert_not_called()
+        registration = self.controller.EventTrainingRegistration.return_value
+        self.db.add.assert_called_once_with(registration)
+        self.db.commit.assert_called_once()
         self.db.close.assert_called_once()
 
     def test_middle_name_may_be_blank(self):

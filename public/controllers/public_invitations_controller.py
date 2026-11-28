@@ -112,9 +112,46 @@ def _public_invitation(db, event_id):
     )
 
 
+def _record_self_invitation(db, event_id, details):
+    """Keep a pending registration for this download. A repeat email stays as-is."""
+    email = details["email"].lower()
+    existing = (
+        db.query(EventTrainingRegistration)
+        .filter(
+            EventTrainingRegistration.event_id == event_id,
+            EventTrainingRegistration.email == email,
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    registration = EventTrainingRegistration(
+        event_id=event_id,
+        first_name=details["first_name"],
+        middle_name=details["middle_name"],
+        last_name=details["last_name"],
+        address=details["address"],
+        email=email,
+        organization=details["organization"],
+        phone=details["phone"],
+        status="pending",
+    )
+    db.add(registration)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        duplicate = "uq_event_training_registration_email" in str(exc.orig) or (
+            "event_training_registrations.event_id, event_training_registrations.email" in str(exc.orig)
+        )
+        if not duplicate:
+            raise
+    return registration
+
+
 @public_invitations_bp.route("/api/events/public/<int:event_id>/self-invitation", methods=["POST"])
 def self_invitation(event_id):
-    """Render the campaign letter with submitted details; no account or email send."""
+    """Render the campaign letter and store the request; no account or email send."""
     try:
         invitee = _self_invitee(request.get_json(silent=True))
     except ValueError as exc:
@@ -128,6 +165,7 @@ def self_invitation(event_id):
         salutation_error = _apply_salutation(db, invitee)
         if salutation_error:
             return salutation_error
+        _record_self_invitation(db, event_id, invitee)
         pdf_bytes, filename = render_invitation_pdf_bytes(invitation, invitee)
         response = send_file(
             BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=False,
