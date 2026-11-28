@@ -2,6 +2,7 @@
 
 import logging
 import re
+import secrets
 from io import BytesIO
 from pathlib import Path
 
@@ -14,7 +15,8 @@ from applications.models.models import Invitation, InvitationCampaignStatus
 from certificates.models.models import Salutation
 from database.db_connector import get_db
 from subjects.models.models import Subject
-from events.models.models import Event, EventTrainingRegistration
+from events.models.models import Event, EventLetterRequest, EventTrainingRegistration
+from events.services.phone_utils import normalize_phone
 from public.services.invitation_campaign_pdf_service import render_invitation_pdf_bytes
 
 logger = logging.getLogger(__name__)
@@ -112,42 +114,55 @@ def _public_invitation(db, event_id):
     )
 
 
+def _verification_code():
+    return str(secrets.randbelow(900_000) + 100_000)
+
+
 def _record_self_invitation(db, event_id, details):
-    """Keep a pending registration for this download. A repeat email stays as-is."""
+    """Log this download on event_letter_requests. A repeat email or phone stays as-is."""
+    salutation_id = details.get("salutation_id")
+    if not salutation_id:
+        return None
     email = details["email"].lower()
+    phone = normalize_phone(details["phone"]) or details["phone"]
     existing = (
-        db.query(EventTrainingRegistration)
+        db.query(EventLetterRequest)
         .filter(
-            EventTrainingRegistration.event_id == event_id,
-            EventTrainingRegistration.email == email,
+            EventLetterRequest.event_id == event_id,
+            (EventLetterRequest.email == email) | (EventLetterRequest.phone == phone),
         )
         .first()
     )
     if existing is not None:
         return existing
-    registration = EventTrainingRegistration(
+    letter_request = EventLetterRequest(
         event_id=event_id,
         first_name=details["first_name"],
-        middle_name=details["middle_name"],
+        middle_name=details["middle_name"] or None,
         last_name=details["last_name"],
-        salutation_id=details.get("salutation_id"),
+        salutation_id=salutation_id,
+        organization=details["organization"],
         address=details["address"],
         email=email,
-        organization=details["organization"],
-        phone=details["phone"],
-        status="pending",
+        phone=phone,
+        phone_verification_code=_verification_code(),
+        email_verification_code=_verification_code(),
+        phone_verified=False,
+        email_verified=False,
     )
-    db.add(registration)
+    db.add(letter_request)
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        duplicate = "uq_event_training_registration_email" in str(exc.orig) or (
-            "event_training_registrations.event_id, event_training_registrations.email" in str(exc.orig)
+        message = str(getattr(exc, "orig", exc))
+        duplicate = (
+            "uq_event_letter_requests_event_email" in message
+            or "uq_event_letter_requests_event_phone" in message
         )
         if not duplicate:
             raise
-    return registration
+    return letter_request
 
 
 @public_invitations_bp.route("/api/events/public/<int:event_id>/self-invitation", methods=["POST"])
@@ -347,7 +362,6 @@ def list_training_registrations(event_id):
             "first_name": row.first_name,
             "middle_name": row.middle_name,
             "last_name": row.last_name,
-            "salutation_id": row.salutation_id,
             "address": row.address,
             "email": row.email,
             "organization": row.organization,
@@ -391,7 +405,6 @@ def register_for_training(event_id):
             first_name=details["first_name"],
             middle_name=details["middle_name"],
             last_name=details["last_name"],
-            salutation_id=details.get("salutation_id"),
             address=details["address"],
             email=details["email"].lower(),
             organization=details["organization"],

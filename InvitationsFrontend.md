@@ -1340,7 +1340,7 @@ dots and hyphens are accepted). Invalid bodies/fields return 400 JSON.
 Success returns `200 application/pdf` with inline Content-Disposition and
 `Cache-Control: private, no-store`. This uses the same PDF renderer, campaign
 content, custom template, trainers, branding and overlays as emailed invitations.
-The submitted name parts are joined into the recipient's full name. The same details, including `salutation_id`, are stored as a pending training registration for that event. A repeat of the same email still returns the PDF and leaves the existing registration unchanged. No email is sent and no user account is created. The phone is accepted and validated; the existing letter layout determines which recipient fields appear.
+The submitted name parts are joined into the recipient's full name. When `salutation_id` is sent, the same details are stored in `event_letter_requests` for that event. A repeat of the same email or phone still returns the PDF and leaves the existing request unchanged. No email is sent and no user account is created. The phone is accepted and validated; the existing letter layout determines which recipient fields appear.
 
 ```javascript
 const response = await fetch(`${apiBase}/api/events/public/${eventId}/self-invitation`, {

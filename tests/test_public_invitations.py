@@ -39,6 +39,7 @@ class PublicInvitationTests(unittest.TestCase):
             ),
             "events.models.models": module_stub(
                 "events.models.models", Event=event_model, EventTrainingRegistration=MagicMock(),
+                EventLetterRequest=MagicMock(),
             ),
             "sqlalchemy.exc": module_stub("sqlalchemy.exc", IntegrityError=FakeIntegrityError),
             "database.db_connector": module_stub("database.db_connector", get_db=MagicMock()),
@@ -100,17 +101,11 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertIs(invitation, self.invitation)
         self.assertEqual(invitee["full_name"], "Asha Juma Mushi")
         self.assertEqual(invitee["phone"], "+255712345678")
-        registration = self.controller.EventTrainingRegistration.return_value
-        fields = self.controller.EventTrainingRegistration.call_args.kwargs
-        self.assertEqual(fields["first_name"], "Asha")
-        self.assertEqual(fields["email"], "asha@example.com")
-        self.assertIsNone(fields["salutation_id"])
-        self.assertEqual(fields["status"], "pending")
-        self.db.add.assert_called_once_with(registration)
-        self.db.commit.assert_called_once()
+        self.controller.EventLetterRequest.assert_not_called()
+        self.db.add.assert_not_called()
         self.db.close.assert_called_once()
 
-    def test_self_invitation_stores_salutation_id(self):
+    def test_self_invitation_stores_letter_request(self):
         salutation_query = MagicMock()
         salutation_query.filter.return_value.first.return_value = types.SimpleNamespace(
             id=1, label="CPA",
@@ -120,10 +115,15 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         _, invitee = self.controller.render_invitation_pdf_bytes.call_args.args
         self.assertEqual(invitee["full_name"], "CPA Asha Juma Mushi")
-        fields = self.controller.EventTrainingRegistration.call_args.kwargs
+        fields = self.controller.EventLetterRequest.call_args.kwargs
         self.assertEqual(fields["salutation_id"], 1)
         self.assertEqual(fields["email"], "asha@example.com")
-        self.db.add.assert_called_once()
+        self.assertEqual(fields["phone"], "255712345678")
+        self.assertEqual(fields["first_name"], "Asha")
+        self.assertEqual(fields["organization"], "Example Ltd")
+        self.assertFalse(fields["phone_verified"])
+        self.assertFalse(fields["email_verified"])
+        self.db.add.assert_called_once_with(self.controller.EventLetterRequest.return_value)
         self.db.commit.assert_called_once()
 
     def test_middle_name_may_be_blank(self):
@@ -214,7 +214,6 @@ class PublicInvitationTests(unittest.TestCase):
         self.assertEqual(fields["status"], "pending")
         self.assertEqual(fields["email"], "asha@example.com")
         self.assertEqual(fields["first_name"], "Asha")
-        self.assertIsNone(fields["salutation_id"])
         self.assertEqual(fields["phone"], "+255712345678")
         self.assertEqual(fields["address"], self.payload["address"])
         self.db.add.assert_called_once_with(registration)
